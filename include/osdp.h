@@ -673,7 +673,7 @@ struct osdp_cmd {
 
 #define OSDP_EVENT_CARDREAD_MAX_DATALEN   128
 #define OSDP_EVENT_KEYPRESS_MAX_DATALEN   64
-#define OSDP_EVENT_MFGREP_MAX_DATALEN     128
+#define OSDP_EVENT_MFGREP_MAX_DATALEN     256
 
 /**
  * @brief Various card formats that a PD can support. This is sent to CP
@@ -760,7 +760,7 @@ struct osdp_event_mfgrep {
 	/**
 	 * Length of manufacturer data in bytes (optional)
 	 */
-	uint8_t length;
+	uint16_t length;
 	/**
 	 * Manufacturer data of `length` bytes (optional)
 	 */
@@ -778,6 +778,8 @@ enum osdp_event_type {
 
 	// TODO: to add in FMT QR response for smarfid reader
 	OSDP_EVENT_QR_CODE,
+	OSDP_EVENT_PD_OFFLINE,
+	OSDP_EVENT_PD_ONLINE,
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 
