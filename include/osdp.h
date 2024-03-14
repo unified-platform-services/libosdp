@@ -665,7 +665,7 @@ struct osdp_cmd {
 /*          OSDP Events            */
 /* ------------------------------- */
 
-#define OSDP_EVENT_CARDREAD_MAX_DATALEN   64
+#define OSDP_EVENT_CARDREAD_MAX_DATALEN   128
 #define OSDP_EVENT_KEYPRESS_MAX_DATALEN   64
 #define OSDP_EVENT_MFGREP_MAX_DATALEN     128
 
@@ -768,6 +768,9 @@ enum osdp_event_type {
 	OSDP_EVENT_KEYPRESS,      /**< Keypad press event */
 	OSDP_EVENT_MFGREP,        /**< Manufacturer specific reply event */
 	OSDP_EVENT_STATUS,        /**< Status event */
+
+	// TODO: to add in FMT QR response for smarfid reader
+	OSDP_EVENT_QR_CODE,
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 

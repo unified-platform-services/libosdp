@@ -596,7 +596,9 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len < REPLY_FMT_DATA_LEN) {
 			break;
 		}
-		event.type = OSDP_EVENT_CARDREAD;
+		// event.type = OSDP_EVENT_CARDREAD;
+		event.type = OSDP_EVENT_QR_CODE;
+		// TODO: Modify the data, as according to HCB osdp_FMT process
 		event.cardread.reader_no = buf[pos++];
 		event.cardread.direction = buf[pos++];
 		event.cardread.length = buf[pos++];
