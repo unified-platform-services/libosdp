@@ -1207,12 +1207,17 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 
 	switch (next) {
 	case OSDP_CP_STATE_ONLINE:
+		/*BUG: Only send online event if this PD has offline more than 2 */
+		if (ISSET_FLAG(pd, PD_FLAG_ONLINE) == 0) {		
+			SET_FLAG(pd, PD_FLAG_ONLINE);
+			CLEAR_FLAG(pd, PD_FLAG_OFFLINE);
+			event.type = OSDP_EVENT_PD_ONLINE;
+			memcpy(pd->ephemeral_data, &event, sizeof(event));
+			make_request(pd, CP_REQ_EVENT_SEND);
+		}
+		
 		pd->wait_ms = 0;
 		LOG_INF("Online; %s SC", sc_is_active(pd) ? "With" : "Without");
-		CLEAR_FLAG(pd, PD_FLAG_OFFLINE);
-		event.type = OSDP_EVENT_PD_ONLINE;
-		memcpy(pd->ephemeral_data, &event, sizeof(event));
-		make_request(pd, CP_REQ_EVENT_SEND);
 		break;
 	case OSDP_CP_STATE_OFFLINE:
 		pd->tstamp = osdp_millis_now();
@@ -1227,11 +1232,16 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 				if (pd->wait_ms > (1 << 12)) {
 					pd->wait_ms = (1 << 12);
 
-					if (ISSET_FLAG(pd, PD_FLAG_OFFLINE) == 0) {
+					if (ISSET_FLAG(pd, PD_FLAG_OFFLINE) ==
+					    0) {
 						SET_FLAG(pd, PD_FLAG_OFFLINE);
-						event.type = OSDP_EVENT_PD_OFFLINE;
-						memcpy(pd->ephemeral_data, &event, sizeof(event));
-						make_request(pd, CP_REQ_EVENT_SEND);
+						CLEAR_FLAG(pd, PD_FLAG_ONLINE);
+						event.type =
+							OSDP_EVENT_PD_OFFLINE;
+						memcpy(pd->ephemeral_data,
+						       &event, sizeof(event));
+						make_request(pd,
+							     CP_REQ_EVENT_SEND);
 					}
 				}
 			}
