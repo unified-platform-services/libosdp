@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
 cmake_policy(SET CMP0063 NEW)
 
-project(libosdp VERSION 3.0.3)
+project(libosdp VERSION 3.0.4)
 
 set(PROJECT_AUTHOR       "Siddharth Chandrasekaran")
 set(PROJECT_AUTHOR_EMAIL "sidcha.dev@gmail.com")
@@ -38,9 +38,9 @@ option(CONFIG_OSDP_LIB_ONLY "Only build the library" OFF)
 
 # Each subdirectory has it's own CMakeLists.txt
 include(GitSubmodules)
-add_subdirectory(utils)
 add_subdirectory(src)
 if (NOT CONFIG_OSDP_STATIC_PD AND NOT CONFIG_OSDP_LIB_ONLY)
+	add_subdirectory(utils)
 	add_subdirectory(tests/unit-tests)
 	add_subdirectory(examples/c)
 	add_subdirectory(examples/cpp)
