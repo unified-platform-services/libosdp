@@ -14,6 +14,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <osdp_export.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -368,14 +369,19 @@ enum osdp_status_report_type {
  *
  * This can is used by the PD to indicate various status change reports. Upto a
  * maximum of 32 statuses can be reported using this API.
- *
- * @param type The kind of event to report see `enum osdp_event_status_type_e`
- * @param nr_entries Number of valid bits in `status`
- * @param status Status bit mask
  */
 struct osdp_status_report {
+	/**
+	 * The kind of event to report see `enum osdp_event_status_type_e`
+	 */
 	enum osdp_status_report_type type;
+	/**
+	 * Number of valid bits in `status`
+	 */
 	int nr_entries;
+	/**
+	 * Status bit mask
+	 */
 	uint32_t mask;
 };
 
@@ -391,21 +397,26 @@ struct osdp_status_report {
 
 /**
  * @brief Command sent from CP to Control digital output of PD.
- *
- * @param output_no 0 = First Output, 1 = Second Output, etc.
- * @param control_code One of the following:
- *    0 - NOP – do not alter this output
- *    1 - set the permanent state to OFF, abort timed operation (if any)
- *    2 - set the permanent state to ON, abort timed operation (if any)
- *    3 - set the permanent state to OFF, allow timed operation to complete
- *    4 - set the permanent state to ON, allow timed operation to complete
- *    5 - set the temporary state to ON, resume perm state on timeout
- *    6 - set the temporary state to OFF, resume permanent state on timeout
- * @param timer_count Time in units of 100 ms
  */
 struct osdp_cmd_output {
+	/**
+	 * 0 = First Output, 1 = Second Output, etc.
+	 */
 	uint8_t output_no;
+	/**
+	 * One of the following:
+	 *    0 - NOP – do not alter this output
+	 *    1 - set the permanent state to OFF, abort timed operation (if any)
+	 *    2 - set the permanent state to ON, abort timed operation (if any)
+	 *    3 - set the permanent state to OFF, allow timed operation to complete
+	 *    4 - set the permanent state to ON, allow timed operation to complete
+	 *    5 - set the temporary state to ON, resume perm state on timeout
+	 *    6 - set the temporary state to OFF, resume permanent state on timeout
+	 */
 	uint8_t control_code;
+	/**
+	 * Time in units of 100 ms
+	 */
 	uint16_t timer_count;
 };
 
@@ -573,11 +584,6 @@ struct osdp_cmd_comset {
 
 /**
  * @brief This command transfers an encryption key from the CP to a PD.
- *
- * @param type Type of keys:
- *   - 0x01 – Secure Channel Base Key
- * @param length Number of bytes of key data - (Key Length in bits + 7) / 8
- * @param data Key data
  */
 struct osdp_cmd_keyset {
 	/**
@@ -597,17 +603,23 @@ struct osdp_cmd_keyset {
 
 /**
  * @brief Manufacturer Specific Commands
- *
- * @param vendor_code 3-byte IEEE assigned OUI. Most Significant 8-bits are
- *        unused.
- * @param command 1-byte manufacturer defined osdp command
- * @param length Length of command data (optional)
- * @param data Command data (optional)
  */
 struct osdp_cmd_mfg {
+	/**
+	 * 3-byte IEEE assigned OUI. Most Significant 8-bits are unused
+	 */
 	uint32_t vendor_code;
+	/**
+	 * 1-byte manufacturer defined osdp command
+	 */
 	uint8_t command;
+	/**
+	 * length Length of command data (optional)
+	 */
 	uint8_t length;
+	/**
+	 * Command data (optional)
+	 */
 	uint8_t data[OSDP_CMD_MFG_MAX_DATALEN];
 };
 
@@ -847,6 +859,7 @@ typedef int (*cp_event_callback_t)(void *arg, int pd, struct osdp_event *ev);
  * @retval OSDP Context on success
  * @retval NULL on errors
  */
+OSDP_EXPORT
 osdp_t *osdp_pd_setup(const osdp_pd_info_t *info);
 
 /**
@@ -855,6 +868,7 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info);
  *
  * @param ctx OSDP context
  */
+OSDP_EXPORT
 void osdp_pd_refresh(osdp_t *ctx);
 
 /**
@@ -863,6 +877,7 @@ void osdp_pd_refresh(osdp_t *ctx);
  *
  * @param ctx OSDP context
  */
+OSDP_EXPORT
 void osdp_pd_teardown(osdp_t *ctx);
 
 /**
@@ -872,6 +887,7 @@ void osdp_pd_teardown(osdp_t *ctx);
  * @param cap pointer to array of cap (`struct osdp_pd_cap`) terminated by a
  * capability with cap->function_code set to 0.
  */
+OSDP_EXPORT
 void osdp_pd_set_capabilities(osdp_t *ctx, const struct osdp_pd_cap *cap);
 
 /**
@@ -882,6 +898,7 @@ void osdp_pd_set_capabilities(osdp_t *ctx, const struct osdp_pd_cap *cap);
  * @param cb The callback function's pointer
  * @param arg A pointer that will be passed as the first argument of `cb`
  */
+OSDP_EXPORT
 void osdp_pd_set_command_callback(osdp_t *ctx, pd_command_callback_t cb,
 				  void *arg);
 
@@ -895,6 +912,7 @@ void osdp_pd_set_command_callback(osdp_t *ctx, pd_command_callback_t cb,
  * @retval 0 on success
  * @retval -1 on failure
  */
+OSDP_EXPORT
 int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event);
 
 /**
@@ -903,6 +921,7 @@ int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event);
  * @param ctx OSDP context
  * @return int Count of events dequeued.
  */
+OSDP_EXPORT
 int osdp_pd_flush_events(osdp_t *ctx);
 
 /* ------------------------------- */
@@ -921,6 +940,7 @@ int osdp_pd_flush_events(osdp_t *ctx);
  * @retval OSDP Context on success
  * @retval NULL on errors
  */
+OSDP_EXPORT
 osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info);
 
 /**
@@ -929,6 +949,7 @@ osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info);
  *
  * @param ctx OSDP context
  */
+OSDP_EXPORT
 void osdp_cp_refresh(osdp_t *ctx);
 
 /**
@@ -937,6 +958,7 @@ void osdp_cp_refresh(osdp_t *ctx);
  *
  * @param ctx OSDP context
  */
+OSDP_EXPORT
 void osdp_cp_teardown(osdp_t *ctx);
 
 /**
@@ -953,6 +975,7 @@ void osdp_cp_teardown(osdp_t *ctx);
  * @note This method only adds the command on to a particular PD's command
  * queue. The command itself can fail due to various reasons.
  */
+OSDP_EXPORT
 int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
 
 /**
@@ -963,6 +986,7 @@ int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
  * osdp_cp_setup()
  * @return int Count of events dequeued
  */
+OSDP_EXPORT
 int osdp_cp_flush_commands(osdp_t *ctx, int pd);
 
 /**
@@ -979,6 +1003,7 @@ int osdp_cp_flush_commands(osdp_t *ctx, int pd);
  * @retval 0 on success
  * @retval -1 on failure
  */
+OSDP_EXPORT
 int osdp_cp_get_pd_id(const osdp_t *ctx, int pd, struct osdp_pd_id *id);
 
 /**
@@ -995,6 +1020,7 @@ int osdp_cp_get_pd_id(const osdp_t *ctx, int pd, struct osdp_pd_id *id);
  * @retval 0 on success
  * @retval -1 on failure
  */
+OSDP_EXPORT
 int osdp_cp_get_capability(const osdp_t *ctx, int pd, struct osdp_pd_cap *cap);
 
 /**
@@ -1005,6 +1031,7 @@ int osdp_cp_get_capability(const osdp_t *ctx, int pd, struct osdp_pd_cap *cap);
  * @param cb The callback function's pointer
  * @param arg A pointer that will be passed as the first argument of `cb`
  */
+OSDP_EXPORT
 void osdp_cp_set_event_callback(osdp_t *ctx, cp_event_callback_t cb, void *arg);
 
 /**
@@ -1023,6 +1050,7 @@ void osdp_cp_set_event_callback(osdp_t *ctx, cp_event_callback_t cb, void *arg);
  * @note It doesn't make sense to call some initialization time flags during
  * runtime. This method is for dynamic flags that can be turned on/off at runtime.
  */
+OSDP_EXPORT
 int osdp_cp_modify_flag(osdp_t *ctx, int pd, uint32_t flags, bool do_set);
 
 /* ------------------------------- */
@@ -1080,6 +1108,7 @@ typedef void (*osdp_log_callback_fn_t)(int log_level, const char *file,
  * Note: This function has to be called before osdp_{cp,pd}_setup(). Otherwise
  *       it will be ignored.
  */
+OSDP_EXPORT
 void osdp_logger_init(const char *name, int log_level,
 		      osdp_log_puts_fn_t puts_fn);
 
@@ -1095,6 +1124,7 @@ void osdp_logger_init(const char *name, int log_level,
  * @note This function has to be called before osdp_{cp,pd}_setup(). Otherwise
  * it will be ignored.
  */
+OSDP_EXPORT
 void osdp_set_log_callback(osdp_log_callback_fn_t cb);
 
 /**
@@ -1102,6 +1132,7 @@ void osdp_set_log_callback(osdp_log_callback_fn_t cb);
  *
  * @retval version string
  */
+OSDP_EXPORT
 const char *osdp_get_version();
 
 /**
@@ -1111,6 +1142,7 @@ const char *osdp_get_version();
  *
  * @retval source identifier string
  */
+OSDP_EXPORT
 const char *osdp_get_source_info();
 
 /**
@@ -1120,6 +1152,7 @@ const char *osdp_get_source_info();
  * @param bitmask pointer to an array of bytes. must be as large as
  * (num_pds + 7 / 8).
  */
+OSDP_EXPORT
 void osdp_get_status_mask(const osdp_t *ctx, uint8_t *bitmask);
 
 /**
@@ -1130,6 +1163,7 @@ void osdp_get_status_mask(const osdp_t *ctx, uint8_t *bitmask);
  * @param bitmask pointer to an array of bytes. must be as large as
  * (num_pds + 7 / 8).
  */
+OSDP_EXPORT
 void osdp_get_sc_status_mask(const osdp_t *ctx, uint8_t *bitmask);
 
 /**
@@ -1224,7 +1258,8 @@ struct osdp_file_ops {
  *
  * @retval 0 on success. -1 on errors.
  */
-int osdp_file_register_ops(osdp_t *ctx, int pd_idx,
+OSDP_EXPORT
+int osdp_file_register_ops(osdp_t *ctx, int pd,
 			   const struct osdp_file_ops *ops);
 
 /**
@@ -1237,8 +1272,8 @@ int osdp_file_register_ops(osdp_t *ctx, int pd_idx,
  * @param offset Offset into the file that has been sent/received (CP/PD)
  * @retval 0 on success. -1 on errors.
  */
-int osdp_get_file_tx_status(const osdp_t *ctx, int pd_idx,
-			    int *size, int *offset);
+OSDP_EXPORT
+int osdp_get_file_tx_status(const osdp_t *ctx, int pd, int *size, int *offset);
 
 #ifdef __cplusplus
 }

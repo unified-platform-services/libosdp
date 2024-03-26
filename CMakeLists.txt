@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
 cmake_policy(SET CMP0063 NEW)
 
-project(libosdp VERSION 3.0.4)
+project(libosdp VERSION 3.0.5)
 
 set(PROJECT_AUTHOR       "Siddharth Chandrasekaran")
 set(PROJECT_AUTHOR_EMAIL "sidcha.dev@gmail.com")
@@ -26,7 +26,9 @@ include(BuildType)
 include(GNUInstallDirs)
 
 ## Global settings
-add_compile_options(-Wall -Wextra)
+if(NOT MSVC)
+	add_compile_options(-Wall -Wextra)
+endif()
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
