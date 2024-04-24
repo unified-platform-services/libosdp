@@ -534,18 +534,27 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		make_request(pd, CP_REQ_EVENT_SEND);
 		ret = OSDP_CP_ERR_NONE;
 		break;
-	case REPLY_RSTATR:
-		if (len != REPLY_RSTATR_DATA_LEN) {
-			break;
+	case REPLY_RSTATR:	{
+		uint32_t status_mask = 0;
+		int cap_num = OSDP_PD_CAP_READERS;
+
+		if (len != pd->cap[cap_num].num_items || len > 32) {
+			LOG_ERR("Invalid reader tamper status report length %d", len);
+			// TODO: Temporary omit thus
+			// return OSDP_CP_ERR_GENERIC;
+			return OSDP_CP_ERR_NONE;
+		}
+		for (i = 0; i < len; i++) {
+			status_mask |= !!buf[pos++] << i;
 		}
 		event.type = OSDP_EVENT_STATUS;
 		event.status.type = OSDP_STATUS_REPORT_REMOTE;
-		event.status.nr_entries = 1;
-		event.status.mask = !!buf[pos++];
+		event.status.nr_entries = len;
+		event.status.mask = status_mask;
 		memcpy(pd->ephemeral_data, &event, sizeof(event));
 		make_request(pd, CP_REQ_EVENT_SEND);
 		ret = OSDP_CP_ERR_NONE;
-		break;
+	}	break;
 	case REPLY_COM:
 		if (len != REPLY_COM_DATA_LEN) {
 			break;
@@ -1208,14 +1217,17 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	switch (next) {
 	case OSDP_CP_STATE_ONLINE:
 		/*BUG: Only send online event if this PD has offline more than 2 */
-		if (ISSET_FLAG(pd, PD_FLAG_ONLINE) == 0) {		
+		if (ISSET_FLAG(pd, PD_FLAG_ONLINE) == 0) {
 			SET_FLAG(pd, PD_FLAG_ONLINE);
 			CLEAR_FLAG(pd, PD_FLAG_OFFLINE);
-			event.type = OSDP_EVENT_PD_ONLINE;
+			if (sc_is_active(pd))
+				event.type = OSDP_EVENT_PD_ONLINE_WITH_SC;
+			else
+				event.type = OSDP_EVENT_PD_ONLINE;
 			memcpy(pd->ephemeral_data, &event, sizeof(event));
 			make_request(pd, CP_REQ_EVENT_SEND);
 		}
-		
+
 		pd->wait_ms = 0;
 		LOG_INF("Online; %s SC", sc_is_active(pd) ? "With" : "Without");
 		break;

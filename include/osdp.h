@@ -792,6 +792,7 @@ enum osdp_event_type {
 	OSDP_EVENT_QR_CODE,
 	OSDP_EVENT_PD_OFFLINE,
 	OSDP_EVENT_PD_ONLINE,
+	OSDP_EVENT_PD_ONLINE_WITH_SC,
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 
