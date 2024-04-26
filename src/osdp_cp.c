@@ -1218,43 +1218,40 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 
 	switch (next) {
 	case OSDP_CP_STATE_ONLINE:
-		/*BUG: Only send online event if this PD has offline more than 2 */
-		if (ISSET_FLAG(pd, PD_FLAG_ONLINE) == 0) {
-			SET_FLAG(pd, PD_FLAG_ONLINE);
-			CLEAR_FLAG(pd, PD_FLAG_OFFLINE);
+		/*BUG: Only send online event if this PD has offline more than 1 sec */
+		if (ISSET_FLAG(pd, PD_FLAG_ONLINE) == 0) {			
 			if (sc_is_active(pd))
-				event.type = OSDP_EVENT_PD_ONLINE_WITH_SC;
+				event.type = OSDP_EVENT_PD_SC_ESTABLISH;			
 			else
+			{
+				SET_FLAG(pd, PD_FLAG_ONLINE);
+				CLEAR_FLAG(pd, PD_FLAG_OFFLINE);
 				event.type = OSDP_EVENT_PD_ONLINE;
+			}
 			memcpy(pd->ephemeral_data, &event, sizeof(event));
 			make_request(pd, CP_REQ_EVENT_SEND);
 		}
 
 		pd->wait_ms = 0;
-		LOG_INF("Online; %s SC using SCBK%s",
+		LOG_INF("Online; %s SC using SCBK%s %lx",
 			sc_is_active(pd) ? "With" : "Without",
-			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "");
-
-		/* To send event of OSDP_EVENT_PD_SC_ESTABLISH */
-		if (sc_is_active(pd)) {
-			event.type = OSDP_EVENT_PD_SC_ESTABLISH;
-			LOG_INF("RMAC-I %x %02x", event.type, pd->reply_id);
-			memcpy(pd->ephemeral_data, &event, sizeof(event));
-			make_request(pd, CP_REQ_EVENT_SEND);
-		}
+			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "", pd->flags);
 		break;
 	case OSDP_CP_STATE_OFFLINE:
+		LOG_INF("Offline; %s SC using SCBK%s %lx",
+			sc_is_active(pd) ? "With" : "Without",
+			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "", pd->flags);
 		pd->tstamp = osdp_millis_now();
 		if (pd->wait_ms == 0) {
-			/* first, retry after ~1 sec */
-			pd->wait_ms = 1 << 10;
+			/* first, retry after ~512 msec */
+			pd->wait_ms = 1 << 9;
 		} else {
 			/* then, bounded exponential back-off */
 			if (pd->wait_ms < OSDP_ONLINE_RETRY_WAIT_MAX_MS) {
 				pd->wait_ms <<= 1;
-				/* set max retry timeout to approx 4 secs */
-				if (pd->wait_ms > (1 << 12)) {
-					pd->wait_ms = (1 << 12);
+				/* set max retry timeout to approx 1 secs */
+				if (pd->wait_ms >= (1 << 10)) {
+					pd->wait_ms = (1 << 10);
 
 					if (ISSET_FLAG(pd, PD_FLAG_OFFLINE) ==
 					    0) {
@@ -1627,9 +1624,10 @@ OSDP_EXPORT
 int osdp_cp_modify_flag(osdp_t *ctx, int pd_idx, uint32_t flags, bool do_set)
 {
 	input_check(ctx, pd_idx);
+	// XXX: Add OFFLINE and ONLINE flag
 	const uint32_t all_flags =
 		(OSDP_FLAG_ENFORCE_SECURE | OSDP_FLAG_INSTALL_MODE |
-		 OSDP_FLAG_IGN_UNSOLICITED);
+		 OSDP_FLAG_IGN_UNSOLICITED | PD_FLAG_ONLINE | PD_FLAG_OFFLINE);
 	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
 
 	if (flags & ~all_flags) {
