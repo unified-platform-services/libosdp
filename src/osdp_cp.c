@@ -423,6 +423,9 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		LOG_WRN("PD replied with NAK(%d) for CMD(%02x)", buf[pos],
 			pd->cmd_id);
+
+		/* TODO: To send event on NAK response */
+
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_PDID:
@@ -534,15 +537,14 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		make_request(pd, CP_REQ_EVENT_SEND);
 		ret = OSDP_CP_ERR_NONE;
 		break;
-	case REPLY_RSTATR:	{
+	case REPLY_RSTATR: {
 		uint32_t status_mask = 0;
 		int cap_num = OSDP_PD_CAP_READERS;
 
 		if (len != pd->cap[cap_num].num_items || len > 32) {
-			LOG_ERR("Invalid reader tamper status report length %d", len);
-			// TODO: Temporary omit thus
-			// return OSDP_CP_ERR_GENERIC;
-			return OSDP_CP_ERR_NONE;
+			LOG_ERR("Invalid reader tamper status report length %d",
+				len);
+			return OSDP_CP_ERR_GENERIC;
 		}
 		for (i = 0; i < len; i++) {
 			status_mask |= !!buf[pos++] << i;
@@ -554,7 +556,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		memcpy(pd->ephemeral_data, &event, sizeof(event));
 		make_request(pd, CP_REQ_EVENT_SEND);
 		ret = OSDP_CP_ERR_NONE;
-	}	break;
+	} break;
 	case REPLY_COM:
 		if (len != REPLY_COM_DATA_LEN) {
 			break;
@@ -1229,7 +1231,17 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		}
 
 		pd->wait_ms = 0;
-		LOG_INF("Online; %s SC", sc_is_active(pd) ? "With" : "Without");
+		LOG_INF("Online; %s SC using SCBK%s",
+			sc_is_active(pd) ? "With" : "Without",
+			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "");
+
+		/* To send event of OSDP_EVENT_PD_SC_ESTABLISH */
+		if (sc_is_active(pd)) {
+			event.type = OSDP_EVENT_PD_SC_ESTABLISH;
+			LOG_INF("RMAC-I %x %02x", event.type, pd->reply_id);
+			memcpy(pd->ephemeral_data, &event, sizeof(event));
+			make_request(pd, CP_REQ_EVENT_SEND);
+		}
 		break;
 	case OSDP_CP_STATE_OFFLINE:
 		pd->tstamp = osdp_millis_now();
@@ -1571,6 +1583,16 @@ int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)
 		count++;
 	}
 	return count;
+}
+
+OSDP_EXPORT
+int osdp_cp_get_pd_scbk(const osdp_t *ctx, int pd_idx, uint8_t *scbk)
+{
+	input_check(ctx, pd_idx);
+	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+
+	memcpy(scbk, pd->sc.scbk, sizeof(pd->sc.scbk));
+	return 0;
 }
 
 OSDP_EXPORT

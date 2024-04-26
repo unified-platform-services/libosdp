@@ -793,6 +793,7 @@ enum osdp_event_type {
 	OSDP_EVENT_PD_OFFLINE,
 	OSDP_EVENT_PD_ONLINE,
 	OSDP_EVENT_PD_ONLINE_WITH_SC,
+	OSDP_EVENT_PD_SC_ESTABLISH,
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 
@@ -989,6 +990,20 @@ int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
  */
 OSDP_EXPORT
 int osdp_cp_flush_commands(osdp_t *ctx, int pd);
+
+/**
+ * @brief Get the SCBK 
+ *
+ * @param ctx OSDP context
+ * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
+ * osdp_cp_setup()
+ * @param scbk A pointer to the scbk
+ *
+ * @retval 0 on success
+ * @retval -1 on failure
+ */
+OSDP_EXPORT
+int osdp_cp_get_pd_scbk(const osdp_t *ctx, int pd, uint8_t *scbk);
 
 /**
  * @brief Get PD ID information as reported by the PD. Calling this method
