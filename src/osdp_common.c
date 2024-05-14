@@ -3,6 +3,11 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE /* See feature_test_macros(7) */
+#endif
+
 #include <stdarg.h>
 #include <stdlib.h>
 #ifndef CONFIG_DISABLE_PRETTY_LOGGING
@@ -218,9 +223,9 @@ const char *osdp_get_version()
 OSDP_EXPORT
 const char *osdp_get_source_info()
 {
-	if (strnlen(GIT_TAG, 8) > 0) {
+	if (strlen(GIT_TAG) > 0) {
 		return GIT_BRANCH " (" GIT_TAG ")";
-	} else if (strnlen(GIT_REV, 8) > 0) {
+	} else if (strlen(GIT_REV) > 0) {
 		return GIT_BRANCH " (" GIT_REV GIT_DIFF ")";
 	} else {
 		return GIT_BRANCH;
