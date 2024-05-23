@@ -81,7 +81,7 @@ static struct osdp_cmd *cp_cmd_alloc(struct osdp_pd *pd)
 	struct cp_cmd_node *n = NULL;
 
 	if (slab_alloc(&pd->app_data.slab, (void **)&n)) {
-		LOG_ERR("Command slab allocation failed");
+		LOG_EM("Command slab allocation failed"); //LOG_ERR
 		return NULL;
 	}
 	memset(&n->object, 0, sizeof(n->object));
@@ -1208,6 +1208,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	enum osdp_cp_state_e cur = pd->state;
 	struct osdp_event event;
 
+	event.type = OSDP_EVENT_SENTINEL;
 	switch (cur) {
 	case OSDP_CP_STATE_OFFLINE:
 		osdp_phy_state_reset(pd, true);
@@ -1219,28 +1220,29 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	switch (next) {
 	case OSDP_CP_STATE_ONLINE:
 		/*BUG: Only send online event if this PD has offline more than 1 sec */
-		if (ISSET_FLAG(pd, PD_FLAG_ONLINE) == 0) {			
+		if (ISSET_FLAG(pd, PD_FLAG_ONLINE) == 0) {
 			if (sc_is_active(pd))
-				event.type = OSDP_EVENT_PD_SC_ESTABLISH;			
-			else
-			{
+				event.type = OSDP_EVENT_PD_SC_ESTABLISH;
+			else {
 				SET_FLAG(pd, PD_FLAG_ONLINE);
 				CLEAR_FLAG(pd, PD_FLAG_OFFLINE);
 				event.type = OSDP_EVENT_PD_ONLINE;
 			}
-			memcpy(pd->ephemeral_data, &event, sizeof(event));
-			make_request(pd, CP_REQ_EVENT_SEND);
-		}
+		} else
+			/* TODO: Need to send an online event, so that osdp app can push the last unsent command */
+			event.type = OSDP_EVENT_PD_INTERMITTENT_ONLINE;
 
 		pd->wait_ms = 0;
-		LOG_INF("Online; %s SC using SCBK%s %lx",
+		LOG_ERR("Online; %s SC using SCBK%s %lx",
 			sc_is_active(pd) ? "With" : "Without",
-			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "", pd->flags);
+			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "",
+			pd->flags);
 		break;
 	case OSDP_CP_STATE_OFFLINE:
-		LOG_INF("Offline; %s SC using SCBK%s %lx",
+		LOG_ERR("Offline; %s SC using SCBK%s %lx",
 			sc_is_active(pd) ? "With" : "Without",
-			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "", pd->flags);
+			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "",
+			pd->flags);
 		pd->tstamp = osdp_millis_now();
 		if (pd->wait_ms == 0) {
 			/* first, retry after ~512 msec */
@@ -1259,10 +1261,6 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 						CLEAR_FLAG(pd, PD_FLAG_ONLINE);
 						event.type =
 							OSDP_EVENT_PD_OFFLINE;
-						memcpy(pd->ephemeral_data,
-						       &event, sizeof(event));
-						make_request(pd,
-							     CP_REQ_EVENT_SEND);
 					}
 				}
 			}
@@ -1276,6 +1274,11 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		break;
 	default:
 		break;
+	}
+
+	if (event.type != OSDP_EVENT_SENTINEL) {
+		memcpy(pd->ephemeral_data, &event, sizeof(event));
+		make_request(pd, CP_REQ_EVENT_SEND);
 	}
 
 	LOG_DBG("StateChange: [%s] -> [%s] (SC-%s%s)", state_get_name(cur),
@@ -1546,6 +1549,8 @@ int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 	struct osdp_cmd *p;
 
 	if (pd->state != OSDP_CP_STATE_ONLINE) {
+		LOG_EM("osdp_cp_send_command failed, pd->state != OSDP_CP_STATE_ONLINE: %x",
+		       pd->state); //LOG_ERR
 		return -1;
 	}
 
@@ -1560,6 +1565,7 @@ int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 
 	p = cp_cmd_alloc(pd);
 	if (p == NULL) {
+		LOG_EM("osdp_cp_send_command failed, cp_cmd_alloc: p == NULL"); //LOG_ERR
 		return -1;
 	}
 	memcpy(p, cmd, sizeof(struct osdp_cmd));
