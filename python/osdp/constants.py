@@ -10,6 +10,7 @@ class LibFlag:
     EnforceSecure = osdp_sys.FLAG_ENFORCE_SECURE
     InstallMode = osdp_sys.FLAG_INSTALL_MODE
     IgnoreUnsolicited = osdp_sys.FLAG_IGN_UNSOLICITED
+    EnableNotification = osdp_sys.FLAG_ENABLE_NOTIFICATION
 
 class LogLevel:
     Emergency = osdp_sys.LOG_EMERG
@@ -51,11 +52,16 @@ class CommandLEDColor:
 class CommandFileTxFlags:
     Cancel = osdp_sys.CMD_FILE_TX_FLAG_CANCEL
 
+class EventNotification:
+    Command = osdp_sys.EVENT_NOTIFICATION_COMMAND
+    SecureChannelStatus = osdp_sys.EVENT_NOTIFICATION_SC_STATUS
+
 class Event:
     CardRead = osdp_sys.EVENT_CARDREAD
     KeyPress = osdp_sys.EVENT_KEYPRESS
     ManufacturerReply = osdp_sys.EVENT_MFGREP
     Status = osdp_sys.EVENT_STATUS
+    Notification = osdp_sys.EVENT_NOTIFICATION
 
 class CardFormat:
     Unspecified = osdp_sys.CARD_FMT_RAW_UNSPECIFIED
