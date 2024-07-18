@@ -1612,7 +1612,7 @@ int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 	struct osdp_cmd *p;
 
 	if (pd->state != OSDP_CP_STATE_ONLINE) {
-		LOG_EM("osdp_cp_send_command failed, pd->state != OSDP_CP_STATE_ONLINE: %x",
+		LOG_ERR("osdp_cp_send_command failed, pd->state != OSDP_CP_STATE_ONLINE: %x",
 		       pd->state); //LOG_ERR
 		return -1;
 	}
@@ -1628,7 +1628,7 @@ int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 
 	p = cp_cmd_alloc(pd);
 	if (p == NULL) {
-		LOG_EM("osdp_cp_send_command failed, cp_cmd_alloc: p == NULL"); //LOG_ERR
+		LOG_ERR("osdp_cp_send_command failed, cp_cmd_alloc: p == NULL"); //LOG_ERR
 		return -1;
 	}
 	memcpy(p, cmd, sizeof(struct osdp_cmd));
