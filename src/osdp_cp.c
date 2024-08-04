@@ -1544,7 +1544,6 @@ error:
 
 /* --- Exported Methods --- */
 
-OSDP_EXPORT
 osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info_list)
 {
 	assert(info_list);
@@ -1554,7 +1553,6 @@ osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info_list)
 	return (osdp_t *)__cp_setup(num_pd, info_list);
 }
 
-OSDP_EXPORT
 void osdp_cp_teardown(osdp_t *ctx)
 {
 	input_check(ctx);
@@ -1564,7 +1562,7 @@ void osdp_cp_teardown(osdp_t *ctx)
 	if (IS_ENABLED(CONFIG_OSDP_PACKET_TRACE) ||
 	    IS_ENABLED(CONFIG_OSDP_DATA_TRACE)) {
 		for (i = 0; i < NUM_PD(ctx); i++) {
-			pd = osdp_to_pd(ctx, 0);
+			pd = osdp_to_pd(ctx, i);
 			osdp_packet_capture_finish(pd);
 		}
 	}
@@ -1574,7 +1572,6 @@ void osdp_cp_teardown(osdp_t *ctx)
 	safe_free(ctx);
 }
 
-OSDP_EXPORT
 void osdp_cp_refresh(osdp_t *ctx)
 {
 	input_check(ctx);
@@ -1595,7 +1592,6 @@ void osdp_cp_refresh(osdp_t *ctx)
 	} while (++refresh_count < NUM_PD(ctx));
 }
 
-OSDP_EXPORT
 void osdp_cp_set_event_callback(osdp_t *ctx, cp_event_callback_t cb, void *arg)
 {
 	input_check(ctx);
@@ -1604,7 +1600,6 @@ void osdp_cp_set_event_callback(osdp_t *ctx, cp_event_callback_t cb, void *arg)
 	TO_OSDP(ctx)->event_callback_arg = arg;
 }
 
-OSDP_EXPORT
 int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 {
 	input_check(ctx, pd_idx);
@@ -1636,7 +1631,6 @@ int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 	return 0;
 }
 
-OSDP_EXPORT
 int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)
 {
 	input_check(ctx, pd_idx);
@@ -1651,7 +1645,7 @@ int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)
 	return count;
 }
 
-OSDP_EXPORT
+
 int osdp_cp_get_pd_scbk(const osdp_t *ctx, int pd_idx, uint8_t *scbk)
 {
 	input_check(ctx, pd_idx);
@@ -1661,7 +1655,6 @@ int osdp_cp_get_pd_scbk(const osdp_t *ctx, int pd_idx, uint8_t *scbk)
 	return 0;
 }
 
-OSDP_EXPORT
 int osdp_cp_get_pd_id(const osdp_t *ctx, int pd_idx, struct osdp_pd_id *id)
 {
 	input_check(ctx, pd_idx);
@@ -1671,9 +1664,7 @@ int osdp_cp_get_pd_id(const osdp_t *ctx, int pd_idx, struct osdp_pd_id *id)
 	return 0;
 }
 
-OSDP_EXPORT
-int osdp_cp_get_capability(const osdp_t *ctx, int pd_idx,
-			   struct osdp_pd_cap *cap)
+int osdp_cp_get_capability(const osdp_t *ctx, int pd_idx, struct osdp_pd_cap *cap)
 {
 	input_check(ctx, pd_idx);
 	int fc;
@@ -1689,7 +1680,6 @@ int osdp_cp_get_capability(const osdp_t *ctx, int pd_idx,
 	return 0;
 }
 
-OSDP_EXPORT
 int osdp_cp_modify_flag(osdp_t *ctx, int pd_idx, uint32_t flags, bool do_set)
 {
 	input_check(ctx, pd_idx);
