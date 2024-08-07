@@ -251,7 +251,7 @@ static int osdp_phy_packet_finalize(struct osdp_pd *pd, uint8_t *buf, int len,
 		if (pkt->data[1] == SCS_17 || pkt->data[1] == SCS_18) {
 			/**
 			 * Only the data portion of message (after id byte)
-			 * is encrypted. While (en/de)crypting, we must skip
+			 * is encrypted. While (en)decrypting, we must skip
 			 * header, security block, and cmd/reply ID byte.
 			 *
 			 * Note: if cmd/reply has no data, we must set type to
@@ -484,7 +484,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 	}
 	cur = osdp_phy_get_seq_number(pd, is_pd_mode(pd));
 	if (cur != comp && !ISSET_FLAG(pd, PD_FLAG_SKIP_SEQ_CHECK)) {
-		LOG_ERR("Packet sequence mismatch expected: %d received: %d",
+		LOG_ERR("Packet sequence mismatch (%d/%d)",
 			cur, comp);
 		pd->reply_id = REPLY_NAK;
 		pd->ephemeral_data[0] = OSDP_PD_NAK_SEQ_NUM;
@@ -588,22 +588,31 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 		data = pkt->data + pkt->data[0];
 		len -= pkt->data[0]; /* consume security block */
 	} else {
-		/**
-		 * If the current packet is an ACK for a KEYSET, the PD might
-		 * have discarded the secure channel session keys in favour of
-		 * the new key we sent and hence this packet may reach us in
-		 * plain text. To work with such PDs, we must also discard our
-		 * secure session.
-		 *
-		 * For now, let's just pretend that SC is deactivated so the
-		 * rest of this method finishes normally. The actual secure
-		 * channel is actually discarded from the CP state machine.
-		 */
-		if (is_cp_mode(pd) && pd->cmd_id == CMD_KEYSET &&
-		    pkt->data[0] == REPLY_ACK) {
-			is_sc_active = false;
+		if (is_cp_mode(pd)) {
+			/**
+			 * If the current packet is an ACK for a KEYSET, the PD
+			 * might have discarded the secure channel session keys
+			 * in favour of the new key we sent and hence this packet
+			 * may reach us in plain text. To work with such PDs, we
+			 * must also discard our secure session.
+			 *
+			 * For now, let's just pretend that SC is deactivated so
+			 * the rest of this method finishes normally. The actual
+			 * secure channel is actually discarded from the CP
+			 * state machine.
+			 */
+			if (pd->cmd_id == CMD_KEYSET && pkt->data[0] == REPLY_ACK) {
+				is_sc_active = false;
+			}
+			/**
+			 * When the PD discards it's secure channel for some
+			 * reason, it responds with NACK(6) in plaintext. There
+			 * may be other cases too. So we will allow NAKs in
+			 */
+			if (is_sc_active && pkt->data[0] == REPLY_NAK) {
+				is_sc_active = false;
+			}
 		}
-
 		if (is_sc_active) {
 			LOG_ERR("Received plain-text message in SC");
 			pd->reply_id = REPLY_NAK;
@@ -638,7 +647,7 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 		if (pkt->data[1] == SCS_17 || pkt->data[1] == SCS_18) {
 			/**
 			 * Only the data portion of message (after id byte)
-			 * is encrypted. While (en/de)crypting, we must skip
+			 * is encrypted. While (en)decrypting, we must skip
 			 * header (6), security block (2) and cmd/reply id (1)
 			 * bytes if cmd/reply has no data, use SCS_15/SCS_16.
 			 *
@@ -711,6 +720,7 @@ void osdp_phy_state_reset(struct osdp_pd *pd, bool is_error)
 	pd->packet_len = 0;
 	pd->phy_state = 0;
 	if (is_error) {
+		pd->phy_retry_count = 0;
 		pd->seq_number = -1;
 		if (pd->channel.flush) {
 			pd->channel.flush(pd->channel.data);

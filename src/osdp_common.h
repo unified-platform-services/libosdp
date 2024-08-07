@@ -137,6 +137,7 @@ union osdp_ephemeral_data {
 /**
  * @brief OSDP reserved commands
  */
+#define CMD_INVALID      0x00
 #define CMD_POLL	 0x60
 #define CMD_ID		 0x61
 #define CMD_CAP		 0x62
@@ -169,6 +170,7 @@ union osdp_ephemeral_data {
 /**
  * @brief OSDP reserved responses
  */
+#define REPLY_INVALID   0x00
 #define REPLY_ACK	0x40
 #define REPLY_NAK	0x41
 #define REPLY_PDID	0x45
@@ -244,6 +246,7 @@ enum osdp_cp_state_e {
 	OSDP_CP_STATE_SC_SCRYPT,
 	OSDP_CP_STATE_SET_SCBK,
 	OSDP_CP_STATE_ONLINE,
+	OSDP_CP_STATE_PROBE,
 	OSDP_CP_STATE_OFFLINE,
 	OSDP_CP_STATE_SENTINEL
 };
@@ -342,6 +345,7 @@ struct osdp_pd {
 
 	int state;             /* FSM state (CP mode only) */
 	int phy_state;         /* phy layer FSM state (CP mode only) */
+	int phy_retry_count;   /* command retry counter */
 	uint32_t wait_ms;      /* wait time in MS to retry communication */
 	int64_t tstamp;        /* Last POLL command issued time in ticks */
 	int64_t sc_tstamp;     /* Last received secure reply time in ticks */

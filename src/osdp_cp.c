@@ -421,11 +421,8 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != REPLY_NAK_DATA_LEN) {
 			break;
 		}
-		LOG_WRN("PD replied with NAK(%d) for CMD(%02x)", buf[pos],
-			pd->cmd_id);
-
-		/* TODO: To send event on NAK response */
-
+		LOG_WRN("PD replied with NAK(%d) for CMD: %s(%02x)",
+			buf[pos], osdp_cmd_name(pd->cmd_id), pd->cmd_id);
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_PDID:
@@ -690,7 +687,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 	}
 
 	if (ret != OSDP_CP_ERR_NONE) {
-		LOG_ERR("Failed to decode reply %s(%02x) for command %s(%02x)",
+		LOG_ERR("Failed to decode REPLY: %s(%02x) for CMD: %s(%02x)",
 			osdp_reply_name(pd->reply_id), pd->reply_id,
 			osdp_cmd_name(pd->cmd_id), pd->cmd_id);
 	}
@@ -757,6 +754,13 @@ static int cp_process_reply(struct osdp_pd *pd)
 		return OSDP_CP_ERR_NO_DATA;
 	case OSDP_ERR_PKT_BUSY:
 		return OSDP_CP_ERR_RETRY_CMD;
+	case OSDP_ERR_PKT_NACK:
+		/* CP cannot do anything about an invalid reply from a PD. So it
+		 * just default to going offline and retrying after a while. The
+		 * reason for this failure was probably better logged by lower
+		 * layers so we can treat it as a generic failure.
+		 */
+		__fallthrough;
 	default:
 		return OSDP_CP_ERR_GENERIC;
 	}
@@ -876,14 +880,13 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 	case OSDP_CP_PHY_STATE_SEND_CMD:
 		/* Check if we have any commands in the queue */
 		if (cp_build_and_send_packet(pd)) {
-			LOG_ERR("Failed to build/send packet for CMD(%d)",
-				pd->cmd_id);
-			pd->phy_state = OSDP_CP_PHY_STATE_ERR;
-			ret = OSDP_CP_ERR_GENERIC;
-			break;
+			LOG_ERR("Failed to build/send packet for CMD: %s(%02x)",
+				osdp_cmd_name(pd->cmd_id), pd->cmd_id);
+			goto error;
 		}
 		ret = OSDP_CP_ERR_INPROG;
 		osdp_phy_state_reset(pd, false);
+		pd->reply_id = REPLY_INVALID;
 		pd->phy_state = OSDP_CP_PHY_STATE_REPLY_WAIT;
 		pd->phy_tstamp = osdp_millis_now();
 		break;
@@ -897,7 +900,7 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 			if (pd->reply_id == REPLY_BUSY) {
 				pd->phy_tstamp = osdp_millis_now();
 				pd->wait_ms = OSDP_CMD_RETRY_WAIT_MS;
-				pd->state = OSDP_CP_PHY_STATE_WAIT;
+				pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
 				return OSDP_CP_ERR_CAN_YIELD;
 			}
 			pd->phy_state = OSDP_CP_PHY_STATE_DONE;
@@ -911,14 +914,22 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 			pd->phy_state = OSDP_CP_PHY_STATE_DONE;
 			return OSDP_CP_ERR_NONE;
 		}
-		if (rc == OSDP_CP_ERR_GENERIC || rc == OSDP_CP_ERR_UNKNOWN ||
-		    osdp_millis_since(pd->phy_tstamp) > OSDP_RESP_TOUT_MS) {
-			if (rc != OSDP_CP_ERR_GENERIC) {
-				LOG_ERR("Response timeout for CMD(%02x)",
-					pd->cmd_id);
+		if (rc == OSDP_CP_ERR_GENERIC || rc == OSDP_CP_ERR_UNKNOWN) {
+			goto error;
+		}
+		if (osdp_millis_since(pd->phy_tstamp) > OSDP_RESP_TOUT_MS) {
+			if (pd->phy_retry_count < OSDP_CMD_MAX_RETRIES) {
+				pd->wait_ms = OSDP_CMD_RETRY_WAIT_MS;
+				pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
+				pd->phy_retry_count += 1;
+				pd->phy_tstamp = osdp_millis_now();
+				LOG_WRN("No response in 200ms; probing (%d)",
+					pd->phy_retry_count);
+				return OSDP_CP_ERR_CAN_YIELD;
 			}
-			pd->phy_state = OSDP_CP_PHY_STATE_ERR;
-			return OSDP_CP_ERR_GENERIC;
+			LOG_ERR("Response timeout for CMD: %s(%02x)",
+				osdp_cmd_name(pd->cmd_id), pd->cmd_id);
+			goto error;
 		}
 		if (rc == OSDP_CP_ERR_RETRY_CMD) {
 			pd->phy_state = OSDP_CP_PHY_STATE_DONE;
@@ -929,6 +940,9 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 	}
 
 	return ret;
+error:
+	pd->phy_state = OSDP_CP_PHY_STATE_ERR;
+	return OSDP_CP_ERR_GENERIC;
 }
 
 static const char *state_get_name(enum osdp_cp_state_e state)
@@ -1005,8 +1019,10 @@ static void cp_keyset_complete(struct osdp_pd *pd)
 	}
 	sc_deactivate(pd);
 	notify_sc_status(pd);
-	make_request(pd, CP_REQ_RESTART_SC);
-	LOG_INF("SCBK set; restarting SC to verify new SCBK");
+	if (pd->state == OSDP_CP_STATE_ONLINE) {
+		make_request(pd, CP_REQ_RESTART_SC);
+		LOG_INF("SCBK set; restarting SC to verify new SCBK");
+	}
 }
 
 static bool cp_check_online_response(struct osdp_pd *pd)
@@ -1025,8 +1041,8 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		return true;
 	}
 
-	/* A NAK is always an error */
-	if (pd->reply_id == REPLY_NAK) {
+	/* A NAK or no response is always an error */
+	if (pd->reply_id == REPLY_NAK || pd->reply_id == REPLY_INVALID) {
 		return false;
 	}
 
@@ -1146,6 +1162,8 @@ static enum osdp_cp_state_e get_next_ok_state(struct osdp_pd *pd)
 		return OSDP_CP_STATE_SC_CHLNG;
 	case OSDP_CP_STATE_ONLINE:
 		if (cp_sc_should_retry(pd)) {
+			LOG_INF("Attempting to restart SC after %d seconds",
+				OSDP_PD_SC_RETRY_MS/1000);
 			return OSDP_CP_STATE_SC_CHLNG;
 		}
 		return OSDP_CP_STATE_ONLINE;
@@ -1228,16 +1246,10 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	enum osdp_cp_state_e cur = pd->state;
 	struct osdp_event event;
 
-	event.type = OSDP_EVENT_SENTINEL;
-	switch (cur) {
-	case OSDP_CP_STATE_OFFLINE:
+	switch (next) {
+	case OSDP_CP_STATE_INIT:
 		osdp_phy_state_reset(pd, true);
 		break;
-	default:
-		break;
-	}
-
-	switch (next) {
 	case OSDP_CP_STATE_ONLINE:
 		/*BUG: Only send online event if this PD has offline more than 1 sec */
 		if (ISSET_FLAG(pd, PD_FLAG_ONLINE) == 0) {
@@ -1532,9 +1544,9 @@ static struct osdp *__cp_setup(int num_pd, const osdp_pd_info_t *info_list)
 
 	SET_CURRENT_PD(ctx, 0);
 
-	LOG_PRINT("Setup complete; LibOSDP-%s %s NumPDs: %d Channels: %d",
-		  osdp_get_version(), osdp_get_source_info(), num_pd,
-		  ctx->num_channels);
+	LOG_PRINT("CP Setup complete; LibOSDP-%s %s NumPDs:%d Channels:%d",
+		  osdp_get_version(), osdp_get_source_info(),
+		  num_pd, ctx->num_channels);
 
 	return ctx;
 error:
