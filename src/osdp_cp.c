@@ -1246,6 +1246,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	enum osdp_cp_state_e cur = pd->state;
 	struct osdp_event event;
 
+	event.type = OSDP_EVENT_SENTINEL;
 	switch (next) {
 	case OSDP_CP_STATE_INIT:
 		osdp_phy_state_reset(pd, true);

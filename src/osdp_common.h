@@ -37,6 +37,9 @@
 
 #define ARG_UNUSED(x) (void)(x)
 
+#define OSDP_DEBUG_EN 0
+
+#if (OSDP_DEBUG_EN > 0)
 #define LOG_EM(...)    __logger_log(&pd->logger, LOG_EMERG,  __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_ALERT(...) __logger_log(&pd->logger, LOG_ALERT,  __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_CRIT(...)  __logger_log(&pd->logger, LOG_CRIT,   __FILE__, __LINE__, __VA_ARGS__)
@@ -45,6 +48,16 @@
 #define LOG_WRN(...)   __logger_log(&pd->logger, LOG_WARNING,__FILE__, __LINE__, __VA_ARGS__)
 #define LOG_NOT(...)   __logger_log(&pd->logger, LOG_NOTICE, __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_DBG(...)   __logger_log(&pd->logger, LOG_DEBUG,  __FILE__, __LINE__, __VA_ARGS__)
+#else
+#define LOG_EM(...)    
+#define LOG_ALERT(...) 
+#define LOG_CRIT(...)  
+#define LOG_ERR(...)   
+#define LOG_INF(...)   
+#define LOG_WRN(...)   
+#define LOG_NOT(...)   
+#define LOG_DBG(...)   
+#endif
 
 #define ISSET_FLAG(p, f) (((p)->flags & (f)) == (f))
 #define SET_FLAG(p, f)	 ((p)->flags |= (f))
