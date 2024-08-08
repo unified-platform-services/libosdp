@@ -421,8 +421,8 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != REPLY_NAK_DATA_LEN) {
 			break;
 		}
-		LOG_WRN("PD replied with NAK(%d) for CMD: %s(%02x)",
-			buf[pos], osdp_cmd_name(pd->cmd_id), pd->cmd_id);
+		LOG_WRN("PD replied with NAK(%d) for CMD: %s(%02x)", buf[pos],
+			osdp_cmd_name(pd->cmd_id), pd->cmd_id);
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_PDID:
@@ -1163,7 +1163,7 @@ static enum osdp_cp_state_e get_next_ok_state(struct osdp_pd *pd)
 	case OSDP_CP_STATE_ONLINE:
 		if (cp_sc_should_retry(pd)) {
 			LOG_INF("Attempting to restart SC after %d seconds",
-				OSDP_PD_SC_RETRY_MS/1000);
+				OSDP_PD_SC_RETRY_MS / 1000);
 			return OSDP_CP_STATE_SC_CHLNG;
 		}
 		return OSDP_CP_STATE_ONLINE;
@@ -1265,6 +1265,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 			/* TODO: Need to send an online event, so that osdp app can push the last unsent command */
 			event.type = OSDP_EVENT_PD_INTERMITTENT_ONLINE;
 
+		pd->pd_to_offline_count = 0;
 		pd->wait_ms = 0;
 		LOG_ERR("Online; %s SC using SCBK%s %lx",
 			sc_is_active(pd) ? "With" : "Without",
@@ -1277,31 +1278,24 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "",
 			pd->flags);
 		pd->tstamp = osdp_millis_now();
-		if (pd->wait_ms == 0) {
-			/* first, retry after ~512 msec */
-			pd->wait_ms = 1 << 9;
-		} else {
-			/* then, bounded exponential back-off */
-			if (pd->wait_ms < OSDP_ONLINE_RETRY_WAIT_MAX_MS) {
-				pd->wait_ms <<= 1;
-				/* set max retry timeout to approx 1 secs */
-				if (pd->wait_ms >= (1 << 10)) {
-					pd->wait_ms = (1 << 10);
+		pd->wait_ms = OSDP_ONLINE_RETRY_WAIT_MAX_MS;
 
-					if (ISSET_FLAG(pd, PD_FLAG_OFFLINE) ==
-					    0) {
-						SET_FLAG(pd, PD_FLAG_OFFLINE);
-						CLEAR_FLAG(pd, PD_FLAG_ONLINE);
-						event.type =
-							OSDP_EVENT_PD_OFFLINE;
-					}
-				}
+		if (++pd->pd_to_offline_count >= OSDP_PD_TO_OFFLINE_COUNTER) {
+			pd->pd_to_offline_count = 0;
+			if (ISSET_FLAG(pd, PD_FLAG_OFFLINE) == 0) {
+				SET_FLAG(pd, PD_FLAG_OFFLINE);
+				CLEAR_FLAG(pd, PD_FLAG_ONLINE);
+				event.type = OSDP_EVENT_PD_OFFLINE;			
 			}
 		}
+
 		sc_deactivate(pd);
 		notify_sc_status(pd);
-		LOG_ERR("Going offline for %d seconds; Was in '%s' state",
-			pd->wait_ms / 1000, state_get_name(cur));
+		LOG_ERR("Going offline for %d ms; Was in '%s' state. %s SC using SCBK%s %lx",
+			pd->wait_ms, state_get_name(cur),
+			sc_is_active(pd) ? "w" : "wo",
+			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "",
+			pd->flags);
 		break;
 	case OSDP_CP_STATE_SC_CHLNG:
 		osdp_sc_setup(pd);
@@ -1336,16 +1330,36 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 	}
 
 	switch (pd->cmd_id) {
-	case CMD_OUT:    app_cmd = OSDP_CMD_OUTPUT; break;
-	case CMD_LED:    app_cmd = OSDP_CMD_LED;    break;
-	case CMD_BUZ:    app_cmd = OSDP_CMD_BUZZER; break;
-	case CMD_TEXT:   app_cmd = OSDP_CMD_TEXT;   break;
-	case CMD_COMSET: app_cmd = OSDP_CMD_COMSET; break;
-	case CMD_ISTAT:  app_cmd = OSDP_CMD_STATUS; break;
-	case CMD_OSTAT:  app_cmd = OSDP_CMD_STATUS; break;
-	case CMD_LSTAT:  app_cmd = OSDP_CMD_STATUS; break;
-	case CMD_RSTAT:  app_cmd = OSDP_CMD_STATUS; break;
-	case CMD_KEYSET: app_cmd = OSDP_CMD_KEYSET; break;
+	case CMD_OUT:
+		app_cmd = OSDP_CMD_OUTPUT;
+		break;
+	case CMD_LED:
+		app_cmd = OSDP_CMD_LED;
+		break;
+	case CMD_BUZ:
+		app_cmd = OSDP_CMD_BUZZER;
+		break;
+	case CMD_TEXT:
+		app_cmd = OSDP_CMD_TEXT;
+		break;
+	case CMD_COMSET:
+		app_cmd = OSDP_CMD_COMSET;
+		break;
+	case CMD_ISTAT:
+		app_cmd = OSDP_CMD_STATUS;
+		break;
+	case CMD_OSTAT:
+		app_cmd = OSDP_CMD_STATUS;
+		break;
+	case CMD_LSTAT:
+		app_cmd = OSDP_CMD_STATUS;
+		break;
+	case CMD_RSTAT:
+		app_cmd = OSDP_CMD_STATUS;
+		break;
+	case CMD_KEYSET:
+		app_cmd = OSDP_CMD_KEYSET;
+		break;
 	case CMD_MFG:
 		if (pd->reply_id == REPLY_ACK) {
 			app_cmd = OSDP_CMD_MFG;
@@ -1509,6 +1523,7 @@ static struct osdp *__cp_setup(int num_pd, const osdp_pd_info_t *info_list)
 		pd->address = info->address;
 		pd->flags = info->flags;
 		pd->seq_number = -1;
+		pd->pd_to_offline_count = 0;
 		SET_FLAG(pd, PD_FLAG_SC_DISABLED);
 		memcpy(&pd->channel, &info->channel,
 		       sizeof(struct osdp_channel));
@@ -1546,8 +1561,8 @@ static struct osdp *__cp_setup(int num_pd, const osdp_pd_info_t *info_list)
 	SET_CURRENT_PD(ctx, 0);
 
 	LOG_PRINT("CP Setup complete; LibOSDP-%s %s NumPDs:%d Channels:%d",
-		  osdp_get_version(), osdp_get_source_info(),
-		  num_pd, ctx->num_channels);
+		  osdp_get_version(), osdp_get_source_info(), num_pd,
+		  ctx->num_channels);
 
 	return ctx;
 error:
@@ -1621,7 +1636,7 @@ int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 
 	if (pd->state != OSDP_CP_STATE_ONLINE) {
 		LOG_ERR("osdp_cp_send_command failed, pd->state != OSDP_CP_STATE_ONLINE: %x",
-		       pd->state); //LOG_ERR
+			pd->state); //LOG_ERR
 		return -1;
 	}
 
@@ -1658,7 +1673,6 @@ int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)
 	return count;
 }
 
-
 int osdp_cp_get_pd_scbk(const osdp_t *ctx, int pd_idx, uint8_t *scbk)
 {
 	input_check(ctx, pd_idx);
@@ -1677,7 +1691,8 @@ int osdp_cp_get_pd_id(const osdp_t *ctx, int pd_idx, struct osdp_pd_id *id)
 	return 0;
 }
 
-int osdp_cp_get_capability(const osdp_t *ctx, int pd_idx, struct osdp_pd_cap *cap)
+int osdp_cp_get_capability(const osdp_t *ctx, int pd_idx,
+			   struct osdp_pd_cap *cap)
 {
 	input_check(ctx, pd_idx);
 	int fc;

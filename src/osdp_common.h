@@ -358,6 +358,7 @@ struct osdp_pd {
 
 	int state;             /* FSM state (CP mode only) */
 	int phy_state;         /* phy layer FSM state (CP mode only) */
+	int pd_to_offline_count;	/* counter for PD to delare offline */	
 	int phy_retry_count;   /* command retry counter */
 	uint32_t wait_ms;      /* wait time in MS to retry communication */
 	int64_t tstamp;        /* Last POLL command issued time in ticks */
