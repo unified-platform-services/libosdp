@@ -6,7 +6,7 @@
 
 #include "osdp_common.h"
 #include "osdp_file.h"
-#include "osdp_pcap.h"
+#include "osdp_diag.h"
 
 #ifndef CONFIG_OSDP_STATIC_PD
 #include <stdlib.h>
@@ -150,7 +150,7 @@ static int pd_translate_event(struct osdp_pd *pd, struct osdp_event *event)
 		}
 		break;
 	case OSDP_EVENT_KEYPRESS:
-		reply_code = REPLY_KEYPPAD;
+		reply_code = REPLY_KEYPAD;
 		break;
 	case OSDP_EVENT_STATUS:
 		switch(event->status.type) {
@@ -785,7 +785,7 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = BIT_IS_SET(event->status.mask, 0); // power
 		ret = OSDP_PD_ERR_NONE;
 		break;
-	case REPLY_KEYPPAD:
+	case REPLY_KEYPAD:
 		event = (struct osdp_event *)pd->ephemeral_data;
 		assert_buf_len(REPLY_KEYPAD_LEN + event->keypress.length, max_len);
 		buf[len++] = pd->reply_id;
@@ -1148,8 +1148,7 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 
 	SET_FLAG(pd, PD_FLAG_PD_MODE); /* used in checks in phy */
 
-	if (IS_ENABLED(CONFIG_OSDP_PACKET_TRACE) ||
-	    IS_ENABLED(CONFIG_OSDP_DATA_TRACE)) {
+	if (is_capture_enabled(pd)) {
 		osdp_packet_capture_init(pd);
 	}
 
@@ -1167,8 +1166,7 @@ void osdp_pd_teardown(osdp_t *ctx)
 	assert(ctx);
 	struct osdp_pd *pd = osdp_to_pd(ctx, 0);
 
-	if (IS_ENABLED(CONFIG_OSDP_PACKET_TRACE) ||
-	    IS_ENABLED(CONFIG_OSDP_DATA_TRACE)) {
+	if (is_capture_enabled(pd)) {
 		osdp_packet_capture_finish(pd);
 	}
 

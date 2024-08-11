@@ -10,7 +10,7 @@
 
 #include "osdp_common.h"
 #include "osdp_file.h"
-#include "osdp_pcap.h"
+#include "osdp_diag.h"
 
 #define CMD_POLL_LEN   1
 #define CMD_LSTAT_LEN  1
@@ -30,20 +30,20 @@
 #define CMD_SCRYPT_LEN 17
 #define CMD_MFG_LEN    4 /* variable length command */
 
-#define REPLY_ACK_DATA_LEN     0
-#define REPLY_PDID_DATA_LEN    12
-#define REPLY_PDCAP_ENTITY_LEN 3
-#define REPLY_LSTATR_DATA_LEN  2
-#define REPLY_RSTATR_DATA_LEN  1
-#define REPLY_COM_DATA_LEN     5
-#define REPLY_NAK_DATA_LEN     1
-#define REPLY_CCRYPT_DATA_LEN  32
-#define REPLY_RMAC_I_DATA_LEN  16
-#define REPLY_KEYPPAD_DATA_LEN 2 /* variable length command */
-#define REPLY_RAW_DATA_LEN     4 /* variable length command */
-#define REPLY_FMT_DATA_LEN     3 /* variable length command */
-#define REPLY_BUSY_DATA_LEN    0
-#define REPLY_MFGREP_LEN       4 /* variable length command */
+#define REPLY_ACK_DATA_LEN             0
+#define REPLY_PDID_DATA_LEN            12
+#define REPLY_PDCAP_ENTITY_LEN         3
+#define REPLY_LSTATR_DATA_LEN          2
+#define REPLY_RSTATR_DATA_LEN          1
+#define REPLY_COM_DATA_LEN             5
+#define REPLY_NAK_DATA_LEN             1
+#define REPLY_CCRYPT_DATA_LEN          32
+#define REPLY_RMAC_I_DATA_LEN          16
+#define REPLY_KEYPAD_DATA_LEN          2   /* variable length command */
+#define REPLY_RAW_DATA_LEN             4   /* variable length command */
+#define REPLY_FMT_DATA_LEN             3   /* variable length command */
+#define REPLY_BUSY_DATA_LEN            0
+#define REPLY_MFGREP_LEN               4   /* variable length command */
 
 /* CP event requests */
 #define CP_REQ_RESTART_SC 0x00000001
@@ -568,14 +568,14 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		pd->baud_rate = temp32;
 		ret = OSDP_CP_ERR_NONE;
 		break;
-	case REPLY_KEYPPAD:
-		if (len < REPLY_KEYPPAD_DATA_LEN) {
+	case REPLY_KEYPAD:
+		if (len < REPLY_KEYPAD_DATA_LEN) {
 			break;
 		}
 		event.type = OSDP_EVENT_KEYPRESS;
 		event.keypress.reader_no = buf[pos++];
 		event.keypress.length = buf[pos++];
-		if ((len - REPLY_KEYPPAD_DATA_LEN) != event.keypress.length) {
+		if ((len - REPLY_KEYPAD_DATA_LEN) != event.keypress.length) {
 			break;
 		}
 		memcpy(event.keypress.data, buf + pos, event.keypress.length);
@@ -1054,7 +1054,7 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		    pd->reply_id == REPLY_RSTATR ||
 		    pd->reply_id == REPLY_MFGREP || pd->reply_id == REPLY_RAW ||
 		    pd->reply_id == REPLY_FMT ||
-		    pd->reply_id == REPLY_KEYPPAD) {
+		    pd->reply_id == REPLY_KEYPAD) {
 			return true;
 		}
 		return ISSET_FLAG(pd, OSDP_FLAG_IGN_UNSOLICITED);
@@ -1547,8 +1547,7 @@ static struct osdp *__cp_setup(int num_pd, const osdp_pd_info_t *info_list)
 		snprintf(name, sizeof(name), "OSDP: CP: PD-%d", pd->address);
 		logger_set_name(&pd->logger, name);
 
-		if (IS_ENABLED(CONFIG_OSDP_PACKET_TRACE) ||
-		    IS_ENABLED(CONFIG_OSDP_DATA_TRACE)) {
+		if (is_capture_enabled(pd)) {
 			osdp_packet_capture_init(pd);
 		}
 	}
@@ -1587,10 +1586,9 @@ void osdp_cp_teardown(osdp_t *ctx)
 	int i;
 	struct osdp_pd *pd;
 
-	if (IS_ENABLED(CONFIG_OSDP_PACKET_TRACE) ||
-	    IS_ENABLED(CONFIG_OSDP_DATA_TRACE)) {
-		for (i = 0; i < NUM_PD(ctx); i++) {
-			pd = osdp_to_pd(ctx, i);
+	for (i = 0; i < NUM_PD(ctx); i++) {
+		pd = osdp_to_pd(ctx, i);
+		if (is_capture_enabled(pd)) {
 			osdp_packet_capture_finish(pd);
 		}
 	}

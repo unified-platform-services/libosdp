@@ -194,7 +194,7 @@ union osdp_ephemeral_data {
 #define REPLY_RSTATR	0x4B
 #define REPLY_RAW	0x50
 #define REPLY_FMT	0x51
-#define REPLY_KEYPPAD	0x53
+#define REPLY_KEYPAD	0x53
 #define REPLY_COM	0x54
 #define REPLY_BIOREADR	0x57
 #define REPLY_BIOMATCHR 0x58
@@ -535,6 +535,22 @@ static inline bool check_request(struct osdp_pd *pd, uint32_t req) {
 
 static inline bool test_request(struct osdp_pd *pd, uint32_t req) {
 	return pd->request & req;
+}
+
+static inline bool is_capture_enabled(struct osdp_pd *pd) {
+	return (ISSET_FLAG(pd, OSDP_FLAG_CAPTURE_PACKETS) &&
+	        (IS_ENABLED(CONFIG_OSDP_PACKET_TRACE) ||
+	         IS_ENABLED(CONFIG_OSDP_DATA_TRACE)));
+}
+
+static inline bool is_data_trace_enabled(struct osdp_pd *pd) {
+	return (ISSET_FLAG(pd, OSDP_FLAG_CAPTURE_PACKETS) &&
+	        IS_ENABLED(CONFIG_OSDP_DATA_TRACE));
+}
+
+static inline bool is_packet_trace_enabled(struct osdp_pd *pd) {
+	return (ISSET_FLAG(pd, OSDP_FLAG_CAPTURE_PACKETS) &&
+	        IS_ENABLED(CONFIG_OSDP_PACKET_TRACE));
 }
 
 #endif	/* _OSDP_COMMON_H_ */
