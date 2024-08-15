@@ -13,11 +13,13 @@
 #include <openssl/err.h>
 #endif
 
+#include <utils/utils.h>
+
 void osdp_crypt_setup()
 {
 }
 
-void osdp_openssl_fatal(void)
+void __noreturn osdp_openssl_fatal(void)
 {
 #if 0
 	/**

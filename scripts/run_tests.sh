@@ -16,10 +16,9 @@ function run_make_check() {
 
 function run_cmake_unit_test() {
 	echo "[-] Running cmake unit-tests"
-	rm -rf build && mkdir build && pushd build
-	cmake ${ROOT_DIR}
-	make check-ut
-	popd
+	rm -rf build
+	cmake -B build .
+	cmake --build build -t check-ut
 }
 
 function run_pytest() {
