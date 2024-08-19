@@ -30,24 +30,20 @@
 #define CMD_SCRYPT_LEN 17
 #define CMD_MFG_LEN    4 /* variable length command */
 
-#define REPLY_ACK_DATA_LEN             0
-#define REPLY_PDID_DATA_LEN            12
-#define REPLY_PDCAP_ENTITY_LEN         3
-#define REPLY_LSTATR_DATA_LEN          2
-#define REPLY_RSTATR_DATA_LEN          1
-#define REPLY_COM_DATA_LEN             5
-#define REPLY_NAK_DATA_LEN             1
-#define REPLY_CCRYPT_DATA_LEN          32
-#define REPLY_RMAC_I_DATA_LEN          16
-#define REPLY_KEYPAD_DATA_LEN          2   /* variable length command */
-#define REPLY_RAW_DATA_LEN             4   /* variable length command */
-#define REPLY_FMT_DATA_LEN             3   /* variable length command */
-#define REPLY_BUSY_DATA_LEN            0
-#define REPLY_MFGREP_LEN               4   /* variable length command */
-
-/* CP event requests */
-#define CP_REQ_RESTART_SC 0x00000001
-#define CP_REQ_EVENT_SEND 0x00000002
+#define REPLY_ACK_DATA_LEN     0
+#define REPLY_PDID_DATA_LEN    12
+#define REPLY_PDCAP_ENTITY_LEN 3
+#define REPLY_LSTATR_DATA_LEN  2
+#define REPLY_RSTATR_DATA_LEN  1
+#define REPLY_COM_DATA_LEN     5
+#define REPLY_NAK_DATA_LEN     1
+#define REPLY_CCRYPT_DATA_LEN  32
+#define REPLY_RMAC_I_DATA_LEN  16
+#define REPLY_KEYPAD_DATA_LEN  2 /* variable length command */
+#define REPLY_RAW_DATA_LEN     4 /* variable length command */
+#define REPLY_FMT_DATA_LEN     3 /* variable length command */
+#define REPLY_BUSY_DATA_LEN    0
+#define REPLY_MFGREP_LEN       4 /* variable length command */
 
 enum osdp_cp_error_e {
 	OSDP_CP_ERR_NONE = 0,
@@ -81,7 +77,7 @@ static struct osdp_cmd *cp_cmd_alloc(struct osdp_pd *pd)
 	struct cp_cmd_node *n = NULL;
 
 	if (slab_alloc(&pd->app_data.slab, (void **)&n)) {
-		LOG_EM("Command slab allocation failed"); //LOG_ERR
+		LOG_ERR("Command slab allocation failed");
 		return NULL;
 	}
 	memset(&n->object, 0, sizeof(n->object));
@@ -534,26 +530,18 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		make_request(pd, CP_REQ_EVENT_SEND);
 		ret = OSDP_CP_ERR_NONE;
 		break;
-	case REPLY_RSTATR: {
-		uint32_t status_mask = 0;
-		int cap_num = OSDP_PD_CAP_READERS;
-
-		if (len != pd->cap[cap_num].num_items || len > 32) {
-			LOG_ERR("Invalid reader tamper status report length %d",
-				len);
-			return OSDP_CP_ERR_GENERIC;
-		}
-		for (i = 0; i < len; i++) {
-			status_mask |= !!buf[pos++] << i;
+	case REPLY_RSTATR:
+		if (len != REPLY_RSTATR_DATA_LEN) {
+			break;
 		}
 		event.type = OSDP_EVENT_STATUS;
 		event.status.type = OSDP_STATUS_REPORT_REMOTE;
-		event.status.nr_entries = len;
-		event.status.mask = status_mask;
+		event.status.nr_entries = 1;
+		event.status.mask = !!buf[pos++];
 		memcpy(pd->ephemeral_data, &event, sizeof(event));
 		make_request(pd, CP_REQ_EVENT_SEND);
 		ret = OSDP_CP_ERR_NONE;
-	} break;
+		break;
 	case REPLY_COM:
 		if (len != REPLY_COM_DATA_LEN) {
 			break;
@@ -970,9 +958,15 @@ static const char *state_get_name(enum osdp_cp_state_e state)
 static int cp_get_online_command(struct osdp_pd *pd)
 {
 	struct osdp_cmd *cmd;
+	int ret;
 
 	if (cp_cmd_dequeue(pd, &cmd) == 0) {
 		return cp_translate_cmd(pd, cmd);
+	}
+
+	ret = osdp_file_tx_get_command(pd);
+	if (ret != 0) {
+		return ret;
 	}
 
 	if (osdp_millis_since(pd->tstamp) > OSDP_PD_POLL_TIMEOUT_MS) {
@@ -980,14 +974,23 @@ static int cp_get_online_command(struct osdp_pd *pd)
 		return CMD_POLL;
 	}
 
-	switch (osdp_get_file_tx_state(pd)) {
-	case OSDP_FILE_TX_STATE_PENDING:
-		return CMD_FILETRANSFER;
-	case OSDP_FILE_TX_STATE_ERROR:
-		return CMD_ABORT;
+	return -1;
+}
+
+static void notify_pd_status(struct osdp_pd *pd, bool is_online)
+{
+	struct osdp *ctx = pd_to_osdp(pd);
+	struct osdp_event evt;
+
+	if (!ctx->event_callback ||
+	    !ISSET_FLAG(pd, OSDP_FLAG_ENABLE_NOTIFICATION)) {
+		return;
 	}
 
-	return -1;
+	evt.type = OSDP_EVENT_NOTIFICATION;
+	evt.notif.type = OSDP_EVENT_NOTIFICATION_PD_STATUS;
+	evt.notif.arg0 = is_online;
+	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
 }
 
 static void notify_sc_status(struct osdp_pd *pd)
@@ -1053,8 +1056,7 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		    pd->reply_id == REPLY_OSTATR ||
 		    pd->reply_id == REPLY_RSTATR ||
 		    pd->reply_id == REPLY_MFGREP || pd->reply_id == REPLY_RAW ||
-		    pd->reply_id == REPLY_FMT ||
-		    pd->reply_id == REPLY_KEYPAD) {
+		    pd->reply_id == REPLY_FMT || pd->reply_id == REPLY_KEYPAD) {
 			return true;
 		}
 		return ISSET_FLAG(pd, OSDP_FLAG_IGN_UNSOLICITED);
@@ -1232,51 +1234,28 @@ static enum osdp_cp_state_e get_next_err_state(struct osdp_pd *pd)
 
 static inline enum osdp_cp_state_e get_next_state(struct osdp_pd *pd, int err)
 {
-	if (pd->state == OSDP_CP_STATE_ONLINE &&
-	    check_request(pd, CP_REQ_RESTART_SC)) {
-		osdp_phy_state_reset(pd, true);
-		return OSDP_CP_STATE_SC_CHLNG;
-	}
-
 	return (err == 0) ? get_next_ok_state(pd) : get_next_err_state(pd);
 }
 
 static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 {
 	enum osdp_cp_state_e cur = pd->state;
-	struct osdp_event event;
 
-	event.type = OSDP_EVENT_SENTINEL;
 	switch (next) {
 	case OSDP_CP_STATE_INIT:
 		osdp_phy_state_reset(pd, true);
 		break;
 	case OSDP_CP_STATE_ONLINE:
-		/*BUG: Only send online event if this PD has offline more than 1 sec */
+		LOG_INF("Online; %s SC", sc_is_active(pd) ? "With" : "Without");
 		if (ISSET_FLAG(pd, PD_FLAG_ONLINE) == 0) {
-			if (sc_is_active(pd))
-				event.type = OSDP_EVENT_PD_SC_ESTABLISH;
-			else {
-				SET_FLAG(pd, PD_FLAG_ONLINE);
-				CLEAR_FLAG(pd, PD_FLAG_OFFLINE);
-				event.type = OSDP_EVENT_PD_ONLINE;
-			}
-		} else
-			/* TODO: Need to send an online event, so that osdp app can push the last unsent command */
-			event.type = OSDP_EVENT_PD_INTERMITTENT_ONLINE;
-
-		pd->pd_to_offline_count = 0;
-		pd->wait_ms = 0;
-		LOG_ERR("Online; %s SC using SCBK%s %lx",
-			sc_is_active(pd) ? "With" : "Without",
-			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "",
-			pd->flags);
+			SET_FLAG(pd, PD_FLAG_ONLINE);
+			CLEAR_FLAG(pd, PD_FLAG_OFFLINE);
+			/* XXX: Need to set online so that the event handler can send command */
+			pd->state = next;
+			notify_pd_status(pd, true);
+		}
 		break;
 	case OSDP_CP_STATE_OFFLINE:
-		LOG_ERR("Offline; %s SC using SCBK%s %lx",
-			sc_is_active(pd) ? "With" : "Without",
-			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "",
-			pd->flags);
 		pd->tstamp = osdp_millis_now();
 		pd->wait_ms = OSDP_ONLINE_RETRY_WAIT_MAX_MS;
 
@@ -1285,17 +1264,14 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 			if (ISSET_FLAG(pd, PD_FLAG_OFFLINE) == 0) {
 				SET_FLAG(pd, PD_FLAG_OFFLINE);
 				CLEAR_FLAG(pd, PD_FLAG_ONLINE);
-				event.type = OSDP_EVENT_PD_OFFLINE;			
+				notify_pd_status(pd, false);
 			}
 		}
 
 		sc_deactivate(pd);
 		notify_sc_status(pd);
-		LOG_ERR("Going offline for %d ms; Was in '%s' state. %s SC using SCBK%s %lx",
-			pd->wait_ms, state_get_name(cur),
-			sc_is_active(pd) ? "w" : "wo",
-			(ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ? "D" : "",
-			pd->flags);
+		LOG_ERR("Going offline for %d seconds; Was in '%s' state",
+			pd->wait_ms / 1000, state_get_name(cur));
 		break;
 	case OSDP_CP_STATE_SC_CHLNG:
 		osdp_sc_setup(pd);
@@ -1304,12 +1280,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		break;
 	}
 
-	if (event.type != OSDP_EVENT_SENTINEL) {
-		memcpy(pd->ephemeral_data, &event, sizeof(event));
-		make_request(pd, CP_REQ_EVENT_SEND);
-	}
-
-	LOG_DBG("StateChange: [%s] -> [%s] (SC-%s%s)", state_get_name(cur),
+	LOG_INF("StateChange: [%s] -> [%s] (SC-%s%s)", state_get_name(cur),
 		state_get_name(next), sc_is_active(pd) ? "Active" : "Inactive",
 		(sc_is_active(pd) && ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) ?
 			" with SCBK-D" :
@@ -1415,10 +1386,18 @@ static int state_update(struct osdp_pd *pd)
 
 	next = get_next_state(pd, err);
 
-	//XXX: To send request for both online and offline
-	if ((next == OSDP_CP_STATE_ONLINE || next == OSDP_CP_STATE_OFFLINE) &&
-	    check_request(pd, CP_REQ_EVENT_SEND)) {
-		do_event_callback(pd);
+	if (pd->state == OSDP_CP_STATE_ONLINE || next == OSDP_CP_STATE_ONLINE) {
+		if (check_request(pd, CP_REQ_RESTART_SC)) {
+			osdp_phy_state_reset(pd, true);
+			next = OSDP_CP_STATE_SC_CHLNG;
+		}
+		if (check_request(pd, CP_REQ_OFFLINE)) {
+			LOG_INF("Going offline due to request");
+			next = OSDP_CP_STATE_OFFLINE;
+		}
+		if (check_request(pd, CP_REQ_EVENT_SEND)) {
+			do_event_callback(pd);
+		}
 	}
 
 	if (cur != next) {
@@ -1634,8 +1613,6 @@ int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 	struct osdp_cmd *p;
 
 	if (pd->state != OSDP_CP_STATE_ONLINE) {
-		LOG_ERR("osdp_cp_send_command failed, pd->state != OSDP_CP_STATE_ONLINE: %x",
-			pd->state); //LOG_ERR
 		return -1;
 	}
 
@@ -1650,7 +1627,6 @@ int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 
 	p = cp_cmd_alloc(pd);
 	if (p == NULL) {
-		LOG_ERR("osdp_cp_send_command failed, cp_cmd_alloc: p == NULL"); //LOG_ERR
 		return -1;
 	}
 	memcpy(p, cmd, sizeof(struct osdp_cmd));
@@ -1707,10 +1683,18 @@ int osdp_cp_get_capability(const osdp_t *ctx, int pd_idx,
 	return 0;
 }
 
+int osdp_cp_get_flag(osdp_t *ctx, int pd_idx, uint32_t flags)
+{
+	input_check(ctx, pd_idx);
+	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+
+	return ISSET_FLAG(pd, flags);
+}
+
 int osdp_cp_modify_flag(osdp_t *ctx, int pd_idx, uint32_t flags, bool do_set)
 {
 	input_check(ctx, pd_idx);
-	// XXX: Add OFFLINE and ONLINE flag
+
 	const uint32_t all_flags =
 		(OSDP_FLAG_ENFORCE_SECURE | OSDP_FLAG_INSTALL_MODE |
 		 OSDP_FLAG_IGN_UNSOLICITED | PD_FLAG_ONLINE | PD_FLAG_OFFLINE);

@@ -59,14 +59,55 @@
 #define LOG_DBG(...)   
 #endif
 
-#define ISSET_FLAG(p, f) (((p)->flags & (f)) == (f))
-#define SET_FLAG(p, f)	 ((p)->flags |= (f))
-#define CLEAR_FLAG(p, f) ((p)->flags &= ~(f))
+#define ISSET_FLAG(p, f)       (((p)->flags & (f)) == (f))
+#define SET_FLAG(p, f)          ((p)->flags |= (f))
+#define CLEAR_FLAG(p, f)        ((p)->flags &= ~(f))
+#define SET_FLAG_V(p, f, v)     if ((v)) SET_FLAG(p, f); else CLEAR_FLAG(p, f);
 
 #define BYTE_0(x) (uint8_t)(((x) >> 0) & 0xFF)
 #define BYTE_1(x) (uint8_t)(((x) >> 8) & 0xFF)
 #define BYTE_2(x) (uint8_t)(((x) >> 16) & 0xFF)
 #define BYTE_3(x) (uint8_t)(((x) >> 24) & 0xFF)
+
+/**
+ * Shorthands for unsigned type (u8, u16, u24, u32) to little indian bytes and
+ * vice-versa.
+ *
+ * Note: Use with caution. These are simple macros that are intended to improve
+ * code maintainability by moving repeated patterns into one place. They do not
+ * consider side effects.
+ */
+#define U8_TO_BYTES_LE(val, buf, len) \
+	buf[len++] = BYTE_0(val)
+#define U16_TO_BYTES_LE(val, buf, len) \
+	buf[len++] = BYTE_0(val); \
+	buf[len++] = BYTE_1(val);
+#define U24_TO_BYTES_LE(val, buf, len) \
+	buf[len++] = BYTE_0(val); \
+	buf[len++] = BYTE_1(val); \
+	buf[len++] = BYTE_2(val);
+#define U32_TO_BYTES_LE(val, buf, len) \
+	buf[len++] = BYTE_0(val); \
+	buf[len++] = BYTE_1(val); \
+	buf[len++] = BYTE_2(val); \
+	buf[len++] = BYTE_3(val);
+#define BYTES_TO_U8_LE(buf, len, val) \
+	val = buf[len++];
+#define BYTES_TO_U16_LE(buf, len, val) \
+	val = ((buf[len + 1] << 8) | \
+	       (buf[len + 0] << 0)); \
+	len += 2;
+#define BYTES_TO_U24_LE(buf, len, val) \
+	val = ((buf[len + 2] << 16) | \
+	       (buf[len + 1] << 8) | \
+	       (buf[len + 0] << 0)); \
+	len += 3;
+#define BYTES_TO_U32_LE(buf, len, val) \
+	val = ((buf[len + 3] << 24) | \
+	       (buf[len + 2] << 16) | \
+	       (buf[len + 1] << 8) | \
+	       (buf[len + 0] << 0)); \
+	len += 4;
 
 /* casting helpers */
 #define TO_OSDP(ctx)  ((struct osdp *)ctx)
@@ -241,6 +282,11 @@ union osdp_ephemeral_data {
 
 #define PD_FLAG_ONLINE		   BIT(30)
 #define PD_FLAG_OFFLINE		   BIT(31)
+
+/* CP event requests; used with make_request() and check_request() */
+#define CP_REQ_RESTART_SC              0x00000001
+#define CP_REQ_EVENT_SEND              0x00000002
+#define CP_REQ_OFFLINE                 0x00000004
 
 enum osdp_cp_phy_state_e {
 	OSDP_CP_PHY_STATE_IDLE,

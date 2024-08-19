@@ -817,6 +817,12 @@ enum osdp_event_notification_type {
 	 * arg1: scbk type -- 0: scbk; 1: scbk-d
 	 */
 	OSDP_EVENT_NOTIFICATION_SC_STATUS,
+	/**
+	 * PD state change
+	 *
+	 * arg0: status -- 0: offline; 1: online
+	 */
+	OSDP_EVENT_NOTIFICATION_PD_STATUS,
 };
 
 /**
@@ -847,11 +853,6 @@ enum osdp_event_type {
 	OSDP_EVENT_NOTIFICATION,  /**< LibOSDP notification event */
 	// TODO: to add in FMT QR response for smarfid reader
 	OSDP_EVENT_QR_CODE,
-	OSDP_EVENT_PD_OFFLINE,
-	OSDP_EVENT_PD_ONLINE,
-	OSDP_EVENT_PD_ONLINE_WITH_SC,
-	OSDP_EVENT_PD_SC_ESTABLISH,
-	OSDP_EVENT_PD_INTERMITTENT_ONLINE,
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 
@@ -1128,6 +1129,18 @@ void osdp_cp_set_event_callback(osdp_t *ctx, cp_event_callback_t cb, void *arg);
 OSDP_EXPORT
 int osdp_cp_modify_flag(osdp_t *ctx, int pd, uint32_t flags, bool do_set);
 
+/**
+ * @brief 
+ * 
+ * @param ctx 
+ * @param pd_idx 
+ * @param flags 
+ * @param bm 
+ * @return OSDP_EXPORT 
+ */
+OSDP_EXPORT
+int osdp_cp_get_flag(osdp_t *ctx, int pd_idx, uint32_t flags);
+
 /* ------------------------------- */
 /*          Common Methods         */
 /* ------------------------------- */
@@ -1247,7 +1260,9 @@ void osdp_get_sc_status_mask(const osdp_t *ctx, uint8_t *bitmask);
  * @param arg Opaque pointer that was provided in @ref osdp_file_ops when the
  * ops struct was registered.
  * @param file_id File ID of pre-agreed file between this CP and PD
- * @param size Size of the file that was opened (filled by application)
+ * @param size Size of the file that was opened (to be populated by sender). In
+ * case of receiver, this value is just just input to indicate the incoming file
+ * size.
  *
  * @retval 0 on success
  * @retval -1 on errors
