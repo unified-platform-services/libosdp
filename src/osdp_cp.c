@@ -1250,6 +1250,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		if (ISSET_FLAG(pd, PD_FLAG_ONLINE) == 0) {
 			SET_FLAG(pd, PD_FLAG_ONLINE);
 			CLEAR_FLAG(pd, PD_FLAG_OFFLINE);
+			pd->pd_to_offline_count = 0;
 			/* XXX: Need to set online so that the event handler can send command */
 			pd->state = next;
 			notify_pd_status(pd, true);
