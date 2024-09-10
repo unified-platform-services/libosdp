@@ -770,10 +770,8 @@ static inline bool cp_sc_should_retry(struct osdp_pd *pd)
 
 static int cp_translate_cmd(struct osdp_pd *pd, struct osdp_cmd *cmd)
 {
-	int cmd_id = -1;
-
+	/* Make a local copy of osdp_cmd command to be used later */
 	memcpy(pd->ephemeral_data, cmd, sizeof(struct osdp_cmd));
-	cp_cmd_free(pd, cmd);
 	cmd = (struct osdp_cmd *)pd->ephemeral_data;
 
 	switch (cmd->id) {
@@ -803,11 +801,11 @@ static int cp_translate_cmd(struct osdp_pd *pd, struct osdp_cmd *cmd)
 			return -1;
 		}
 	case OSDP_CMD_KEYSET:
-		cmd_id = CMD_KEYSET;
 		if (cmd->keyset.type != 1 || !sc_is_active(pd)) {
-			cmd_id = -1;
+			return -1;
+		} else {
+			return CMD_KEYSET;
 		}
-		return cmd_id;
 	case OSDP_CMD_FILE_TX:
 		/**
 		 * This external command is handled as multiple command from
@@ -818,7 +816,8 @@ static int cp_translate_cmd(struct osdp_pd *pd, struct osdp_cmd *cmd)
 	default:
 		BUG();
 	}
-	return cmd_id;
+
+	return -1;
 }
 
 static void fill_local_keyset_cmd(struct osdp_pd *pd)
@@ -885,12 +884,6 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 			if (sc_is_active(pd)) {
 				pd->sc_tstamp = osdp_millis_now();
 			}
-			if (pd->reply_id == REPLY_BUSY) {
-				pd->phy_tstamp = osdp_millis_now();
-				pd->wait_ms = OSDP_CMD_RETRY_WAIT_MS;
-				pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
-				return OSDP_CP_ERR_CAN_YIELD;
-			}
 			pd->phy_state = OSDP_CP_PHY_STATE_DONE;
 			return OSDP_CP_ERR_NONE;
 		}
@@ -905,6 +898,12 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 		if (rc == OSDP_CP_ERR_GENERIC || rc == OSDP_CP_ERR_UNKNOWN) {
 			goto error;
 		}
+		if (rc == OSDP_CP_ERR_RETRY_CMD) {
+			pd->phy_tstamp = osdp_millis_now();
+			pd->wait_ms = OSDP_CMD_RETRY_WAIT_MS;
+			pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
+			return OSDP_CP_ERR_CAN_YIELD;
+		}
 		if (osdp_millis_since(pd->phy_tstamp) > OSDP_RESP_TOUT_MS) {
 			if (pd->phy_retry_count < OSDP_CMD_MAX_RETRIES) {
 				pd->wait_ms = OSDP_CMD_RETRY_WAIT_MS;
@@ -918,10 +917,6 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 			LOG_ERR("Response timeout for CMD: %s(%02x)",
 				osdp_cmd_name(pd->cmd_id), pd->cmd_id);
 			goto error;
-		}
-		if (rc == OSDP_CP_ERR_RETRY_CMD) {
-			pd->phy_state = OSDP_CP_PHY_STATE_DONE;
-			return OSDP_CP_ERR_NONE;
 		}
 		ret = OSDP_CP_ERR_INPROG;
 		break;
@@ -961,7 +956,9 @@ static int cp_get_online_command(struct osdp_pd *pd)
 	int ret;
 
 	if (cp_cmd_dequeue(pd, &cmd) == 0) {
-		return cp_translate_cmd(pd, cmd);
+		ret = cp_translate_cmd(pd, cmd);
+		cp_cmd_free(pd, cmd);
+		return ret;
 	}
 
 	ret = osdp_file_tx_get_command(pd);
