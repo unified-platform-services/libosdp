@@ -823,11 +823,28 @@ static int cp_translate_cmd(struct osdp_pd *pd, struct osdp_cmd *cmd)
 static void fill_local_keyset_cmd(struct osdp_pd *pd)
 {
 	struct osdp_cmd *cmd = (struct osdp_cmd *)pd->ephemeral_data;
+	uint8_t blank_scbk[16];
 
 	cmd->id = OSDP_CMD_KEYSET;
 	cmd->keyset.type = 1;
 	cmd->keyset.length = sizeof(pd->sc.scbk);
-	memcpy(cmd->keyset.data, pd->sc.scbk, sizeof(pd->sc.scbk));
+
+	memset(blank_scbk, OSDP_SC_BLANK_KEY, sizeof(blank_scbk));
+
+	/* to calculate the SCBK */
+	if (memcmp(pd->sc.scbk, blank_scbk, sizeof(pd->sc.scbk)) == 0) {		
+		if (pd->sc_get_master_key != NULL) {
+			/* reuse blank_scbk */			
+			pd->sc_get_master_key(blank_scbk);
+			osdp_compute_scbk(pd, blank_scbk, pd->sc.scbk);
+			/* later scbk */
+			memcpy(cmd->keyset.data, pd->sc.scbk, 16);
+		} else
+			memcpy(cmd->keyset.data, pd->sc.scbk,
+			       sizeof(pd->sc.scbk));
+	} else {
+		memcpy(cmd->keyset.data, pd->sc.scbk, sizeof(pd->sc.scbk));
+	}
 }
 
 static inline bool cp_phy_running(struct osdp_pd *pd)
@@ -1129,6 +1146,7 @@ static inline bool state_check_reply(struct osdp_pd *pd)
 
 static enum osdp_cp_state_e get_next_ok_state(struct osdp_pd *pd)
 {
+	uint8_t blank_scbk[16];
 	enum osdp_cp_state_e state = pd->state;
 
 	switch (state) {
@@ -1136,7 +1154,12 @@ static enum osdp_cp_state_e get_next_ok_state(struct osdp_pd *pd)
 		return OSDP_CP_STATE_CAPDET;
 	case OSDP_CP_STATE_CAPDET:
 		if (sc_is_capable(pd)) {
-			CLEAR_FLAG(pd, PD_FLAG_SC_USE_SCBKD);
+			memset(blank_scbk, OSDP_SC_BLANK_KEY, 16);
+			if (memcmp(pd->sc.scbk, blank_scbk, 16) == 0)
+				SET_FLAG(pd, PD_FLAG_SC_USE_SCBKD);
+			else
+				CLEAR_FLAG(pd, PD_FLAG_SC_USE_SCBKD);
+			
 			return OSDP_CP_STATE_SC_CHLNG;
 		}
 		if (is_enforce_secure(pd)) {
@@ -1498,7 +1521,8 @@ static struct osdp *__cp_setup(int num_pd, const osdp_pd_info_t *info_list)
 		if (info->name) {
 			strncpy(pd->name, info->name, OSDP_PD_NAME_MAXLEN - 1);
 		} else {
-			snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d", info->address);
+			snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d",
+				 info->address);
 		}
 		pd->baud_rate = info->baud_rate;
 		pd->address = info->address;
@@ -1508,6 +1532,10 @@ static struct osdp *__cp_setup(int num_pd, const osdp_pd_info_t *info_list)
 		SET_FLAG(pd, PD_FLAG_SC_DISABLED);
 		memcpy(&pd->channel, &info->channel,
 		       sizeof(struct osdp_channel));
+
+		if (info->sc_get_master_key != NULL)
+			pd->sc_get_master_key = info->sc_get_master_key;
+
 		if (info->scbk != NULL) {
 			memcpy(pd->sc.scbk, info->scbk, 16);
 			SET_FLAG(pd, PD_FLAG_HAS_SCBK);

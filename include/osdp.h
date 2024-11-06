@@ -268,6 +268,8 @@ typedef int (*osdp_write_fn_t)(void *data, uint8_t *buf, int len);
  */
 typedef void (*osdp_flush_fn_t)(void *data);
 
+typedef void (*sc_get_master_key_fn_t)(uint8_t *data);
+
 /**
  * @brief User defined communication channel abstraction for OSDP devices.
  * The methods for read/write/flush are expected to be non-blocking.
@@ -343,6 +345,7 @@ typedef struct {
 	 * non-null, this is used to set-up the secure channel.
 	 */
 	const uint8_t *scbk;
+	sc_get_master_key_fn_t sc_get_master_key;
 } osdp_pd_info_t;
 
 /**

@@ -37,7 +37,7 @@
 
 #define ARG_UNUSED(x) (void)(x)
 
-#define OSDP_DEBUG_EN 0
+#define OSDP_DEBUG_EN 1
 
 #if (OSDP_DEBUG_EN > 0)
 #define LOG_EM(...)    __logger_log(&pd->logger, LOG_EMERG,  __FILE__, __LINE__, __VA_ARGS__)
@@ -444,7 +444,9 @@ struct osdp_pd {
 	logger_t logger;
 
 	/* Opaque packet capture pointer (see osdp_pcap.c) */
-	void *packet_capture_ctx;
+	void *packet_capture_ctx;	
+	
+	sc_get_master_key_fn_t sc_get_master_key;
 };
 
 struct osdp {
