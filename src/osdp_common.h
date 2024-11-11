@@ -63,6 +63,7 @@ do {\
 #define LOG_ERR(...)   
 #define LOG_INF(...)   
 #define LOG_WRN(...)   
+#define LOG_WRN_ONCE(...)
 #define LOG_NOT(...)   
 #define LOG_DBG(...)   
 #endif
