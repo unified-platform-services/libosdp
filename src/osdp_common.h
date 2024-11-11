@@ -37,7 +37,7 @@
 
 #define ARG_UNUSED(x) (void)(x)
 
-#define OSDP_DEBUG_EN 1
+#define OSDP_DEBUG_EN 0
 
 #if (OSDP_DEBUG_EN > 0)
 #define LOG_EM(...)    __logger_log(&pd->logger, LOG_EMERG,  __FILE__, __LINE__, __VA_ARGS__)
