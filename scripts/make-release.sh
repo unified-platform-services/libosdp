@@ -96,10 +96,12 @@ function do_libosdp_release() {
 	git diff --cached --name-status | while read status file; do
 		if [[ "$file" != "CHANGELOG" ]] && \
 		   [[ "$file" != "CMakeLists.txt" ]] && \
-		   [[ "$file" != "python/setup.py" ]]
+		   [[ "$file" != "python/setup.py" ]] && \
+		   [[ "$file" != "library.json" ]] && \
+		   [[ "$file" != "platformio/osdp_config.h" ]]
 		then
 			echo "ERROR:"
-			echo "  Only CHANGELOG CMakeLists.txt python/setup.py must be modified"
+			echo "  Only CHANGELOG CMakeLists.txt and few other files must be modified"
 			echo "  to make a release commit. To prepare a new release, run this"
 			echo "  script on a clean git tree."
 			exit 1
@@ -110,9 +112,9 @@ function do_libosdp_release() {
 		echo "CHANGELOG needs to be updated manually"
 		exit 1
 	fi
-	git add CHANGELOG CMakeLists.txt python/setup.py &&
+	git add CHANGELOG CMakeLists.txt python/setup.py library.json platformio/osdp_config.h &&
 	git commit -s -m "Release v$version" &&
-	git tag "v$version" -a -m "Release v$version"
+	git tag "v$version" -s -a -m "Release v$version"
 }
 
 INC="patch"
