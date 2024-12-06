@@ -30,20 +30,20 @@
 #define CMD_SCRYPT_LEN 17
 #define CMD_MFG_LEN    4 /* variable length command */
 
-#define REPLY_ACK_DATA_LEN     0
-#define REPLY_PDID_DATA_LEN    12
-#define REPLY_PDCAP_ENTITY_LEN 3
-#define REPLY_LSTATR_DATA_LEN  2
-#define REPLY_RSTATR_DATA_LEN  1
-#define REPLY_COM_DATA_LEN     5
-#define REPLY_NAK_DATA_LEN     1
-#define REPLY_CCRYPT_DATA_LEN  32
-#define REPLY_RMAC_I_DATA_LEN  16
-#define REPLY_KEYPAD_DATA_LEN  2 /* variable length command */
-#define REPLY_RAW_DATA_LEN     4 /* variable length command */
-#define REPLY_FMT_DATA_LEN     3 /* variable length command */
-#define REPLY_BUSY_DATA_LEN    0
-#define REPLY_MFGREP_LEN       4 /* variable length command */
+#define REPLY_ACK_DATA_LEN             0
+#define REPLY_PDID_DATA_LEN            12
+#define REPLY_PDCAP_ENTITY_LEN         3
+#define REPLY_LSTATR_DATA_LEN          2
+#define REPLY_RSTATR_DATA_LEN          1
+#define REPLY_COM_DATA_LEN             5
+#define REPLY_NAK_DATA_LEN             1
+#define REPLY_CCRYPT_DATA_LEN          32
+#define REPLY_RMAC_I_DATA_LEN          16
+#define REPLY_KEYPAD_DATA_LEN          2   /* variable length command */
+#define REPLY_RAW_DATA_LEN             4   /* variable length command */
+#define REPLY_FMT_DATA_LEN     		   3 /* variable length command */
+#define REPLY_BUSY_DATA_LEN            0
+#define REPLY_MFGREP_LEN               4   /* variable length command */
 
 enum osdp_cp_error_e {
 	OSDP_CP_ERR_NONE = 0,
@@ -171,6 +171,8 @@ static const char *cp_get_cap_name(int cap)
 		[OSDP_PD_CAP_SMART_CARD_SUPPORT] = "SmartCard",
 		[OSDP_PD_CAP_READERS] = "Reader",
 		[OSDP_PD_CAP_BIOMETRICS] = "Biometric",
+		[OSDP_PD_CAP_SECURE_PIN_ENTRY] = "SecurePinEntry",
+		[OSDP_PD_CAP_OSDP_VERSION] = "OsdpVersion",
 	};
 	return cap_name[cap];
 }
@@ -1069,8 +1071,10 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		    pd->reply_id == REPLY_ISTATR ||
 		    pd->reply_id == REPLY_OSTATR ||
 		    pd->reply_id == REPLY_RSTATR ||
-		    pd->reply_id == REPLY_MFGREP || pd->reply_id == REPLY_RAW ||
-		    pd->reply_id == REPLY_FMT || pd->reply_id == REPLY_KEYPAD) {
+		    pd->reply_id == REPLY_MFGREP || 
+			pd->reply_id == REPLY_RAW ||
+		    pd->reply_id == REPLY_FMT || 
+			pd->reply_id == REPLY_KEYPAD) {
 			return true;
 		}
 		return ISSET_FLAG(pd, OSDP_FLAG_IGN_UNSOLICITED);
