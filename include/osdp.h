@@ -412,6 +412,8 @@ enum osdp_status_report_type {
 	OSDP_STATUS_REPORT_REMOTE,
 };
 
+#define OSDP_STATUS_REPORT_MAX_LEN 64
+
 /**
  * @brief Status report structure. Used by OSDP_CMD_STATUS and
  * OSDP_EVENT_STATUS. In case of command, it is used to send a query to the PD
@@ -430,9 +432,9 @@ struct osdp_status_report {
 	 */
 	int nr_entries;
 	/**
-	 * Status bit mask
+	 * Status report
 	 */
-	uint32_t mask;
+	uint8_t report[OSDP_STATUS_REPORT_MAX_LEN];
 };
 
 /* ------------------------------- */
@@ -703,6 +705,7 @@ enum osdp_cmd_e {
 	OSDP_CMD_MFG,         /**< Manufacturer specific command */
 	OSDP_CMD_FILE_TX,     /**< File transfer command */
 	OSDP_CMD_STATUS,      /**< Status report command */
+	OSDP_CMD_COMSET_DONE, /**< Comeset completed; Alias for OSDP_CMD_COMSET */
 	OSDP_CMD_SENTINEL     /**< Max command value */
 };
 

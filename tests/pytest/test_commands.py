@@ -151,9 +151,15 @@ def test_command_comset():
         'address': secure_pd_addr,
         'baud_rate': 9600
     }
+    test_cmd_done = {
+        'command': Command.ComsetDone,
+        'address': secure_pd_addr,
+        'baud_rate': 9600
+    }
     assert cp.is_online(secure_pd_addr)
     assert cp.send_command(secure_pd_addr, test_cmd)
     assert secure_pd.get_command() == test_cmd
+    assert secure_pd.get_command() == test_cmd_done
     cp_check_command_status(Command.Comset)
 
 def test_command_mfg():
@@ -192,8 +198,7 @@ def test_command_status():
     def evt_handler(pd, event):
         assert event['event'] == Event.Status
         assert event['type'] == StatusReportType.Input
-        assert event['mask'] == 0x55
-        assert event['nr_entries'] == 8
+        assert event['report'] == bytes([ 0, 1, 0, 1, 0, 1, 0, 1 ])
         return 0
 
     def cmd_handler(command):
@@ -202,8 +207,7 @@ def test_command_status():
         cmd = {
             'command': Command.Status,
             'type': StatusReportType.Input,
-            'mask': 0x55,
-            'nr_entries': 8,
+            'report': bytes([ 0, 1, 0, 1, 0, 1, 0, 1 ])
         }
         return 0, cmd
 
@@ -214,7 +218,6 @@ def test_command_status():
     test_cmd = {
         'command': Command.Status,
         'type': StatusReportType.Input,
-        'mask': 0,
-        'nr_entries': 0,
+        'report': bytes([]),
     }
     cp.send_command(secure_pd_addr, test_cmd)
