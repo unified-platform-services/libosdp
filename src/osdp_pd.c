@@ -1142,8 +1142,8 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 	if (IS_ENABLED(CONFIG_OSDP_SKIP_MARK_BYTE)) {
 		SET_FLAG(pd, PD_FLAG_PKT_SKIP_MARK);
 	}
-	osdp_pd_set_attributes(pd, info->cap, &info->id);
 	osdp_pd_set_attributes(pd, osdp_pd_cap, NULL);
+	osdp_pd_set_attributes(pd, info->cap, &info->id);
 
 	SET_FLAG(pd, PD_FLAG_PD_MODE); /* used in checks in phy */
 
