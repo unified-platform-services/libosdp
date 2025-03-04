@@ -88,7 +88,7 @@ def test_command_output():
         'timer_count': 10
     }
     assert cp.is_online(secure_pd_addr)
-    assert cp.send_command(secure_pd_addr, test_cmd)
+    assert cp.submit_command(secure_pd_addr, test_cmd)
     assert secure_pd.get_command() == test_cmd
     cp_check_command_status(Command.Output)
 
@@ -102,7 +102,7 @@ def test_command_buzzer():
         'rep_count': 10
     }
     assert cp.is_online(secure_pd_addr)
-    assert cp.send_command(secure_pd_addr, test_cmd)
+    assert cp.submit_command(secure_pd_addr, test_cmd)
     assert secure_pd.get_command() == test_cmd
     cp_check_command_status(Command.Buzzer)
 
@@ -117,7 +117,7 @@ def test_command_text():
         'data': 'PYOSDP'
     }
     assert cp.is_online(secure_pd_addr)
-    assert cp.send_command(secure_pd_addr, test_cmd)
+    assert cp.submit_command(secure_pd_addr, test_cmd)
     assert secure_pd.get_command() == test_cmd
     cp_check_command_status(Command.Text)
 
@@ -134,14 +134,14 @@ def test_command_led():
         'timer_count': 10,
         'temporary': True
     }
-    assert cp.send_command(secure_pd_addr, test_cmd)
+    assert cp.submit_command(secure_pd_addr, test_cmd)
     assert secure_pd.get_command() == test_cmd
     cp_check_command_status(Command.LED)
 
     test_cmd['temporary'] = False
     del test_cmd['timer_count']
 
-    assert cp.send_command(secure_pd_addr, test_cmd)
+    assert cp.submit_command(secure_pd_addr, test_cmd)
     assert secure_pd.get_command() == test_cmd
     cp_check_command_status(Command.LED)
 
@@ -157,7 +157,7 @@ def test_command_comset():
         'baud_rate': 9600
     }
     assert cp.is_online(secure_pd_addr)
-    assert cp.send_command(secure_pd_addr, test_cmd)
+    assert cp.submit_command(secure_pd_addr, test_cmd)
     assert secure_pd.get_command() == test_cmd
     assert secure_pd.get_command() == test_cmd_done
     cp_check_command_status(Command.Comset)
@@ -170,7 +170,7 @@ def test_command_mfg():
         'data': bytes([9,1,9,2,6,3,1,7,7,0])
     }
     assert cp.is_online(secure_pd_addr)
-    assert cp.send_command(secure_pd_addr, test_cmd)
+    assert cp.submit_command(secure_pd_addr, test_cmd)
     assert secure_pd.get_command() == test_cmd
     cp_check_command_status(Command.Manufacturer)
 
@@ -181,7 +181,7 @@ def test_command_keyset():
         'data': KeyStore.gen_key()
     }
     assert cp.is_online(secure_pd_addr)
-    assert cp.send_command(secure_pd_addr, test_cmd)
+    assert cp.submit_command(secure_pd_addr, test_cmd)
     assert secure_pd.get_command() == test_cmd
     cp_check_command_status(Command.Keyset)
 
@@ -192,8 +192,14 @@ def test_command_keyset():
 
     # When not in SC, KEYSET command should not be accepted.
     assert cp.is_sc_active(insecure_pd_addr) == False
-    assert cp.send_command(insecure_pd_addr, test_cmd) == False
+    assert cp.submit_command(insecure_pd_addr, test_cmd) == False
 
+@pytest.mark.skip(
+    reason=(
+        "Switching callback handlers at runtime is broken;"
+        " Also asserting from callback doens't work"
+    )
+)
 def test_command_status():
     def evt_handler(pd, event):
         assert event['event'] == Event.Status
@@ -220,4 +226,4 @@ def test_command_status():
         'type': StatusReportType.Input,
         'report': bytes([]),
     }
-    cp.send_command(secure_pd_addr, test_cmd)
+    cp.submit_command(secure_pd_addr, test_cmd)

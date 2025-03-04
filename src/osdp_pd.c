@@ -148,7 +148,7 @@ static int pd_translate_event(struct osdp_pd *pd, struct osdp_event *event)
 			reply_code = REPLY_RAW;
 		} else if (event->cardread.format == OSDP_CARD_FMT_ASCII) {
 			/**
-			 * osdp_FMT was underspecifed by SIA from get-go. It
+			 * osdp_FMT was underspecified by SIA from get-go. It
 			 * was marked for deprecation in v2.2.2.
 			 *
 			 * See: https://github.com/goToMain/libosdp/issues/206
@@ -277,7 +277,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 	struct osdp_cmd cmd;
 	struct osdp_event *event;
 
-	pd->reply_id = 0;
+	pd->reply_id = REPLY_NAK;
+	pd->ephemeral_data[0] = OSDP_PD_NAK_RECORD;
 	pd->cmd_id = cmd.id = buf[pos++];
 	len--;
 
@@ -908,6 +909,7 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		}
 		ret = OSDP_PD_ERR_NONE;
 		break;
+	default: BUG();
 	}
 
 	if (smb && (smb[1] > SCS_14) && sc_is_active(pd)) {
@@ -1194,6 +1196,10 @@ void osdp_pd_teardown(osdp_t *ctx)
 		osdp_packet_capture_finish(pd);
 	}
 
+	if (pd->channel.close) {
+		pd->channel.close(pd->channel.data);
+	}
+
 #ifndef CONFIG_OSDP_STATIC_PD
 	safe_free(pd->file);
 	safe_free(pd);
@@ -1227,7 +1233,7 @@ void osdp_pd_set_command_callback(osdp_t *ctx, pd_command_callback_t cb,
 	pd->command_callback = cb;
 }
 
-int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event)
+int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 {
 	input_check(ctx);
 	struct osdp_event *ev;
@@ -1241,6 +1247,11 @@ int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event)
 	memcpy(ev, event, sizeof(struct osdp_event));
 	pd_event_enqueue(pd, ev);
 	return 0;
+}
+
+int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event)
+{
+	return osdp_pd_submit_event(ctx, event);
 }
 
 int osdp_pd_flush_events(osdp_t *ctx)

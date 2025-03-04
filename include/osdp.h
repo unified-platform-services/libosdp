@@ -29,6 +29,7 @@ extern "C" {
  * possible. Fail where these assumptions don't hold.
  *   - Don't allow use of SCBK-D.
  *   - Assume that a KEYSET was successful at an earlier time.
+ *   - CP does not allow user requested broadcast commands (see OSDP_CMD_FLAG_BROADCAST)
  *
  * @note This flag is recommended in production use.
  */
@@ -298,6 +299,14 @@ typedef void (*osdp_flush_fn_t)(void *data);
 typedef void (*sc_get_master_key_fn_t)(uint8_t *data);
 
 /**
+ * @brief pointer to function that closes the underlying channel. This call is
+ * made when LibOSDP is terminating, once per PD.
+ *
+ * @param data for use by underlying layers. osdp_channel::data is passed
+ */
+typedef void (*osdp_close_fn_t)(void *data);
+
+/**
  * @brief User defined communication channel abstraction for OSDP devices.
  * The methods for read/write/flush are expected to be non-blocking.
  */
@@ -326,6 +335,10 @@ struct osdp_channel {
 	 * Pointer to function used to flush the channel (optional)
 	 */
 	osdp_flush_fn_t flush;
+	/**
+	 * Pointer to function used to close the channel (optional)
+	 */
+	osdp_close_fn_t close;
 };
 
 /**
@@ -705,19 +718,27 @@ enum osdp_cmd_e {
 	OSDP_CMD_MFG,         /**< Manufacturer specific command */
 	OSDP_CMD_FILE_TX,     /**< File transfer command */
 	OSDP_CMD_STATUS,      /**< Status report command */
-	OSDP_CMD_COMSET_DONE, /**< Comeset completed; Alias for OSDP_CMD_COMSET */
+	OSDP_CMD_COMSET_DONE, /**< Comset completed; Alias for OSDP_CMD_COMSET */
 	OSDP_CMD_SENTINEL     /**< Max command value */
 };
+
+/**
+ * @brief When set (`struct osdp_cmd::flags`), the command is sent out with the
+ * OSDP packet broadcast flag to the PD.
+ *
+ * According to the OSDP specification: "the use of the broadcast address should
+ * be limited to controlled (single PD) configurations". So this flag will be
+ * ignored in ENFORCE_SECURE mode.
+ */
+#define OSDP_CMD_FLAG_BROADCAST 0x000000001
 
 /**
  * @brief OSDP Command Structure. This is a wrapper for all individual OSDP
  * commands.
  */
 struct osdp_cmd {
-	/**
-	 * Command ID. Used to select specific commands in union.
-	 */
-	enum osdp_cmd_e id;
+	enum osdp_cmd_e id;    /**< Command ID. Used to select specific commands in union */
+	uint32_t flags;        /**< Flags; see OSDP_CMD_FLAG_* flags for possibilities */
 	/** Command */
 	union {
 		struct osdp_cmd_led led;          /**< LED command structure */
@@ -888,10 +909,8 @@ enum osdp_event_type {
  * @brief OSDP Event structure.
  */
 struct osdp_event {
-	/**
-	 * Event type. Used to select specific event in union.
-	 */
-	enum osdp_event_type type;
+	enum osdp_event_type type;  /**< Event type. Used to select specific event in union */
+	uint32_t flags;             /**< Flags; reserved, set to zero */
 	/** Event */
 	union {
 		struct osdp_event_keypress keypress; /**< Keypress event structure */
@@ -1003,7 +1022,22 @@ void osdp_pd_set_command_callback(osdp_t *ctx, pd_command_callback_t cb,
  * @retval -1 on failure
  */
 OSDP_EXPORT
-int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event);
+int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event)
+	__attribute__((deprecated("Use osdp_pd_submit_event() instead!")));
+
+/**
+ * @brief Submit PD events to CP. These events are delivered to the CP as a
+ * response to a future POLL command. A successful return does not mean CP
+ * received it, it only means LibOSDP accepted this submission.
+ *
+ * @param ctx OSDP context
+ * @param event pointer to event struct. Must be filled by application.
+ *
+ * @retval 0 on success
+ * @retval -1 on failure
+ */
+OSDP_EXPORT
+int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event);
 
 /**
  * @brief Deletes all events from the PD's event queue.
@@ -1079,7 +1113,27 @@ void osdp_cp_teardown(osdp_t *ctx);
  * queue. The command itself can fail due to various reasons.
  */
 OSDP_EXPORT
-int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
+int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd)
+	__attribute__((deprecated("Use osdp_cp_submit_command() instead!")));
+
+/**
+ * @brief Submit CP commands to PD. These commands are queued to be sent to the
+ * PD at the next available opportunity. A successful return does not mean PD
+ * received it, it only means LibOSDP accepted this submission.
+ *
+ * @param ctx OSDP context
+ * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
+ * osdp_cp_setup()
+ * @param cmd command pointer. Must be filled by application.
+ *
+ * @retval 0 on success
+ * @retval -1 on failure
+ *
+ * @note This method only adds the command on to a particular PD's command
+ * queue. The command itself can fail due to various reasons.
+ */
+OSDP_EXPORT
+int osdp_cp_submit_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
 
 /**
  * @brief Deletes all commands queued for a give PD

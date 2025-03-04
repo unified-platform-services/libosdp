@@ -975,6 +975,9 @@ static int cp_get_online_command(struct osdp_pd *pd)
 
 	if (cp_cmd_dequeue(pd, &cmd) == 0) {
 		ret = cp_translate_cmd(pd, cmd);
+		if (cmd->flags & OSDP_CMD_FLAG_BROADCAST) {
+			SET_FLAG(pd, PD_FLAG_PKT_BROADCAST);
+		}
 		cp_cmd_free(pd, cmd);
 		return ret;
 	}
@@ -1459,6 +1462,55 @@ static int cp_refresh(struct osdp_pd *pd)
 	return 0;
 }
 
+static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
+{
+	struct osdp_cmd *p;
+	const uint32_t all_flags = (
+		OSDP_CMD_FLAG_BROADCAST
+	);
+
+	if (pd->state != OSDP_CP_STATE_ONLINE) {
+		LOG_ERR("PD is not online");
+		return -1;
+	}
+
+	if (cmd->flags & ~all_flags) {
+		LOG_ERR("Invalid command flag");
+		return -1;
+	}
+
+	if (cmd->flags & OSDP_CMD_FLAG_BROADCAST) {
+		if (NUM_PD(pd->osdp_ctx) != 1) {
+			LOG_ERR("Command broadcast is allowed only in single"
+				" PD environments");
+			return -1;
+		}
+		if (is_enforce_secure(pd)) {
+			LOG_ERR("Cannot send command in broadcast mode"
+				" due to ENFORCE_SECURE");
+			return -1;
+		}
+	}
+
+	if (cmd->id == OSDP_CMD_FILE_TX) {
+		return osdp_file_tx_command(pd, cmd->file_tx.id,
+					    cmd->file_tx.flags);
+	} else if (cmd->id == OSDP_CMD_KEYSET &&
+		   (cmd->keyset.type != 1 || !sc_is_active(pd))) {
+		LOG_ERR("Invalid keyset request");
+		return -1;
+	}
+
+	p = cp_cmd_alloc(pd);
+	if (p == NULL) {
+		LOG_ERR("Failed to allocate command");
+		return -1;
+	}
+	memcpy(p, cmd, sizeof(struct osdp_cmd));
+	cp_cmd_enqueue(pd, p);
+	return 0;
+}
+
 static int cp_detect_connection_topology(struct osdp *ctx)
 {
 	int i, j, num_channels;
@@ -1641,6 +1693,9 @@ void osdp_cp_teardown(osdp_t *ctx)
 			osdp_packet_capture_finish(pd);
 		}
 		safe_free(pd->file);
+		if (pd->channel.close) {
+			pd->channel.close(pd->channel.data);
+		}
 	}
 
 	safe_free(osdp_to_pd(ctx, 0));
@@ -1681,28 +1736,16 @@ int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 {
 	input_check(ctx, pd_idx);
 	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
-	struct osdp_cmd *p;
 
-	if (pd->state != OSDP_CP_STATE_ONLINE) {
-		return -1;
-	}
+	return cp_submit_command(pd, cmd);
+}
 
-	if (cmd->id == OSDP_CMD_FILE_TX) {
-		return osdp_file_tx_command(pd, cmd->file_tx.id,
-					    cmd->file_tx.flags);
-	} else if (cmd->id == OSDP_CMD_KEYSET) {
-		if (cmd->keyset.type != 1 || !sc_is_active(pd)) {
-			return -1;
-		}
-	}
+int osdp_cp_submit_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
+{
+	input_check(ctx, pd_idx);
+	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
 
-	p = cp_cmd_alloc(pd);
-	if (p == NULL) {
-		return -1;
-	}
-	memcpy(p, cmd, sizeof(struct osdp_cmd));
-	cp_cmd_enqueue(pd, p);
-	return 0;
+	return cp_submit_command(pd, cmd);
 }
 
 int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)

@@ -140,12 +140,11 @@ int osdp_phy_in_sc_handshake(int is_reply, int id)
 
 int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 {
-	int exp_len, id, scb_len = 0;
+	int id, scb_len = 0;
 	struct osdp_packet_header *pkt;
 
-	exp_len = sizeof(struct osdp_packet_header) + 64; /* 64 is estimated */
-	if (max_len < exp_len) {
-		LOG_ERR("packet_init: out of space! CMD: %02x", pd->cmd_id);
+	if (max_len < OSDP_MINIMUM_PACKET_SIZE) {
+		LOG_ERR("packet_init: packet size too small");
 		return OSDP_ERR_PKT_FMT;
 	}
 
@@ -163,13 +162,13 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	/* Fill packet header */
 	pkt = (struct osdp_packet_header *)buf;
 	pkt->som = OSDP_PKT_SOM;
-	pkt->pd_address = pd->address & 0x7F; /* Use only the lower 7 bits */
+	pkt->pd_address = pd->address & 0x7F;	/* Use only the lower 7 bits */
+	if (ISSET_FLAG(pd, PD_FLAG_PKT_BROADCAST)) {
+		pkt->pd_address = 0x7F;
+		CLEAR_FLAG(pd, PD_FLAG_PKT_BROADCAST);
+	}
+	/* PD must reply with MSB of it's address set */
 	if (is_pd_mode(pd)) {
-		/* PD must reply with MSB of it's address set */
-		if (ISSET_FLAG(pd, PD_FLAG_PKT_BROADCAST)) {
-			pkt->pd_address = 0x7F; /* made 0xFF below */
-			CLEAR_FLAG(pd, PD_FLAG_PKT_BROADCAST);
-		}
 		pkt->pd_address |= 0x80;
 		id = pd->reply_id;
 	} else {
@@ -333,7 +332,6 @@ static int phy_check_header(struct osdp_pd *pd)
 	int pkt_len, len, target_len;
 	struct osdp_packet_header *pkt;
 	uint8_t cur_byte = 0;
-	// uint8_t prev_byte = 0;
 	uint8_t *buf = pd->packet_buf;
 
 	// we need to define a state here instead of just checking som
@@ -410,25 +408,6 @@ static int phy_check_header(struct osdp_pd *pd)
 			pd->packet_buf_len = header_byte_count;
 			break;
 		}
-
-		// if (cur_byte == OSDP_PKT_SOM && prev_byte == OSDP_PKT_MARK) {
-		// 	if (prev_byte == OSDP_PKT_MARK) {
-		// 		buf[0] = OSDP_PKT_MARK;
-		// 		buf[1] = OSDP_PKT_SOM;
-		// 		pd->packet_buf_len = 2;
-		// 		SET_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
-		// 	} else {
-		// 		buf[0] = OSDP_PKT_SOM;
-		// 		pd->packet_buf_len = 1;
-		// 		CLEAR_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
-		// 	}
-		// 	break;
-		// }
-		// if (cur_byte != OSDP_PKT_MARK) {
-		// 	pd->packet_scan_skip++;
-		// }
-
-		// prev_byte = cur_byte;
 	}
 
 	if (header_byte_count == sizeof(struct osdp_packet_header) + 1) {
@@ -436,13 +415,6 @@ static int phy_check_header(struct osdp_pd *pd)
 	} else {
 		CLEAR_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
 	}
-
-	for (uint8_t i = 0; i < header_byte_count; i++) {
-		printf("%02X ", buf[i]);
-	}
-
-	printf("%d", packet_has_mark(pd));
-	printf("\n");
 
 	pkt = (struct osdp_packet_header *)(buf + packet_has_mark(pd));
 
