@@ -327,6 +327,37 @@ int osdp_phy_send_packet(struct osdp_pd *pd, uint8_t *buf, int len, int max_len)
 	return OSDP_ERR_PKT_NONE;
 }
 
+static bool phy_rescan_packet_buf(struct osdp_pd *pd)
+{
+	unsigned long j = packet_has_mark(pd);
+	unsigned long i = j + 1; /* +1 to skip current SoM */
+
+	while (i < pd->packet_buf_len && pd->packet_buf[i] != OSDP_PKT_SOM) {
+		i++;
+	}
+
+	if (i < pd->packet_buf_len) {
+		/* found another SoM; move the rest of the bytes down */
+		if (i && pd->packet_buf[i - 1] == OSDP_PKT_MARK) {
+			pd->packet_buf[0] = OSDP_PKT_MARK;
+			j = 1;
+			SET_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
+		} else {
+			j = 0;
+			CLEAR_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
+		}
+		while (i < pd->packet_buf_len) {
+			pd->packet_buf[j++] = pd->packet_buf[i++];
+		}
+		pd->packet_buf_len = j;
+		return true;
+	}
+
+	/* nothing found, discarded all */
+	pd->packet_buf_len = 0;
+	return false;
+}
+
 static int phy_check_header(struct osdp_pd *pd)
 {
 	int pkt_len, len, target_len;
