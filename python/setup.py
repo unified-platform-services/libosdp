@@ -85,6 +85,7 @@ utils_sources = [
     "utils/src/utils.c",
     "utils/src/logger.c",
     "utils/src/disjoint_set.c",
+    "utils/src/crc16.c",
 ]
 
 utils_includes = [
@@ -95,6 +96,7 @@ utils_includes = [
     "utils/include/utils/utils.h",
     "utils/include/utils/logger.h",
     "utils/include/utils/disjoint_set.h",
+    "utils/include/utils/crc16.h",
 ]
 
 lib_sources = [
@@ -147,13 +149,13 @@ try_vendor_sources(
 )
 
 definitions = [
-    "CONFIG_OSDP_PACKET_TRACE",
-    # "CONFIG_OSDP_DATA_TRACE",
-    # "CONFIG_OSDP_SKIP_MARK_BYTE",
+    "OPT_OSDP_PACKET_TRACE",
+    # "OPT_OSDP_DATA_TRACE",
+    # "OPT_OSDP_SKIP_MARK_BYTE",
 ]
 
-if ("CONFIG_OSDP_PACKET_TRACE" in definitions or
-    "CONFIG_OSDP_DATA_TRACE" in definitions):
+if ("OPT_OSDP_PACKET_TRACE" in definitions or
+    "OPT_OSDP_DATA_TRACE" in definitions):
     source_files += [
         "src/osdp_diag.c",
         "utils/src/pcap_gen.c",

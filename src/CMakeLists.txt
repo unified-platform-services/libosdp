@@ -4,37 +4,28 @@
 #  SPDX-License-Identifier: Apache-2.0
 #
 
-## Options
-option(CONFIG_OSDP_PACKET_TRACE "Enable raw packet trace for diagnostics" OFF)
-option(CONFIG_OSDP_DATA_TRACE "Enable command/reply data buffer tracing" OFF)
-option(CONFIG_OSDP_SKIP_MARK_BYTE "Don't send the leading mark byte (0xFF)" OFF)
-option(CONFIG_DISABLE_PRETTY_LOGGING "Don't colorize log ouputs" OFF)
-option(CONFIG_BUILD_SANITIZER "Enable different sanitizers during build" OFF)
-option(CONFIG_BUILD_STATIC "Build static library" ON)
-option(CONFIG_BUILD_SHARED "Build shared library" ON)
-
-if (NOT CONFIG_BUILD_STATIC AND NOT CONFIG_BUILD_SHARED)
+if (NOT OPT_BUILD_STATIC AND NOT OPT_BUILD_SHARED)
 	message(FATAL_ERROR "Both static and shared builds must not be disabled")
 endif()
 
-if (CONFIG_OSDP_PACKET_TRACE)
-	list(APPEND LIB_OSDP_DEFINITIONS "-DCONFIG_OSDP_PACKET_TRACE")
+if (OPT_OSDP_PACKET_TRACE)
+	list(APPEND LIB_OSDP_DEFINITIONS "-DOPT_OSDP_PACKET_TRACE")
 endif()
 
-if (CONFIG_OSDP_DATA_TRACE)
-	list(APPEND LIB_OSDP_DEFINITIONS "-DCONFIG_OSDP_DATA_TRACE")
+if (OPT_OSDP_DATA_TRACE)
+	list(APPEND LIB_OSDP_DEFINITIONS "-DOPT_OSDP_DATA_TRACE")
 endif()
 
-if (CONFIG_OSDP_SKIP_MARK_BYTE)
-	list(APPEND LIB_OSDP_DEFINITIONS "-DCONFIG_OSDP_SKIP_MARK_BYTE")
+if (OPT_OSDP_SKIP_MARK_BYTE)
+	list(APPEND LIB_OSDP_DEFINITIONS "-DOPT_OSDP_SKIP_MARK_BYTE")
 endif()
 
-if (CONFIG_DISABLE_PRETTY_LOGGING)
-	list(APPEND LIB_OSDP_DEFINITIONS "-DCONFIG_DISABLE_PRETTY_LOGGING")
+if (OPT_DISABLE_PRETTY_LOGGING)
+	list(APPEND LIB_OSDP_DEFINITIONS "-DOPT_DISABLE_PRETTY_LOGGING")
 endif()
 
-if (CONFIG_OSDP_STATIC_PD)
-	list(APPEND LIB_OSDP_DEFINITIONS "-DCONFIG_OSDP_STATIC_PD")
+if (OPT_OSDP_STATIC_PD)
+	list(APPEND LIB_OSDP_DEFINITIONS "-DOPT_OSDP_STATIC_PD")
 endif()
 
 # optionally, find and use OpenSSL or MbedTLS
@@ -58,13 +49,13 @@ list(APPEND LIB_OSDP_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/osdp_file.c
 )
 
-if (NOT CONFIG_OSDP_STATIC_PD)
+if (NOT OPT_OSDP_STATIC_PD)
 	list(APPEND LIB_OSDP_SOURCES
 		${CMAKE_CURRENT_SOURCE_DIR}/osdp_cp.c
 	)
 endif()
 
-if (CONFIG_OSDP_PACKET_TRACE OR CONFIG_OSDP_DATA_TRACE)
+if (OPT_OSDP_PACKET_TRACE OR OPT_OSDP_DATA_TRACE)
 	list(APPEND LIB_OSDP_SOURCES
 		${CMAKE_CURRENT_SOURCE_DIR}/osdp_diag.c
 	)
@@ -82,10 +73,10 @@ list(APPEND LIB_OSDP_PRIVATE_INCLUDE_DIRS
 if (OpenSSL_FOUND)
 	list(APPEND LIB_OSDP_LIBRARIES ${OPENSSL_CRYPTO_LIBRARY}) # Needed for python library building
 	list(APPEND LIB_OSDP_INCLUDE_DIRS ${OPENSSL_INCLUDE_DIR})
-	list(APPEND LIB_OSDP_DEFINITIONS "-DCONFIG_OSDP_USE_OPENSSL")
+	list(APPEND LIB_OSDP_DEFINITIONS "-DOPT_OSDP_USE_OPENSSL")
 	list(APPEND LIB_OSDP_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/crypto/openssl.c)
 elseif (MbedTLS_FOUND)
-	list(APPEND LIB_OSDP_DEFINITIONS "-DCONFIG_OSDP_USE_MBEDTLS")
+	list(APPEND LIB_OSDP_DEFINITIONS "-DOPT_OSDP_USE_MBEDTLS")
 	list(APPEND LIB_OSDP_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/crypto/mbedtls.c)
 else()
 	list(APPEND LIB_OSDP_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/crypto/tinyaes.c)
@@ -106,6 +97,7 @@ list(APPEND LIB_OSDP_UTILS_SRC
 	${PROJECT_SOURCE_DIR}/utils/src/slab.c
 	${PROJECT_SOURCE_DIR}/utils/src/disjoint_set.c
 	${PROJECT_SOURCE_DIR}/utils/src/logger.c
+	${PROJECT_SOURCE_DIR}/utils/src/crc16.c
 )
 
 list(APPEND LIB_OSDP_HEADERS
@@ -127,10 +119,10 @@ add_definitions(${LIB_OSDP_DEFINITIONS})
 
 ################################################
 ##
-## Build Static Library (CONFIG_BUILD_SHARED=on)
+## Build Static Library (OPT_BUILD_SHARED=on)
 ##
 ################################################
-if (CONFIG_BUILD_STATIC)
+if (OPT_BUILD_STATIC)
 
 set(LIB_OSDP_STATIC osdpstatic)
 set(LIB_TARGET ${LIB_OSDP_STATIC}) ## to be used in libosdp.pc.in
@@ -154,7 +146,7 @@ target_include_directories(${LIB_OSDP_STATIC}
 		${PROJECT_SOURCE_DIR}/utils/include
 )
 
-if (CONFIG_BUILD_SANITIZER)
+if (OPT_BUILD_SANITIZER)
 	target_compile_options(${LIB_OSDP_STATIC} PRIVATE
 		-fsanitize=address,undefined,leak
 	)
@@ -172,14 +164,14 @@ install(
 	PUBLIC_HEADER DESTINATION include/libosdp
 )
 
-endif() # CONFIG_BUILD_STATIC
+endif() # OPT_BUILD_STATIC
 
 ################################################
 ##
-## Build Shared Library (CONFIG_BUILD_SHARED=on)
+## Build Shared Library (OPT_BUILD_SHARED=on)
 ##
 ################################################
-if (CONFIG_BUILD_SHARED)
+if (OPT_BUILD_SHARED)
 
 set(LIB_OSDP_SHARED osdp)
 set(LIB_TARGET ${LIB_OSDP_SHARED}) ## to be used in libosdp.pc.in
@@ -188,7 +180,7 @@ set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 set(CMAKE_C_VISIBILITY_PRESET hidden)
 set(CMAKE_VISIBILITY_INLINES_HIDDEN 1)
 
-if (CONFIG_OSDP_PACKET_TRACE OR CONFIG_OSDP_DATA_TRACE)
+if (OPT_OSDP_PACKET_TRACE OR OPT_OSDP_DATA_TRACE)
 	list(APPEND LIB_OSDP_UTILS_SRC
 		${PROJECT_SOURCE_DIR}/utils/src/pcap_gen.c
 	)
@@ -219,7 +211,7 @@ target_include_directories(${LIB_OSDP_SHARED}
 		${PROJECT_SOURCE_DIR}/utils/include
 )
 
-if (CONFIG_BUILD_SANITIZER)
+if (OPT_BUILD_SANITIZER)
 	target_compile_options(${LIB_OSDP_SHARED} PRIVATE
 		-fsanitize=address,undefined,leak
 	)
@@ -242,7 +234,7 @@ install(
 		DESTINATION include/libosdp
 )
 
-endif() # CONFIG_BUILD_SHARED
+endif() # OPT_BUILD_SHARED
 
 # generate and install osdp_export.h for OSDP_EXPORT macro
 include(GenerateExportHeader)
@@ -255,6 +247,8 @@ install(FILES ${PROJECT_BINARY_DIR}/include/osdp_export.h
 	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libosdp
 	COMPONENT headers
 )
+
+if (NOT OPT_BUILD_BARE_METAL)
 
 # pkg-config file
 configure_file(
@@ -293,3 +287,5 @@ install(FILES
 	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/libosdp
 	COMPONENT config_files
 )
+
+endif() # NOT OPT_BUILD_BARE_METAL

@@ -10,22 +10,12 @@
 
 #include <stdarg.h>
 #include <stdlib.h>
-#ifndef CONFIG_DISABLE_PRETTY_LOGGING
+#ifndef OPT_DISABLE_PRETTY_LOGGING
 #endif
 
 #include "osdp_common.h"
 
-uint16_t crc16_itu_t(uint16_t seed, const uint8_t *src, size_t len)
-{
-	for (; len > 0; len--) {
-		seed = (seed >> 8U) | (seed << 8U);
-		seed ^= *src++;
-		seed ^= (seed & 0xffU) >> 4U;
-		seed ^= seed << 12U;
-		seed ^= (seed & 0xffU) << 5U;
-	}
-	return seed;
-}
+#include <utils/crc16.h>
 
 uint16_t osdp_compute_crc16(const uint8_t *buf, size_t len)
 {
@@ -194,7 +184,7 @@ void osdp_logger_init(const char *name, int log_level,
 	FILE *file = NULL;
 	int flags = LOGGER_FLAG_NONE;
 
-#ifdef CONFIG_DISABLE_PRETTY_LOGGING
+#ifdef OPT_DISABLE_PRETTY_LOGGING
 	flags |= LOGGER_FLAG_NO_COLORS;
 #endif
 	if (!log_fn)
