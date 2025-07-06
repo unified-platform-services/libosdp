@@ -162,7 +162,7 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	/* Fill packet header */
 	pkt = (struct osdp_packet_header *)buf;
 	pkt->som = OSDP_PKT_SOM;
-	pkt->pd_address = pd->address & 0x7F;	/* Use only the lower 7 bits */
+	pkt->pd_address = pd->address & 0x7F; /* Use only the lower 7 bits */
 	if (ISSET_FLAG(pd, PD_FLAG_PKT_BROADCAST)) {
 		pkt->pd_address = 0x7F;
 		CLEAR_FLAG(pd, PD_FLAG_PKT_BROADCAST);
@@ -557,8 +557,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 	}
 	cur = osdp_phy_get_seq_number(pd, is_pd_mode(pd));
 	if (cur != comp && !ISSET_FLAG(pd, PD_FLAG_SKIP_SEQ_CHECK)) {
-		LOG_ERR("Packet sequence mismatch (%d/%d)",
-			cur, comp);
+		LOG_ERR("Packet sequence mismatch (%d/%d)", cur, comp);
 		pd->reply_id = REPLY_NAK;
 		pd->ephemeral_data[0] = OSDP_PD_NAK_SEQ_NUM;
 		return OSDP_ERR_PKT_NACK;
@@ -674,7 +673,8 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 			 * secure channel is actually discarded from the CP
 			 * state machine.
 			 */
-			if (pd->cmd_id == CMD_KEYSET && pkt->data[0] == REPLY_ACK) {
+			if (pd->cmd_id == CMD_KEYSET &&
+			    pkt->data[0] == REPLY_ACK) {
 				is_sc_active = false;
 			}
 			/**
@@ -709,14 +709,7 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 		}
 		len -= 4; /* consume MAC */
 
-		/* TODO: if there's data in SCS_15 or SCS_16, it shouldn't contain any data, 
-		* otherwise shall reply NAK */
-		// if (pkt->data[1] == SCS_15 || pkt->data[1] == SCS_16) {
-		// 	if (len != 0)
-		// 		return OSDP_ERR_PKT_NACK;
-		// }
 		/* decrypt data block */
-		// else 
 		if (pkt->data[1] == SCS_17 || pkt->data[1] == SCS_18) {
 			/**
 			 * Only the data portion of message (after id byte)
@@ -742,7 +735,8 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 				 * used SCS_15/SCS_16 but we will be tolerant
 				 * towards those faulty implementations.
 				 */
-				LOG_WRN_ONCE("Received encrypted data block with 0 "
+				LOG_WRN_ONCE(
+					"Received encrypted data block with 0 "
 					"length; tolerating non-conformance!");
 			}
 			len += 1; /* put back cmd/reply ID */
