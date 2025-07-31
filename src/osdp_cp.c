@@ -9,7 +9,9 @@
 #include <utils/disjoint_set.h>
 
 #include "osdp_common.h"
+#ifndef __XC8__
 #include "osdp_file.h"
+#endif
 #include "osdp_diag.h"
 
 #define CMD_POLL_LEN                   1
@@ -317,12 +319,16 @@ static int cp_build_command(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = pd->cmd_id;
 		break;
 	case CMD_FILETRANSFER:
-		ret = osdp_file_cmd_tx_build(pd, buf + len + 1, max_len);
+#ifndef __XC8__
+        ret = osdp_file_cmd_tx_build(pd, buf + len + 1, max_len);
 		if (ret <= 0) {
 			/* (Only) Abort file transfer on failures */
+#endif            
 			buf[len++] = CMD_ABORT;
 			break;
+#ifndef __XC8__
 		}
+#endif
 		buf[len++] = pd->cmd_id;
 		len += ret;
 		break;
@@ -624,7 +630,12 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_FTSTAT:
+#ifndef __XC8__
 		ret = osdp_file_cmd_stat_decode(pd, buf + pos, len);
+#else
+        ret = OSDP_CP_ERR_NONE;
+#endif
+        
 		break;
 	case REPLY_CCRYPT:
 		if (sc_is_active(pd) || pd->cmd_id != CMD_CHLNG) {
@@ -937,12 +948,12 @@ static int cp_get_online_command(struct osdp_pd *pd)
 		cp_cmd_free(pd, cmd);
 		return ret;
 	}
-
+#ifndef __XC8__
 	ret = osdp_file_tx_get_command(pd);
 	if (ret != 0) {
 		return ret;
 	}
-
+#endif
 	if (osdp_millis_since(pd->tstamp) > OSDP_PD_POLL_TIMEOUT_MS) {
 		pd->tstamp = osdp_millis_now();
 		return CMD_POLL;
@@ -1383,8 +1394,12 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	}
 
 	if (cmd->id == OSDP_CMD_FILE_TX) {
+#ifndef __XC8__
 		return osdp_file_tx_command(pd, cmd->file_tx.id,
 					    cmd->file_tx.flags);
+#else
+        return -1;
+#endif
 	} else if (cmd->id == OSDP_CMD_KEYSET &&
 		   (cmd->keyset.type != 1 || !sc_is_active(pd))) {
 		LOG_ERR("Invalid keyset request");

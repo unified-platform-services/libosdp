@@ -578,17 +578,21 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != CMD_ABORT_DATA_LEN) {
 			break;
 		}
+#ifndef __XC8__
 		osdp_file_tx_abort(pd);
+#endif
 		pd->reply_id = REPLY_ACK;
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case CMD_FILETRANSFER:
+#ifndef __XC8__
 		ret = osdp_file_cmd_tx_decode(pd, buf + pos, len);
 		if (ret == 0) {
 			ret = OSDP_PD_ERR_NONE;
 			pd->reply_id = REPLY_FTSTAT;
 			break;
 		}
+#endif
 		break;
 	case CMD_KEYSET:
 		if (len != CMD_KEYSET_DATA_LEN) {
@@ -859,11 +863,13 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		break;
 	case REPLY_FTSTAT:
 		buf[len++] = pd->reply_id;
+#ifndef __XC8__
 		ret = osdp_file_cmd_stat_build(pd, buf + len, max_len);
 		if (ret <= 0) {
 			break;
 		}
 		len += ret;
+#endif
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_CCRYPT:
