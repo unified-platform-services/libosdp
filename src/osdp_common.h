@@ -20,7 +20,9 @@
 #include <utils/assert.h>
 
 #define USE_CUSTOM_LOGGER
+#ifndef __XC8__
 #include <utils/logger.h>
+#endif
 
 #include <osdp.h>
 
@@ -37,6 +39,7 @@
 
 #define ARG_UNUSED(x) (void)(x)
 
+#ifndef __XC8__
 #define LOG_EM(...)    __logger_log(&pd->logger, LOG_EMERG,  __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_ALERT(...) __logger_log(&pd->logger, LOG_ALERT,  __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_CRIT(...)  __logger_log(&pd->logger, LOG_CRIT,   __FILE__, __LINE__, __VA_ARGS__)
@@ -53,6 +56,18 @@ do {\
 }while(0)
 #define LOG_NOT(...)   __logger_log(&pd->logger, LOG_NOTICE, __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_DBG(...)   __logger_log(&pd->logger, LOG_DEBUG,  __FILE__, __LINE__, __VA_ARGS__)
+#else
+#define LOG_EM(...)    
+#define LOG_ALERT(...) 
+#define LOG_CRIT(...)  
+#define LOG_ERR(...)   
+#define LOG_INF(...)   
+#define LOG_WRN(...)   
+#define LOG_WRN_ONCE(...) 
+#define LOG_NOT(...)   
+#define LOG_DBG(...)
+#define LOG_PRINT(...)
+#endif
 
 #define ISSET_FLAG(p, f)       (((p)->flags & (f)) == (f))
 #define SET_FLAG(p, f)          ((p)->flags |= (f))
@@ -431,8 +446,10 @@ struct osdp_pd {
 	void *command_callback_arg;
 	pd_command_callback_t command_callback;
 
+#ifndef __XC8__
 	/* logger context (from utils/logger.h) */
 	logger_t logger;
+#endif
 
 	/* Opaque packet capture pointer (see osdp_pcap.c) */
 	void *packet_capture_ctx;

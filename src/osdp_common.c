@@ -175,7 +175,7 @@ int osdp_rb_pop_buf(struct osdp_rb *p, uint8_t *buf, int max_len)
 }
 
 /* --- Exported Methods --- */
-
+#ifndef __XC8__
 OSDP_EXPORT
 void osdp_logger_init(const char *name, int log_level,
 		      osdp_log_puts_fn_t log_fn)
@@ -203,6 +203,7 @@ void osdp_set_log_callback(osdp_log_callback_fn_t cb)
 	logger_init(&ctx, 0, NULL, REPO_ROOT, NULL, NULL, cb, flags);
 	logger_set_default(&ctx); /* Mark this config as logging default */
 }
+#endif
 
 OSDP_EXPORT
 const char *osdp_get_version()

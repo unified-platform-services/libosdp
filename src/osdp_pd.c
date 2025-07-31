@@ -1147,11 +1147,13 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 	pd->flags = info->flags;
 	pd->seq_number = -1;
 	memcpy(&pd->channel, &info->channel, sizeof(struct osdp_channel));
-
+    
+#ifndef __XC8__
 	logger_get_default(&pd->logger);
 	snprintf(name, sizeof(name), "OSDP: PD-%d", pd->address);
 	logger_set_name(&pd->logger, name);
-
+#endif
+    
 	if (pd_event_queue_init(pd)) {
 		goto error;
 	}

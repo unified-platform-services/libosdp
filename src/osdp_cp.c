@@ -1492,11 +1492,13 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		if (IS_ENABLED(OPT_OSDP_SKIP_MARK_BYTE)) {
 			SET_FLAG(pd, PD_FLAG_PKT_SKIP_MARK);
 		}
-
+        
+#ifndef __XC8__
 		logger_get_default(&pd->logger);
 		snprintf(name, sizeof(name), "OSDP: CP: PD-%d", pd->address);
 		logger_set_name(&pd->logger, name);
-
+#endif
+        
 		if (is_capture_enabled(pd)) {
 			osdp_packet_capture_init(pd);
 		}
