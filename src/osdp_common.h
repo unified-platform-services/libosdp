@@ -399,13 +399,15 @@ struct osdp_app_data_pool {
 };
 
 struct osdp_pd {
+#ifndef __XC8__
 	char name[OSDP_PD_NAME_MAXLEN];
+#endif
 	struct osdp *osdp_ctx; /* Ref to osdp * to access shared resources */
-	int idx;               /* Offset into osdp->pd[] for this PD */
+	uint8_t idx;               /* Offset into osdp->pd[] for this PD */
 	uint32_t flags;        /* Used with: ISSET_FLAG, SET_FLAG, CLEAR_FLAG */
 
 	uint32_t baud_rate;    /* Serial baud/bit rate */
-	int address;           /* PD address */
+	uint8_t address;           /* PD address */
 	int seq_number;        /* Current packet sequence number */
 	struct osdp_pd_id id;  /* PD ID information (as received from app) */
 
@@ -415,10 +417,18 @@ struct osdp_pd {
 	int state;             /* FSM state (CP mode only) */
 	int phy_state;         /* phy layer FSM state (CP mode only) */
 	int phy_retry_count;   /* command retry counter */
-	uint32_t wait_ms;      /* wait time in MS to retry communication */
-	int64_t tstamp;        /* Last POLL command issued time in ticks */
+#ifdef __XC8__
+    uint16_t wait_ms;      /* wait time in MS to retry communication */
+    uint16_t tstamp;
+    uint16_t sc_tstamp;     /* Last received secure reply time in ticks */
+	uint16_t phy_tstamp;    /* Time in ticks since command was sent */
+#else
+    uint32_t wait_ms;      /* wait time in MS to retry communication */
+    int64_t tstamp;        /* Last POLL command issued time in ticks */
 	int64_t sc_tstamp;     /* Last received secure reply time in ticks */
 	int64_t phy_tstamp;    /* Time in ticks since command was sent */
+#endif
+	
 	uint32_t request;      /* Event loop requests */
 
 	uint16_t peer_rx_size; /* Receive buffer size of the peer PD/CP */
@@ -426,9 +436,16 @@ struct osdp_pd {
 	/* Raw bytes received from the serial line for this PD */
 	struct osdp_rb rx_rb;
 	uint8_t packet_buf[OSDP_PACKET_BUF_SIZE];
-	unsigned long packet_len;
+#ifdef __XC8__
+    uint16_t packet_len;
+	uint16_t packet_buf_len;
+	uint16_t packet_scan_skip;
+#else
+    unsigned long packet_len;
 	unsigned long packet_buf_len;
 	uint32_t packet_scan_skip;
+#endif
+	
 
 	int cmd_id;            /* Currently processing command ID */
 	int reply_id;          /* Currently processing reply ID */
@@ -444,8 +461,10 @@ struct osdp_pd {
 
 	struct osdp_channel channel;     /* PD's serial channel */
 	struct osdp_secure_channel sc;   /* Secure Channel session context */
+#ifndef __XC8__
 	struct osdp_file *file;          /* File transfer context */
-
+#endif
+    
 	/* PD command callback to app with opaque arg pointer as passed by app */
 	void *command_callback_arg;
 	pd_command_callback_t command_callback;
@@ -453,10 +472,10 @@ struct osdp_pd {
 #ifndef __XC8__
 	/* logger context (from utils/logger.h) */
 	logger_t logger;
-#endif
-
-	/* Opaque packet capture pointer (see osdp_pcap.c) */
+    
+    /* Opaque packet capture pointer (see osdp_pcap.c) */
 	void *packet_capture_ctx;
+#endif
 };
 
 struct osdp {
