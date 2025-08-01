@@ -1544,7 +1544,7 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 	}
 
 	SET_CURRENT_PD(ctx, 0);
-#ifndef __XC8__
+#ifndef __XC8__ 
 	if (old_num_pd) {
 		free(old_pd_array);
 	}
