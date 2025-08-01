@@ -131,9 +131,13 @@ do {\
 #define NUM_PD(ctx)    (TO_OSDP(ctx)->_num_pd)
 #define PD_MASK(ctx)   (uint32_t)(BIT(NUM_PD(ctx)) - 1)
 
-#define safe_free(p)                                                           \
+#ifndef __XC8__
+#define safe_free(p)                                                       \
 	if (p)                                                                 \
 		free(p)
+#else
+#define safe_free(p)
+#endif
 
 #define osdp_dump hexdump // for zephyr compatibility.
 

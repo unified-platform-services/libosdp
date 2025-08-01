@@ -1454,38 +1454,57 @@ static int cp_detect_connection_topology(struct osdp *ctx)
 	return 0;
 }
 
+#ifdef __XC8__
+static struct osdp_pd PD_ARR[OSDP_PD_MAX];
+#endif
 static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_list)
 {
-	int i, old_num_pd;
-	struct osdp_pd *old_pd_array, *new_pd_array, *pd;
+	
+#ifdef __XC8__
+    struct osdp_pd *pd;
+#else
+    int i, old_num_pd;
+    struct osdp_pd *old_pd_array, *new_pd_array, *pd;
+    char name[24] = { 0 };
+#endif
 	const osdp_pd_info_t *info;
-	char name[24] = { 0 };
-
+    
 	assert(num_pd);
 	assert(info_list);
-	old_num_pd = ctx->_num_pd;
+#ifndef __XC8__
+    old_num_pd = ctx->_num_pd;
 	old_pd_array = ctx->pd;
 
-	new_pd_array = calloc(old_num_pd + num_pd, sizeof(struct osdp_pd));
-	if (new_pd_array == NULL) {
+    new_pd_array = calloc(old_num_pd + num_pd, sizeof(struct osdp_pd));
+    if (new_pd_array == NULL) {
 		LOG_PRINT("Failed to allocate new osdp_pd[] context");
 		return -1;
 	}
+#endif
 
+#ifdef __XC8__    
+    ctx->pd = PD_ARR;
+    ctx->_num_pd = num_pd;
+    
+    for (uint8_t i = 0; i < num_pd; i++) {
+#else
 	ctx->pd = new_pd_array;
 	ctx->_num_pd = old_num_pd + num_pd;
 	memcpy(new_pd_array, old_pd_array, sizeof(struct osdp_pd) * old_num_pd);
-
-	for (i = 0; i < num_pd; i++) {
+    
+    for (i = 0; i < num_pd; i++) {
+        pd = osdp_to_pd(ctx, i + old_num_pd);
+#endif
 		info = info_list + i;
-		pd = osdp_to_pd(ctx, i + old_num_pd);
 		pd->idx = i;
 		pd->osdp_ctx = ctx;
+#ifndef __XC8__
 		if (info->name) {
 			strncpy(pd->name, info->name, OSDP_PD_NAME_MAXLEN - 1);
 		} else {
 			snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d", info->address);
 		}
+#endif
 		pd->baud_rate = info->baud_rate;
 		pd->address = info->address;
 		pd->flags = info->flags;
@@ -1512,11 +1531,11 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		logger_get_default(&pd->logger);
 		snprintf(name, sizeof(name), "OSDP: CP: PD-%d", pd->address);
 		logger_set_name(&pd->logger, name);
-#endif
         
-		if (is_capture_enabled(pd)) {
+        if (is_capture_enabled(pd)) {
 			osdp_packet_capture_init(pd);
 		}
+#endif
 	}
 
 	if (cp_detect_connection_topology(ctx)) {
@@ -1525,30 +1544,33 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 	}
 
 	SET_CURRENT_PD(ctx, 0);
+#ifndef __XC8__
 	if (old_num_pd) {
 		free(old_pd_array);
 	}
+#endif
 	return 0;
 
 error:
+#ifndef __XC8__
 	ctx->pd = old_pd_array;
 	ctx->_num_pd = old_num_pd;
 	free(new_pd_array);
+#endif
 	return -1;
 }
 
 /* --- Exported Methods --- */
-
+#ifdef __XC8__
+static struct osdp STATIC_CTX;
+#endif
 osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info)
 {
-	struct osdp *ctx;
-
-	ctx = calloc(1, sizeof(struct osdp));
-	if (ctx == NULL) {
-		LOG_PRINT("Failed to allocate osdp context");
-		return NULL;
-	}
-
+#ifdef __XC8__
+	struct osdp *ctx = &STATIC_CTX;
+#else
+    struct osdp *ctx;
+#endif
 	input_check_init(ctx);
 
 	if (num_pd && cp_add_pd(ctx, num_pd, info)) {
