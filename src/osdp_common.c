@@ -203,6 +203,74 @@ void osdp_set_log_callback(osdp_log_callback_fn_t cb)
 	logger_init(&ctx, 0, NULL, REPO_ROOT, NULL, NULL, cb, flags);
 	logger_set_default(&ctx); /* Mark this config as logging default */
 }
+#else
+// PIC18 shared event queue for size optimization
+int common_event_queue_init() {
+//    if (slab_init(&pd->app_data.slab, sizeof(struct pd_event_node),
+//		      pd->app_data.slab_blob,
+//		      sizeof(pd->app_data.slab_blob)) < 0) {
+//		LOG_ERR("Failed to initialize command slab");
+//		return -1;
+//	}
+//	queue_init(&pd->event_queue);:562
+//	return 0;
+}
+
+struct osdp_event * common_event_alloc(struct osdp_pd *pd) {
+//    struct pd_event_node *event = NULL;
+//
+//	if (slab_alloc(&pd->app_data.slab, (void **)&event)) {
+//		LOG_ERR("Event slab allocation failed");
+//		return NULL;
+//	}
+//	return &event->object;
+}
+
+void common_event_free(struct osdp_pd *pd, struct osdp_event *event) {
+//    struct pd_event_node *n;
+//
+//	n = CONTAINER_OF(event, struct pd_event_node, object);
+//	slab_free(&pd->app_data.slab, n);
+}
+
+void common_event_enqueue(struct osdp_pd *pd, struct osdp_event *event) {
+//    struct pd_event_node *n;
+//
+//	n = CONTAINER_OF(event, struct pd_event_node, object);
+//	queue_enqueue(&pd->event_queue, &n->node);
+}
+
+int common_event_dequeue(struct osdp_pd *pd, struct osdp_event **event) {
+//    struct pd_event_node *n;
+//	queue_node_t *node;
+//
+//	if (queue_dequeue(&pd->event_queue, &node)) {
+//		return -1;
+//	}
+//	n = CONTAINER_OF(node, struct pd_event_node, node);
+//	*event = &n->object;
+//	return 0;
+}
+// PIC18 shared command queue for size optimization
+int common_cmd_queue_init(struct osdp_pd *pd) {
+    
+}
+
+struct osdp_cmd *common_cmd_alloc(struct osdp_pd *pd) {
+    
+}
+
+void common_cmd_free(struct osdp_pd *pd, struct osdp_cmd *cmd) {
+    
+}
+
+void common_cmd_enqueue(struct osdp_pd *pd, struct osdp_cmd *cmd) {
+    
+}
+
+int common_cmd_dequeue(struct osdp_pd *pd, struct osdp_cmd **cmd) {
+    
+}
 #endif
 
 OSDP_EXPORT

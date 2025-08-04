@@ -5,9 +5,12 @@
  */
 
 #include "osdp_common.h"
+#ifndef __XC8__
 #include "osdp_file.h"
 #include "osdp_diag.h"
+#else
 
+#endif
 #ifndef OPT_OSDP_STATIC_PD
 #include <stdlib.h>
 #endif
@@ -80,6 +83,7 @@ static struct osdp_pd_cap osdp_pd_cap[] = {
 	{ -1, 0, 0 } /* Sentinel */
 };
 
+#ifndef __XC8__
 struct pd_event_node {
 	queue_node_t node;
 	struct osdp_event object;
@@ -136,6 +140,11 @@ static int pd_event_dequeue(struct osdp_pd *pd, struct osdp_event **event)
 	*event = &n->object;
 	return 0;
 }
+#else
+#define pd_event_dequeue(pd, event) common_event_dequeue(pd, event)
+#define pd_event_free(pd, event) common_event_free(pd, event)
+#define pd_event_enqueue(pd, event) common_event_enqueue(pd, event)
+#endif
 
 static int pd_translate_event(struct osdp_pd *pd, struct osdp_event *event)
 {
@@ -1160,12 +1169,12 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 	logger_get_default(&pd->logger);
 	snprintf(name, sizeof(name), "OSDP: PD-%d", pd->address);
 	logger_set_name(&pd->logger, name);
-#endif
     
-	if (pd_event_queue_init(pd)) {
+    if (pd_event_queue_init(pd)) {
 		goto error;
 	}
-
+#endif
+    
 	if (info->scbk == NULL) {
 		if (is_enforce_secure(pd)) {
 			LOG_ERR("SCBK must be provided in ENFORCE_SECURE");
@@ -1184,11 +1193,11 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 	osdp_pd_set_attributes(pd, osdp_pd_cap, NULL);
 
 	SET_FLAG(pd, PD_FLAG_PD_MODE); /* used in checks in phy */
-
+#ifndef __XC8__
 	if (is_capture_enabled(pd)) {
 		osdp_packet_capture_init(pd);
 	}
-
+#endif
 	LOG_PRINT("PD Setup complete; LibOSDP-%s %s",
 		  osdp_get_version(), osdp_get_source_info());
 
@@ -1202,11 +1211,11 @@ void osdp_pd_teardown(osdp_t *ctx)
 {
 	assert(ctx);
 	struct osdp_pd *pd = osdp_to_pd(ctx, 0);
-
+#ifndef __XC8__
 	if (is_capture_enabled(pd)) {
 		osdp_packet_capture_finish(pd);
 	}
-
+#endif
 	if (pd->channel.close) {
 		pd->channel.close(pd->channel.data);
 	}
@@ -1249,8 +1258,9 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 	input_check(ctx);
 	struct osdp_event *ev;
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
-
+#ifndef __XC8__
 	ev = pd_event_alloc(pd);
+#endif
 	if (ev == NULL) {
 		return -1;
 	}
@@ -1271,11 +1281,11 @@ int osdp_pd_flush_events(osdp_t *ctx)
 	int count = 0;
 	struct osdp_event *ev;
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
-
+#ifndef __XC8__
 	while (pd_event_dequeue(pd, &ev) == 0) {
 		pd_event_free(pd, ev);
 		count++;
 	}
-
+#endif
 	return count;
 }

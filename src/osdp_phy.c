@@ -385,9 +385,11 @@ static int phy_check_header(struct osdp_pd *pd)
 			}
 			break;
 		}
+#ifndef __XC8__
 		if (cur_byte != OSDP_PKT_MARK) {
 			pd->packet_scan_skip++;
 		}
+#endif
 		prev_byte = cur_byte;
 	}
 
@@ -552,12 +554,14 @@ int osdp_phy_check_packet(struct osdp_pd *pd)
 			return ret;
 		}
 		pd->packet_len = ret;
+#ifndef __XC8__
 		if (pd->packet_scan_skip) {
 			LOG_DBG("Packet scan skipped:%u mark:%d",
 				pd->packet_scan_skip,
 				ISSET_FLAG(pd, PD_FLAG_PKT_HAS_MARK));
 			pd->packet_scan_skip = 0;
 		}
+#endif
 	}
 
 	/* We have a valid header, collect one full packet */
@@ -566,11 +570,13 @@ int osdp_phy_check_packet(struct osdp_pd *pd)
 	pd->packet_buf_len += ret;
 	if (pd->packet_buf_len != pd->packet_len)
 		return OSDP_ERR_PKT_WAIT;
-
+    
+#ifndef __XC8__
 	if (is_packet_trace_enabled(pd)) {
 		osdp_capture_packet(pd, pd->packet_buf, pd->packet_buf_len);
 	}
-
+#endif
+    
 	return phy_check_packet(pd, pd->packet_buf, pd->packet_len);
 }
 

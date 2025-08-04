@@ -56,6 +56,7 @@ enum osdp_cp_error_e {
 	OSDP_CP_ERR_UNKNOWN = -6,
 };
 
+#ifndef __XC8__
 struct cp_cmd_node {
 	queue_node_t node;
 	struct osdp_cmd object;
@@ -114,6 +115,12 @@ static int cp_cmd_dequeue(struct osdp_pd *pd, struct osdp_cmd **cmd)
 	*cmd = &n->object;
 	return 0;
 }
+#else
+#define cp_cmd_dequeue(pd, cmd) common_cmd_dequeue(pd, cmd)
+#define cp_cmd_free(pd, cmd) common_cmd_free(pd, cmd)
+#define cp_cmd_alloc(pd) common_cmd_alloc(pd)
+#define cp_cmd_enqueue(pd, cmd) common_cmd_enqueue(pd, cmd)
+#endif
 
 static int cp_channel_acquire(struct osdp_pd *pd, int *owner)
 {
@@ -1520,6 +1527,7 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 				  " ENFORCE_SECURE is requested.");
 			goto error;
 		}
+#ifndef __XC8__
 		if (cp_cmd_queue_init(pd)) {
 			goto error;
 		}
@@ -1527,7 +1535,6 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 			SET_FLAG(pd, PD_FLAG_PKT_SKIP_MARK);
 		}
         
-#ifndef __XC8__
 		logger_get_default(&pd->logger);
 		snprintf(name, sizeof(name), "OSDP: CP: PD-%d", pd->address);
 		logger_set_name(&pd->logger, name);
