@@ -337,7 +337,9 @@ static int cp_build_command(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		}
 #endif
 		buf[len++] = pd->cmd_id;
+#ifndef __XC8__
 		len += ret;
+#endif
 		break;
 	case CMD_KEYSET:
 		if (!sc_is_active(pd)) {
@@ -708,24 +710,42 @@ static void do_event_callback(struct osdp_pd *pd)
 
 static int cp_build_and_send_packet(struct osdp_pd *pd)
 {
-	int ret, packet_buf_size = get_tx_buf_size(pd);
-
+    int ret;
+#ifndef __XC8__
+	int packet_buf_size = get_tx_buf_size(pd);
+#else
+    const int packet_buf_size = OSDP_PACKET_BUF_SIZE;
+    uint8_t buf[OSDP_PACKET_BUF_SIZE];
+#endif
+    
 	/* init packet buf with header */
+#ifndef __XC8__
 	ret = osdp_phy_packet_init(pd, pd->packet_buf, packet_buf_size);
+#else
+    ret = osdp_phy_packet_init(pd, buf, packet_buf_size);
+#endif
 	if (ret < 0) {
 		return OSDP_CP_ERR_GENERIC;
 	}
 	pd->packet_buf_len = ret;
 
 	/* fill command data */
+#ifndef __XC8__
 	ret = cp_build_command(pd, pd->packet_buf, packet_buf_size);
+#else
+    ret = cp_build_command(pd, buf, packet_buf_size);
+#endif
 	if (ret < 0) {
 		return OSDP_CP_ERR_GENERIC;
 	}
 	pd->packet_buf_len += ret;
-
+#ifndef __XC8__
 	ret = osdp_phy_send_packet(pd, pd->packet_buf, pd->packet_buf_len,
 				   packet_buf_size);
+#else
+    ret = osdp_phy_send_packet(pd, buf, pd->packet_buf_len,
+				   packet_buf_size);
+#endif
 	if (ret < 0) {
 		return OSDP_CP_ERR_GENERIC;
 	}
@@ -1492,8 +1512,9 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 #ifdef __XC8__    
     ctx->pd = PD_ARR;
     ctx->_num_pd = num_pd;
-    
+    pd = PD_ARR;
     for (uint8_t i = 0; i < num_pd; i++) {
+        
 #else
 	ctx->pd = new_pd_array;
 	ctx->_num_pd = old_num_pd + num_pd;

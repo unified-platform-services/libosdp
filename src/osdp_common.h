@@ -295,9 +295,15 @@ union osdp_ephemeral_data {
 #define PD_FLAG_PKT_BROADCAST  BIT(14) /* this packet was addressed to 0x7F */
 
 /* CP event requests; used with make_request() and check_request() */
+#ifndef __XC8__
 #define CP_REQ_RESTART_SC              0x00000001
 #define CP_REQ_EVENT_SEND              0x00000002
 #define CP_REQ_OFFLINE                 0x00000004
+#else
+#define CP_REQ_RESTART_SC              0x01
+#define CP_REQ_EVENT_SEND              0x02
+#define CP_REQ_OFFLINE                 0x04
+#endif
 
 enum osdp_cp_phy_state_e {
 	OSDP_CP_PHY_STATE_IDLE,
@@ -412,10 +418,10 @@ struct osdp_pd {
 	/* PD Capability; Those received from app + implicit capabilities */
 	struct osdp_pd_cap cap[OSDP_PD_CAP_SENTINEL];
 
-	int state;             /* FSM state (CP mode only) */
-	int phy_state;         /* phy layer FSM state (CP mode only) */
+	uint8_t state;             /* FSM state (CP mode only) */
+	uint8_t phy_state;         /* phy layer FSM state (CP mode only) */
 #ifdef __XC8__
-    uint32_t baud_rate;    /* Serial baud/bit rate */
+    uint32_t baud_rate;        /* Serial baud/bit rate */
     uint8_t address;           /* PD address */
     uint8_t idx;               /* Offset into osdp->pd[] for this PD */
     uint8_t phy_retry_count;   /* command retry counter */
@@ -432,25 +438,30 @@ struct osdp_pd {
 	int64_t sc_tstamp;     /* Last received secure reply time in ticks */
 	int64_t phy_tstamp;    /* Time in ticks since command was sent */
 #endif
-	
-	uint32_t request;      /* Event loop requests */
+#ifndef __XC8__
+    uint32_t request;      /* Event loop requests */
+#else
+    uint8_t request;
+#endif
 
 	uint16_t peer_rx_size; /* Receive buffer size of the peer PD/CP */
 
 	/* Raw bytes received from the serial line for this PD */
     struct osdp_rb rx_rb;
-    uint8_t packet_buf[OSDP_PACKET_BUF_SIZE];
 #ifdef __XC8__
+    uint8_t packet_start_idx;
+    uint8_t packet_end_idx;
     uint16_t packet_len;
 	uint16_t packet_buf_len;
 #else
+    uint8_t packet_buf[OSDP_PACKET_BUF_SIZE];
     unsigned long packet_len;
 	unsigned long packet_buf_len;
 	uint32_t packet_scan_skip;
 #endif
 
 	uint8_t cmd_id;            /* Currently processing command ID */
-	int reply_id;          /* Currently processing reply ID */
+	uint8_t reply_id;          /* Currently processing reply ID */
 
 	/* Data bytes of the current command/reply ID */
 	uint8_t ephemeral_data[OSDP_EPHEMERAL_DATA_MAX_LEN];
@@ -560,6 +571,9 @@ int common_cmd_dequeue(struct osdp_pd *pd, struct osdp_cmd **cmd);
 
 static inline int get_tx_buf_size(struct osdp_pd *pd)
 {
+#ifdef __XC8__
+    return OSDP_PACKET_BUF_SIZE;
+#else
 	int packet_buf_size = sizeof(pd->packet_buf);
 
 	if (pd->peer_rx_size) {
@@ -567,6 +581,7 @@ static inline int get_tx_buf_size(struct osdp_pd *pd)
 			packet_buf_size = (int)pd->peer_rx_size;
 	}
 	return packet_buf_size;
+#endif
 }
 
 static inline struct osdp *pd_to_osdp(struct osdp_pd *pd)

@@ -204,6 +204,7 @@ void osdp_set_log_callback(osdp_log_callback_fn_t cb)
 	logger_set_default(&ctx); /* Mark this config as logging default */
 }
 #else
+// TODO :: Implement these functions 
 // PIC18 shared event queue for size optimization
 int common_event_queue_init() {
 //    if (slab_init(&pd->app_data.slab, sizeof(struct pd_event_node),
