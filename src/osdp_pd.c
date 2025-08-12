@@ -44,6 +44,7 @@
 #define REPLY_RMAC_I_LEN               17
 #define REPLY_KEYPAD_LEN               2
 #define REPLY_RAW_LEN                  4
+#define REPLY_FMT_LEN				   3
 #define REPLY_MFGREP_LEN               4 /* variable length command */
 
 enum osdp_pd_error_e {
@@ -162,6 +163,9 @@ static int pd_translate_event(struct osdp_pd *pd, struct osdp_event *event)
 		break;
 	case OSDP_EVENT_KEYPRESS:
 		reply_code = REPLY_KEYPAD;
+		break;
+	case OSDP_EVENT_QR_CODE:
+		reply_code = REPLY_FMT;
 		break;
 	case OSDP_EVENT_STATUS:
 		switch(event->status.type) {
@@ -821,6 +825,19 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	}
+	case REPLY_FMT:
+		event = (struct osdp_event *)pd->ephemeral_data;
+		assert_buf_len(REPLY_FMT_LEN + event->cardread.length, max_len);
+		buf[len++] = pd->reply_id;
+		buf[len++] = (uint8_t)event->cardread.reader_no;
+		buf[len++] = (uint8_t)event->cardread.direction;
+		buf[len++] = (uint8_t)event->cardread.length;
+		for (i = 0; i < event->cardread.length; i++) {
+			buf[len++] = event->cardread.data[i];
+		}
+		len += event->cardread.length;
+		ret = OSDP_PD_ERR_NONE;
+		break;
 	case REPLY_COM:
 		assert_buf_len(REPLY_COM_LEN, max_len);
 		/**
