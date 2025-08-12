@@ -360,109 +360,71 @@ static bool phy_rescan_packet_buf(struct osdp_pd *pd)
 
 static int phy_check_header(struct osdp_pd *pd)
 {
-	int pkt_len, len, target_len;
+	unsigned long pkt_len;
+	int len;
 	struct osdp_packet_header *pkt;
-	uint8_t cur_byte = 0;
+	uint8_t cur_byte = 0, prev_byte = 0;
 	uint8_t *buf = pd->packet_buf;
-
-	// we need to define a state here instead of just checking som
-	enum {
-		STATE_WAIT_MARK_OR_SOM,
-		STATE_MARK_RECV_WAIT_SOM,
-		STATE_SOM_RECV_WAIT_ADDR,
-		STATE_ADDR_RECV_WAIT_LEN_LSB,
-		STATE_LEN_LSB_RECV_WAIT_LEN_MSB,
-		STATE_LEN_MSB_RECV_WAIT_CTRL,
-	} state;
-
-	state = STATE_WAIT_MARK_OR_SOM;
-	int header_byte_count = 0;
 
 	/* Scan for packet start */
 	while (pd->packet_buf_len == 0) {
 		if (osdp_rb_pop(&pd->rx_rb, &cur_byte)) {
 			return OSDP_ERR_PKT_NO_DATA;
 		}
-
-		switch (state) {
-		case STATE_WAIT_MARK_OR_SOM:
-			if (cur_byte == OSDP_PKT_MARK) {
-				state = STATE_MARK_RECV_WAIT_SOM;
-			} else if (cur_byte == OSDP_PKT_SOM) {
-				state = STATE_SOM_RECV_WAIT_ADDR;
+		if (cur_byte == OSDP_PKT_SOM) {
+			if (prev_byte == OSDP_PKT_MARK) {
+				buf[0] = OSDP_PKT_MARK;
+				buf[1] = OSDP_PKT_SOM;
+				pd->packet_buf_len = 2;
+				SET_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
 			} else {
-				return OSDP_ERR_PKT_WAIT;
+				buf[0] = OSDP_PKT_SOM;
+				pd->packet_buf_len = 1;
+				CLEAR_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
 			}
-			buf[header_byte_count++] = cur_byte;
-			break;
-		case STATE_MARK_RECV_WAIT_SOM:
-			if (cur_byte == OSDP_PKT_SOM) {
-				state = STATE_SOM_RECV_WAIT_ADDR;
-				buf[header_byte_count++] = cur_byte;
-			} else {
-				/* validate packet header */
-				LOG_ERR("Invalid SOM 0x%02x", cur_byte);
-				return OSDP_ERR_PKT_FMT;
-			}
-			break;
-		case STATE_SOM_RECV_WAIT_ADDR:
-			if (is_pd_mode(pd)) {
-				if (cur_byte & 0x80) {
-					LOG_WRN("Ignoring packet with invalid PD_ADDR.MSB");
-					LOG_WRN("PD address cannot be %d, return OSDP_ERR_PKT_FMT",
-						cur_byte);
-					return OSDP_ERR_PKT_SKIP;
-				}
-			}
-
-			if (is_cp_mode(pd)) {
-				if (!(cur_byte & 0x80)) {
-					LOG_WRN("Ignoring packet with invalid PD_ADDR.MSB");
-					LOG_WRN("Invalid reply address %d, return OSDP_ERR_PKT_FMT",
-						cur_byte);
-					return OSDP_ERR_PKT_SKIP;
-				}
-			}
-			state = STATE_ADDR_RECV_WAIT_LEN_LSB;
-			buf[header_byte_count++] = cur_byte;
-			break;
-		case STATE_ADDR_RECV_WAIT_LEN_LSB:
-			buf[header_byte_count++] = cur_byte;
-			state = STATE_LEN_LSB_RECV_WAIT_LEN_MSB;
-			break;
-		case STATE_LEN_LSB_RECV_WAIT_LEN_MSB:
-			buf[header_byte_count++] = cur_byte;
-			state = STATE_LEN_MSB_RECV_WAIT_CTRL;
-			break;
-		case STATE_LEN_MSB_RECV_WAIT_CTRL:
-			buf[header_byte_count++] = cur_byte;
-			pd->packet_buf_len = header_byte_count;
 			break;
 		}
+		if (cur_byte != OSDP_PKT_MARK) {
+			pd->packet_scan_skip++;
+		}
+		prev_byte = cur_byte;
 	}
 
-	if (header_byte_count == sizeof(struct osdp_packet_header) + 1) {
-		SET_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
-	} else {
-		CLEAR_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
+	/* Found start of a new packet; wait until we have atleast the header */
+	len = osdp_rb_pop_buf(&pd->rx_rb, buf + pd->packet_buf_len,
+			      sizeof(struct osdp_packet_header) - 1);
+	pd->packet_buf_len += len;
+	if (pd->packet_buf_len < sizeof(struct osdp_packet_header)) {
+		return OSDP_ERR_PKT_WAIT;
 	}
 
 	pkt = (struct osdp_packet_header *)(buf + packet_has_mark(pd));
 
-	/* Found start of a new packet; wait until we have atleast the header */
-	target_len = sizeof(struct osdp_packet_header);
-	pd->packet_buf_len += osdp_rb_pop_buf(&pd->rx_rb, buf + pd->packet_buf_len, target_len - pd->packet_buf_len);
-	if (pd->packet_buf_len < target_len) {
-		return OSDP_ERR_PKT_WAIT;
-	}
-	/* validate packet length */
-	pkt_len = (pkt->len_msb << 8) | pkt->len_lsb;
-
-	if (pkt_len > OSDP_PACKET_BUF_SIZE ||
-	    (unsigned long)pkt_len < sizeof(struct osdp_packet_header) + 1) {
+	/* validate packet header */
+	if (pkt->som != OSDP_PKT_SOM) {
+		LOG_ERR("Invalid SOM 0x%02x", pkt->som);
 		return OSDP_ERR_PKT_FMT;
 	}
 
+	/* validate packet */
+	pkt_len = (pkt->len_msb << 8) | pkt->len_lsb;
+	if (pkt_len > OSDP_PACKET_BUF_SIZE ||
+	    pkt_len < sizeof(struct osdp_packet_header) + 1 ||
+	    (is_cp_mode(pd) && !(pkt->pd_address & 0x80)) ||
+	    (is_pd_mode(pd) &&  (pkt->pd_address & 0x80))) {
+		/*
+		 * Since SoM byte was encountered and the packet structure is
+		 * invalid, we cannot just discard all bytes extracted so far
+		 * as there may another valid SoM in the subsequent stream. So
+		 * we need to re-scan rest of the extracted bytes for another
+		 * SoM before we can discard the extracted bytes.
+		 */
+		if (phy_rescan_packet_buf(pd)) {
+			LOG_DBG("Found nested SoM in re-scan; re-parsing");
+		}
+		return OSDP_ERR_PKT_WAIT;
+	}
+	
 	return pkt_len + packet_has_mark(pd);
 }
 
