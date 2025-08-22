@@ -395,22 +395,24 @@ struct osdp_rb {
     uint8_t buffer[OSDP_RX_RB_SIZE];
 };
 
-#define OSDP_APP_DATA_QUEUE_SIZE \
-	(OSDP_CP_CMD_POOL_SIZE * \
+#ifndef __XC8__
+#define OSDP_APP_DATA_QUEUE_SIZE                                               \
+	(OSDP_CP_CMD_POOL_SIZE *                                               \
 	 (sizeof(union osdp_ephemeral_data) + sizeof(queue_node_t)))
 
 struct osdp_app_data_pool {
 	slab_t slab;
 	uint8_t slab_blob[OSDP_APP_DATA_QUEUE_SIZE];
 };
+#endif
 
 struct osdp_pd {
 #ifndef __XC8__
 	char name[OSDP_PD_NAME_MAXLEN];
 #endif
 	struct osdp *osdp_ctx; /* Ref to osdp * to access shared resources */
-	
-	uint32_t flags;        /* Used with: ISSET_FLAG, SET_FLAG, CLEAR_FLAG */
+
+	uint32_t flags; /* Used with: ISSET_FLAG, SET_FLAG, CLEAR_FLAG */
 
 	int seq_number;        /* Current packet sequence number */
 	struct osdp_pd_id id;  /* PD ID information (as received from app) */
@@ -418,50 +420,45 @@ struct osdp_pd {
 	/* PD Capability; Those received from app + implicit capabilities */
 	struct osdp_pd_cap cap[OSDP_PD_CAP_SENTINEL];
 
-	uint8_t state;             /* FSM state (CP mode only) */
-	uint8_t phy_state;         /* phy layer FSM state (CP mode only) */
+	enum osdp_cp_state_e state; /* FSM state (CP mode only) */
+	enum osdp_cp_phy_state_e phy_state; /* phy layer FSM state (CP mode only) */
 #ifdef __XC8__
-    uint32_t baud_rate;        /* Serial baud/bit rate */
-    uint8_t address;           /* PD address */
-    uint8_t idx;               /* Offset into osdp->pd[] for this PD */
-    uint8_t phy_retry_count;   /* command retry counter */
-    uint16_t wait_ms;          /* wait time in MS to retry communication */
-    uint16_t tstamp;
-    uint16_t sc_tstamp;     /* Last received secure reply time in ticks */
-	uint16_t phy_tstamp;    /* Time in ticks since command was sent */
+	uint32_t baud_rate; /* Serial baud/bit rate */
+	uint8_t address; /* PD address */
+	uint8_t idx; /* Offset into osdp->pd[] for this PD */
+	uint8_t phy_retry_count; /* command retry counter */
+	uint16_t wait_ms; /* wait time in MS to retry communication */
+	uint16_t tstamp;
+	uint16_t sc_tstamp; /* Last received secure reply time in ticks */
+	uint16_t phy_tstamp; /* Time in ticks since command was sent */
 #else
-    int address;           /* PD address */
-    int idx;               /* Offset into osdp->pd[] for this PD */
-    int phy_retry_count;   /* command retry counter */
-    uint32_t wait_ms;      /* wait time in MS to retry communication */
-    int64_t tstamp;        /* Last POLL command issued time in ticks */
-	int64_t sc_tstamp;     /* Last received secure reply time in ticks */
-	int64_t phy_tstamp;    /* Time in ticks since command was sent */
+	int address; /* PD address */
+	int idx; /* Offset into osdp->pd[] for this PD */
+	int phy_retry_count; /* command retry counter */
+	uint32_t wait_ms; /* wait time in MS to retry communication */
+	int64_t tstamp; /* Last POLL command issued time in ticks */
+	int64_t sc_tstamp; /* Last received secure reply time in ticks */
+	int64_t phy_tstamp; /* Time in ticks since command was sent */
 #endif
-#ifndef __XC8__
-    uint32_t request;      /* Event loop requests */
-#else
-    uint8_t request;
-#endif
+
+	uint32_t request; /* Event loop requests */
 
 	uint16_t peer_rx_size; /* Receive buffer size of the peer PD/CP */
 
 	/* Raw bytes received from the serial line for this PD */
-    struct osdp_rb rx_rb;
+	struct osdp_rb rx_rb;
+	uint8_t packet_buf[OSDP_PACKET_BUF_SIZE];
 #ifdef __XC8__
-    uint8_t packet_start_idx;
-    uint8_t packet_end_idx;
-    uint16_t packet_len;
+	uint16_t packet_len;
 	uint16_t packet_buf_len;
 #else
-    uint8_t packet_buf[OSDP_PACKET_BUF_SIZE];
-    unsigned long packet_len;
+	unsigned long packet_len;
 	unsigned long packet_buf_len;
 	uint32_t packet_scan_skip;
 #endif
 
-	uint8_t cmd_id;            /* Currently processing command ID */
-	uint8_t reply_id;          /* Currently processing reply ID */
+	int cmd_id; /* Currently processing command ID */
+	int reply_id; /* Currently processing reply ID */
 
 	/* Data bytes of the current command/reply ID */
 	uint8_t ephemeral_data[OSDP_EPHEMERAL_DATA_MAX_LEN];
@@ -471,15 +468,15 @@ struct osdp_pd {
 		queue_t cmd_queue;
 		queue_t event_queue;
 	};
-    struct osdp_app_data_pool app_data; /* alloc osdp_event / osdp_cmd */
+	struct osdp_app_data_pool app_data; /* alloc osdp_event / osdp_cmd */
 #endif
-	
-	struct osdp_channel channel;     /* PD's serial channel */
-	struct osdp_secure_channel sc;   /* Secure Channel session context */
+
+	struct osdp_channel channel; /* PD's serial channel */
+	struct osdp_secure_channel sc; /* Secure Channel session context */
 #ifndef __XC8__
-	struct osdp_file *file;          /* File transfer context */
+	struct osdp_file *file; /* File transfer context */
 #endif
-    
+
 	/* PD command callback to app with opaque arg pointer as passed by app */
 	void *command_callback_arg;
 	pd_command_callback_t command_callback;
@@ -487,8 +484,8 @@ struct osdp_pd {
 #ifndef __XC8__
 	/* logger context (from utils/logger.h) */
 	logger_t logger;
-    
-    /* Opaque packet capture pointer (see osdp_pcap.c) */
+
+	/* Opaque packet capture pointer (see osdp_pcap.c) */
 	void *packet_capture_ctx;
 #endif
 };
@@ -547,26 +544,16 @@ int osdp_verify_pd_cryptogram(struct osdp_pd *pd);
 void osdp_compute_rmac_i(struct osdp_pd *pd);
 int osdp_decrypt_data(struct osdp_pd *pd, int is_cmd, uint8_t *data, int len);
 int osdp_encrypt_data(struct osdp_pd *pd, int is_cmd, uint8_t *data, int len);
-int osdp_compute_mac(struct osdp_pd *pd, int is_cmd,
-		     const uint8_t *data, int len);
+int osdp_compute_mac(struct osdp_pd *pd, int is_cmd, const uint8_t *data,
+		     int len);
 void osdp_sc_setup(struct osdp_pd *pd);
 void osdp_sc_teardown(struct osdp_pd *pd);
 
-
 #ifdef __XC8__
-// PIC18 shared event queue for size optimization
-int common_event_queue_init();
-struct osdp_event * common_event_alloc(struct osdp_pd *pd);
-void common_event_free(struct osdp_pd *pd, struct osdp_event *event);
-void common_event_enqueue(struct osdp_pd *pd, struct osdp_event *event);
-int common_event_dequeue(struct osdp_pd *pd, struct osdp_event **event);
-
 // PIC18 shared command queue for size optimization
-int common_cmd_queue_init(struct osdp_pd *pd);
-struct osdp_cmd *common_cmd_alloc(struct osdp_pd *pd);
-void common_cmd_free(struct osdp_pd *pd, struct osdp_cmd *cmd);
-void common_cmd_enqueue(struct osdp_pd *pd, struct osdp_cmd *cmd);
-int common_cmd_dequeue(struct osdp_pd *pd, struct osdp_cmd **cmd);
+int pd_event_queue_init();
+void pd_event_enqueue(struct osdp_pd *pd, struct osdp_event *event);
+int pd_event_dequeue(struct osdp_pd *pd, struct osdp_event **event);
 #endif
 
 static inline int get_tx_buf_size(struct osdp_pd *pd)

@@ -56,11 +56,9 @@ dkms.conf
 build/
 build-*/
 xcode/
-tags
+Tags
 
 ## Lean make related stuffs
-osdp_config.h
-osdp_export.h
 osdpctl/osdpctl
 config.make
 
@@ -85,3 +83,7 @@ compile_commands.json
 *.orig
 *.rej
 *.patch
+
+_build/
+out/
+cmake/

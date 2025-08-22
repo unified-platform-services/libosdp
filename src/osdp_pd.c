@@ -141,9 +141,49 @@ static int pd_event_dequeue(struct osdp_pd *pd, struct osdp_event **event)
 	return 0;
 }
 #else
-#define pd_event_dequeue(pd, event) common_event_dequeue(pd, event)
-#define pd_event_free(pd, event) common_event_free(pd, event)
-#define pd_event_enqueue(pd, event) common_event_enqueue(pd, event)
+// event data pool
+struct pd_event_node {
+	struct osdp_pd *pd;
+	struct osdp_event event;
+};
+struct pd_event_node pd_event_pool[OSDP_PD_EVENT_POOL_SIZE];
+static uint8_t taken_index = 0x00;
+
+int pd_event_queue_init()
+{
+	memset(pd_event_pool, 0, sizeof(pd_event_pool));
+	return 0;
+}
+
+void pd_event_enqueue(struct osdp_pd *pd, struct osdp_event *event)
+{
+	struct pd_event_node *event_node;
+	for (uint8_t i = 0; i < OSDP_PD_EVENT_POOL_SIZE; i++) {
+		if ((taken_index & (1 << i)) == 0) {
+			taken_index |= (1 << i);
+			event_node = &pd_event_pool[i];
+			event_node->pd = pd;
+			memcpy(&event_node->event, event,
+			       sizeof(struct osdp_event));
+			return;
+		}
+	}
+}
+
+int pd_event_dequeue(struct osdp_pd *pd, struct osdp_event **event)
+{
+	struct pd_event_node *n;
+	for (uint8_t i = 0; i < OSDP_PD_EVENT_POOL_SIZE; i++) {
+		if ((taken_index & (1 << i)) != 0 &&
+		    pd_event_pool[i].pd == pd) {
+			taken_index &= ~(1 << i);
+			memcpy(*event, &pd_event_pool[i],
+			       sizeof(struct osdp_event));
+			return 0;
+		}
+	}
+	return -1;
+}
 #endif
 
 static int pd_translate_event(struct osdp_pd *pd, struct osdp_event *event)
@@ -316,7 +356,9 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (pd_event_dequeue(pd, &event) == 0) {
 			ret = pd_translate_event(pd, event);
 			pd->reply_id = ret;
+#ifndef __XC8__
 			pd_event_free(pd, event);
+#endif
 		} else {
 			pd->reply_id = REPLY_ACK;
 		}
@@ -1136,7 +1178,9 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 {
 	struct osdp_pd *pd;
 	struct osdp *ctx;
+#ifndef __XC8__
 	char name[16] = {0};
+#endif
 
 	assert(info);
 

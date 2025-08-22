@@ -116,10 +116,46 @@ static int cp_cmd_dequeue(struct osdp_pd *pd, struct osdp_cmd **cmd)
 	return 0;
 }
 #else
-#define cp_cmd_dequeue(pd, cmd) common_cmd_dequeue(pd, cmd)
-#define cp_cmd_free(pd, cmd) common_cmd_free(pd, cmd)
-#define cp_cmd_alloc(pd) common_cmd_alloc(pd)
-#define cp_cmd_enqueue(pd, cmd) common_cmd_enqueue(pd, cmd)
+struct cp_cmd_node {
+	struct osdp_pd *pd;
+	struct osdp_cmd object;
+};
+struct cp_cmd_node cp_cmd_pool[OSDP_CP_CMD_POOL_SIZE];
+uint16_t taken_index = 0;
+
+static int cp_cmd_queue_init()
+{
+	memset(cp_cmd_pool, 0, sizeof(cp_cmd_pool));
+	return 0;
+}
+
+static void cp_cmd_enqueue(struct osdp_pd *pd, struct osdp_cmd *cmd)
+{
+	struct cp_cmd_node *cmd_node;
+	for (uint8_t i = 0; i < OSDP_CP_CMD_POOL_SIZE; i++) {
+		if (taken_index & (1 << i) == 0) {
+			taken_index |= (1 << i);
+			cmd_node = &cp_cmd_pool[i];
+			cmd_node->pd = pd;
+			memcpy(&cmd_node->object, cmd, sizeof(struct osdp_cmd));
+			return;
+		}
+	}
+}
+
+static int cp_cmd_dequeue(struct osdp_pd *pd, struct osdp_cmd **cmd)
+{
+	struct cp_cmd_node *n;
+	for (uint8_t i = 0; i < OSDP_CP_CMD_POOL_SIZE; i++) {
+		if ((taken_index & (1 << i)) != 0 && cp_cmd_pool[i].pd == pd) {
+			taken_index &= ~(1 << i);
+			memcpy(*cmd, &cp_cmd_pool[i],
+			       sizeof(struct cp_cmd_node));
+			return 0;
+		}
+	}
+	return -1;
+}
 #endif
 
 static int cp_channel_acquire(struct osdp_pd *pd, int *owner)
@@ -158,6 +194,7 @@ static int cp_channel_release(struct osdp_pd *pd)
 	return 0;
 }
 
+#ifndef __XC8__
 static const char *cp_get_cap_name(int cap)
 {
 	if (cap <= OSDP_PD_CAP_UNUSED || cap >= OSDP_PD_CAP_SENTINEL) {
@@ -183,6 +220,7 @@ static const char *cp_get_cap_name(int cap)
 	};
 	return cap_name[cap];
 }
+#endif
 
 static inline void assert_buf_len(int need, int have)
 {
@@ -947,6 +985,7 @@ error:
 	return OSDP_CP_ERR_GENERIC;
 }
 
+#ifndef __XC8__
 static const char *state_get_name(enum osdp_cp_state_e state)
 {
 	switch (state) {
@@ -961,6 +1000,7 @@ static const char *state_get_name(enum osdp_cp_state_e state)
 		BUG();
 	}
 }
+#endif
 
 static int cp_get_online_command(struct osdp_pd *pd)
 {
@@ -972,7 +1012,9 @@ static int cp_get_online_command(struct osdp_pd *pd)
 		if (cmd->flags & OSDP_CMD_FLAG_BROADCAST) {
 			SET_FLAG(pd, PD_FLAG_PKT_BROADCAST);
 		}
+#ifndef __XC8__
 		cp_cmd_free(pd, cmd);
+#endif
 		return ret;
 	}
 #ifndef __XC8__
@@ -1433,7 +1475,9 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		return -1;
 	}
 
+#ifndef __XC8__
 	p = cp_cmd_alloc(pd);
+#endif
 	if (p == NULL) {
 		LOG_ERR("Failed to allocate command");
 		return -1;
@@ -1484,45 +1528,46 @@ static int cp_detect_connection_topology(struct osdp *ctx)
 #ifdef __XC8__
 static struct osdp_pd PD_ARR[OSDP_PD_MAX];
 #endif
-static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_list)
+static int cp_add_pd(struct osdp *ctx, int num_pd,
+		     const osdp_pd_info_t *info_list)
 {
-	
 #ifdef __XC8__
-    struct osdp_pd *pd;
+	struct osdp_pd *pd;
 #else
-    int i, old_num_pd;
-    struct osdp_pd *old_pd_array, *new_pd_array, *pd;
-    char name[24] = { 0 };
+	int i, old_num_pd;
+	struct osdp_pd *old_pd_array, *new_pd_array, *pd;
+	char name[24] = { 0 };
 #endif
 	const osdp_pd_info_t *info;
-    
+
 	assert(num_pd);
 	assert(info_list);
 #ifndef __XC8__
-    old_num_pd = ctx->_num_pd;
+	old_num_pd = ctx->_num_pd;
 	old_pd_array = ctx->pd;
 
-    new_pd_array = calloc(old_num_pd + num_pd, sizeof(struct osdp_pd));
-    if (new_pd_array == NULL) {
+	new_pd_array = calloc(old_num_pd + num_pd, sizeof(struct osdp_pd));
+	if (new_pd_array == NULL) {
 		LOG_PRINT("Failed to allocate new osdp_pd[] context");
 		return -1;
 	}
 #endif
 
-#ifdef __XC8__    
-    ctx->pd = PD_ARR;
-    ctx->_num_pd = num_pd;
-    pd = PD_ARR;
-    for (uint8_t i = 0; i < num_pd; i++) {
-        
+#ifdef __XC8__
+	ctx->pd = PD_ARR;
+	ctx->_num_pd = num_pd;
+
+	for (uint8_t i = 0; i < num_pd; i++) {
 #else
 	ctx->pd = new_pd_array;
 	ctx->_num_pd = old_num_pd + num_pd;
 	memcpy(new_pd_array, old_pd_array, sizeof(struct osdp_pd) * old_num_pd);
-    
-    for (i = 0; i < num_pd; i++) {
-        pd = osdp_to_pd(ctx, i + old_num_pd);
+
+	for (i = 0; i < num_pd; i++) {
+		pd = osdp_to_pd(ctx, i + old_num_pd);
 #endif
+		memset(&PD_ARR[i], 0, sizeof(struct osdp_pd));
+		pd = &PD_ARR[i];
 		info = info_list + i;
 		pd->idx = i;
 		pd->osdp_ctx = ctx;
@@ -1530,7 +1575,8 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		if (info->name) {
 			strncpy(pd->name, info->name, OSDP_PD_NAME_MAXLEN - 1);
 		} else {
-			snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d", info->address);
+			snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d",
+				 info->address);
 		}
 #endif
 		pd->baud_rate = info->baud_rate;
@@ -1596,8 +1642,9 @@ osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info)
 {
 #ifdef __XC8__
 	struct osdp *ctx = &STATIC_CTX;
+	cp_cmd_queue_init();
 #else
-    struct osdp *ctx;
+	struct osdp *ctx;
 #endif
 	input_check_init(ctx);
 
@@ -1706,7 +1753,9 @@ int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)
 	int count = 0;
 
 	while (cp_cmd_dequeue(pd, &cmd) == 0) {
+#ifndef __XC8__
 		cp_cmd_free(pd, cmd);
+#endif
 		count++;
 	}
 	return count;
