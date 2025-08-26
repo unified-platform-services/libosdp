@@ -879,15 +879,15 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_MFGREP:
-		cmd = (struct osdp_cmd *)pd->ephemeral_data;
-		assert_buf_len(REPLY_MFGREP_LEN + cmd->mfg.length, max_len);
+		event = (struct osdp_event *)pd->ephemeral_data;
+		assert_buf_len(REPLY_MFGREP_LEN + event->mfgrep.length, max_len);
 		buf[len++] = pd->reply_id;
-		buf[len++] = BYTE_0(cmd->mfg.vendor_code);
-		buf[len++] = BYTE_1(cmd->mfg.vendor_code);
-		buf[len++] = BYTE_2(cmd->mfg.vendor_code);
-		buf[len++] = cmd->mfg.command;
-		memcpy(buf + len, cmd->mfg.data, cmd->mfg.length);
-		len += cmd->mfg.length;
+		buf[len++] = BYTE_0(event->mfgrep.vendor_code);
+		buf[len++] = BYTE_1(event->mfgrep.vendor_code);
+		buf[len++] = BYTE_2(event->mfgrep.vendor_code);
+		buf[len++] = event->mfgrep.command;
+		memcpy(buf + len, event->mfgrep.data, event->mfgrep.length);
+		len += event->mfgrep.length;
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_FTSTAT:
