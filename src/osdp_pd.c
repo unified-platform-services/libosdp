@@ -15,39 +15,39 @@
 #include <stdlib.h>
 #endif
 
-#define CMD_POLL_DATA_LEN              0
-#define CMD_LSTAT_DATA_LEN             0
-#define CMD_ISTAT_DATA_LEN             0
-#define CMD_OSTAT_DATA_LEN             0
-#define CMD_RSTAT_DATA_LEN             0
-#define CMD_ID_DATA_LEN                1
-#define CMD_CAP_DATA_LEN               1
-#define CMD_OUT_DATA_LEN               4
-#define CMD_LED_DATA_LEN               14
-#define CMD_BUZ_DATA_LEN               5
-#define CMD_TEXT_DATA_LEN              6   /* variable length command */
-#define CMD_COMSET_DATA_LEN            5
-#define CMD_KEYSET_DATA_LEN            18
-#define CMD_CHLNG_DATA_LEN             8
-#define CMD_SCRYPT_DATA_LEN            16
-#define CMD_ABORT_DATA_LEN             0
-#define CMD_ACURXSIZE_DATA_LEN         2
-#define CMD_KEEPACTIVE_DATA_LEN        2
-#define CMD_MFG_DATA_LEN               4 /* variable length command */
+#define CMD_POLL_DATA_LEN	0
+#define CMD_LSTAT_DATA_LEN	0
+#define CMD_ISTAT_DATA_LEN	0
+#define CMD_OSTAT_DATA_LEN	0
+#define CMD_RSTAT_DATA_LEN	0
+#define CMD_ID_DATA_LEN		1
+#define CMD_CAP_DATA_LEN	1
+#define CMD_OUT_DATA_LEN	4
+#define CMD_LED_DATA_LEN	14
+#define CMD_BUZ_DATA_LEN	5
+#define CMD_TEXT_DATA_LEN	6 /* variable length command */
+#define CMD_COMSET_DATA_LEN	5
+#define CMD_KEYSET_DATA_LEN	18
+#define CMD_CHLNG_DATA_LEN	8
+#define CMD_SCRYPT_DATA_LEN	16
+#define CMD_ABORT_DATA_LEN	0
+#define CMD_ACURXSIZE_DATA_LEN	2
+#define CMD_KEEPACTIVE_DATA_LEN 2
+#define CMD_MFG_DATA_LEN	4 /* variable length command */
 
-#define REPLY_ACK_LEN                  1
-#define REPLY_PDID_LEN                 13
-#define REPLY_PDCAP_LEN                1   /* variable length command */
-#define REPLY_PDCAP_ENTITY_LEN         3
-#define REPLY_LSTATR_LEN               3
-#define REPLY_RSTATR_LEN               2
-#define REPLY_COM_LEN                  6
-#define REPLY_NAK_LEN                  2
-#define REPLY_CCRYPT_LEN               33
-#define REPLY_RMAC_I_LEN               17
-#define REPLY_KEYPAD_LEN               2
-#define REPLY_RAW_LEN                  4
-#define REPLY_MFGREP_LEN               4 /* variable length command */
+#define REPLY_ACK_LEN	       1
+#define REPLY_PDID_LEN	       13
+#define REPLY_PDCAP_LEN	       1 /* variable length command */
+#define REPLY_PDCAP_ENTITY_LEN 3
+#define REPLY_LSTATR_LEN       3
+#define REPLY_RSTATR_LEN       2
+#define REPLY_COM_LEN	       6
+#define REPLY_NAK_LEN	       2
+#define REPLY_CCRYPT_LEN       33
+#define REPLY_RMAC_I_LEN       17
+#define REPLY_KEYPAD_LEN       2
+#define REPLY_RAW_LEN	       4
+#define REPLY_MFGREP_LEN       4 /* variable length command */
 
 enum osdp_pd_error_e {
 	OSDP_PD_ERR_NONE = 0,
@@ -76,8 +76,7 @@ static struct osdp_pd_cap osdp_pd_cap[] = {
 		BYTE_1(OSDP_PACKET_BUF_SIZE),
 	},
 	{
-		OSDP_PD_CAP_OSDP_VERSION,
-		2, /* SIA OSDP 2.2 */
+		OSDP_PD_CAP_OSDP_VERSION, 2, /* SIA OSDP 2.2 */
 		0, /* N/A */
 	},
 	{ -1, 0, 0 } /* Sentinel */
@@ -177,8 +176,9 @@ int pd_event_dequeue(struct osdp_pd *pd, struct osdp_event **event)
 		if ((taken_index & (1 << i)) != 0 &&
 		    pd_event_pool[i].pd == pd) {
 			taken_index &= ~(1 << i);
-			memcpy(*event, &pd_event_pool[i],
-			       sizeof(struct osdp_event));
+			*event = &pd_event_pool[i].event;
+			//			memcpy(*event, &(pd_event_pool[i].event),
+			//			       sizeof(struct osdp_event));
 			return 0;
 		}
 	}
@@ -440,7 +440,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != CMD_ID_DATA_LEN) {
 			break;
 		}
-		pos++;		/* Skip reply type info. */
+		pos++; /* Skip reply type info. */
 		pd->reply_id = REPLY_PDID;
 		ret = OSDP_PD_ERR_NONE;
 		break;
@@ -448,7 +448,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != CMD_CAP_DATA_LEN) {
 			break;
 		}
-		pos++;		/* Skip reply type info. */
+		pos++; /* Skip reply type info. */
 		pd->reply_id = REPLY_PDCAP;
 		ret = OSDP_PD_ERR_NONE;
 		break;
@@ -651,8 +651,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		/* only key_type == 1 (SCBK) and key_len == 16 is supported */
 		if (buf[pos] != 1 || buf[pos + 1] != 16) {
-			LOG_ERR("Keyset invalid len/type: %d/%d",
-				buf[pos], buf[pos + 1]);
+			LOG_ERR("Keyset invalid len/type: %d/%d", buf[pos],
+				buf[pos + 1]);
 			break;
 		}
 		ret = OSDP_PD_ERR_REPLY;
@@ -741,8 +741,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 
 static inline void assert_buf_len(int need, int have)
 {
-	__ASSERT(need < have, "OOM at build command: need:%d have:%d",
-		 need, have);
+	__ASSERT(need < have, "OOM at build command: need:%d have:%d", need,
+		 have);
 }
 
 /**
@@ -852,7 +852,8 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		break;
 	case REPLY_KEYPAD:
 		event = (struct osdp_event *)pd->ephemeral_data;
-		assert_buf_len(REPLY_KEYPAD_LEN + event->keypress.length, max_len);
+		assert_buf_len(REPLY_KEYPAD_LEN + event->keypress.length,
+			       max_len);
 		buf[len++] = pd->reply_id;
 		buf[len++] = (uint8_t)event->keypress.reader_no;
 		buf[len++] = (uint8_t)event->keypress.length;
@@ -936,7 +937,7 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		memcpy(buf + len + 8, pd->sc.pd_random, 8);
 		memcpy(buf + len + 16, pd->sc.pd_cryptogram, 16);
 		len += 32;
-		smb[0] = 3;      /* length */
+		smb[0] = 3; /* length */
 		smb[1] = SCS_12; /* type */
 		smb[2] = ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD) ? 0 : 1;
 		ret = OSDP_PD_ERR_NONE;
@@ -950,10 +951,10 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = pd->reply_id;
 		memcpy(buf + len, pd->sc.r_mac, 16);
 		len += 16;
-		smb[0] = 3;       /* length */
-		smb[1] = SCS_14;  /* type */
+		smb[0] = 3; /* length */
+		smb[1] = SCS_14; /* type */
 		if (osdp_verify_cp_cryptogram(pd) == 0) {
-			smb[2] = 1;  /* CP auth succeeded */
+			smb[2] = 1; /* CP auth succeeded */
 			sc_activate(pd);
 			pd->sc_tstamp = osdp_millis_now();
 			if (ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) {
@@ -962,12 +963,13 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 				LOG_INF("SC Active");
 			}
 		} else {
-			smb[2] = 0;  /* CP auth failed */
+			smb[2] = 0; /* CP auth failed */
 			LOG_WRN("failed to verify CP_crypt");
 		}
 		ret = OSDP_PD_ERR_NONE;
 		break;
-	default: BUG();
+	default:
+		BUG();
 	}
 
 	if (smb && (smb[1] > SCS_14) && sc_is_active(pd)) {
@@ -1179,7 +1181,7 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 	struct osdp_pd *pd;
 	struct osdp *ctx;
 #ifndef __XC8__
-	char name[16] = {0};
+	char name[16] = { 0 };
 #endif
 
 	assert(info);
@@ -1224,17 +1226,17 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 	pd->flags = info->flags;
 	pd->seq_number = -1;
 	memcpy(&pd->channel, &info->channel, sizeof(struct osdp_channel));
-    
+
 #ifndef __XC8__
 	logger_get_default(&pd->logger);
 	snprintf(name, sizeof(name), "OSDP: PD-%d", pd->address);
 	logger_set_name(&pd->logger, name);
-    
-    if (pd_event_queue_init(pd)) {
+
+	if (pd_event_queue_init(pd)) {
 		goto error;
 	}
 #endif
-    
+
 	if (info->scbk == NULL) {
 		if (is_enforce_secure(pd)) {
 			LOG_ERR("SCBK must be provided in ENFORCE_SECURE");
@@ -1258,8 +1260,8 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 		osdp_packet_capture_init(pd);
 	}
 #endif
-	LOG_PRINT("PD Setup complete; LibOSDP-%s %s",
-		  osdp_get_version(), osdp_get_source_info());
+	LOG_PRINT("PD Setup complete; LibOSDP-%s %s", osdp_get_version(),
+		  osdp_get_source_info());
 
 	return (osdp_t *)ctx;
 error:
@@ -1316,17 +1318,16 @@ void osdp_pd_set_command_callback(osdp_t *ctx, pd_command_callback_t cb,
 int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 {
 	input_check(ctx);
-	struct osdp_event *ev;
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 #ifndef __XC8__
+	struct osdp_event *ev;
 	ev = pd_event_alloc(pd);
-#endif
 	if (ev == NULL) {
 		return -1;
 	}
-
 	memcpy(ev, event, sizeof(struct osdp_event));
-	pd_event_enqueue(pd, ev);
+#endif
+	pd_event_enqueue(pd, event);
 	return 0;
 }
 
