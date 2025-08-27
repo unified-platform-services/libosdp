@@ -288,7 +288,9 @@ union osdp_ephemeral_data {
 #define PD_FLAG_HAS_SCBK       BIT(12) /* PD has a dedicated SCBK */
 #define PD_FLAG_SC_DISABLED    BIT(13) /* master_key=NULL && scbk=NULL */
 #define PD_FLAG_PKT_BROADCAST  BIT(14) /* this packet was addressed to 0x7F */
-
+#if (CONFIG_EDGE_QR == 1)
+#define PD_FLAG_PDID_SET	  BIT(15) /* PD ID has been set by the readers */
+#endif
 #define PD_FLAG_ONLINE		   BIT(30)
 #define PD_FLAG_OFFLINE		   BIT(31)
 

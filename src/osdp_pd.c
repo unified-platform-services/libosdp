@@ -411,6 +411,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		pos++; /* Skip reply type info. */
 		pd->reply_id = REPLY_PDID;
 #endif
+		ret = OSDP_PD_ERR_NONE;
 		break;
 	case CMD_CAP:
 		if (len != CMD_CAP_DATA_LEN) {

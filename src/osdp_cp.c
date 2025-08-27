@@ -442,6 +442,10 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		pd->id.firmware_version = buf[pos++] << 16;
 		pd->id.firmware_version |= buf[pos++] << 8;
 		pd->id.firmware_version |= buf[pos++];
+#if (CONFIG_EDGE_QR == 1)
+		if (ISSET_FLAG(pd, PD_FLAG_PDID_SET) == 0)
+			SET_FLAG(pd, PD_FLAG_PDID_SET);
+#endif
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_PDCAP:
@@ -1295,6 +1299,9 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 			if (ISSET_FLAG(pd, PD_FLAG_OFFLINE) == 0) {
 				SET_FLAG(pd, PD_FLAG_OFFLINE);
 				CLEAR_FLAG(pd, PD_FLAG_ONLINE);
+#if (CONFIG_EDGE_QR == 1)
+				CLEAR_FLAG(pd, PD_FLAG_PDID_SET);
+#endif
 				notify_pd_status(pd, false);
 			}
 		}
