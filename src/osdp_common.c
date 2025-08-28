@@ -6,6 +6,7 @@
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE /* See feature_test_macros(7) */
+#include "config.h"
 #endif
 
 #include <stdarg.h>
@@ -24,7 +25,7 @@ uint16_t osdp_compute_crc16(const uint8_t *buf, size_t len)
 
 __weak int64_t osdp_millis_now(void)
 {
-	return millis_now();
+	return sysTickMs;
 }
 
 int64_t osdp_millis_since(int64_t last)

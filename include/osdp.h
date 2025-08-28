@@ -422,7 +422,7 @@ enum osdp_status_report_type {
 	OSDP_STATUS_REPORT_REMOTE,
 };
 
-#define OSDP_STATUS_REPORT_MAX_LEN 64
+#define OSDP_STATUS_REPORT_MAX_LEN 32
 
 /**
  * @brief Status report structure. Used by OSDP_CMD_STATUS and
@@ -451,9 +451,9 @@ struct osdp_status_report {
 /*         OSDP Commands           */
 /* ------------------------------- */
 
-#define OSDP_CMD_TEXT_MAX_LEN          32
+#define OSDP_CMD_TEXT_MAX_LEN          1
 #define OSDP_CMD_KEYSET_KEY_MAX_LEN    32
-#define OSDP_CMD_MFG_MAX_DATALEN       64
+#define OSDP_CMD_MFG_MAX_DATALEN       32
 
 /**
  * @brief Command sent from CP to Control digital output of PD.
@@ -760,9 +760,9 @@ struct osdp_cmd {
 /*          OSDP Events            */
 /* ------------------------------- */
 
-#define OSDP_EVENT_CARDREAD_MAX_DATALEN   64
-#define OSDP_EVENT_KEYPRESS_MAX_DATALEN   64
-#define OSDP_EVENT_MFGREP_MAX_DATALEN     128
+#define OSDP_EVENT_CARDREAD_MAX_DATALEN   48
+#define OSDP_EVENT_KEYPRESS_MAX_DATALEN   32
+#define OSDP_EVENT_MFGREP_MAX_DATALEN     32
 
 /**
  * @brief Various card formats that a PD can support. This is sent to CP

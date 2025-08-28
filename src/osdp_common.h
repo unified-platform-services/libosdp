@@ -199,8 +199,12 @@ union osdp_ephemeral_data {
 #define input_check1(_1) \
 	input_check_osdp_ctx(_1);
 #define get_macro(_1, _2, macro, ...) macro
+#ifndef __XC8__
 #define input_check(...) \
 	get_macro(__VA_ARGS__, input_check2, input_check1)(__VA_ARGS__)
+#else
+#define input_check(...)
+#endif
 
 /**
  * @brief OSDP reserved commands

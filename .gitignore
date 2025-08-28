@@ -59,8 +59,6 @@ xcode/
 tags
 
 ## Lean make related stuffs
-osdp_config.h
-osdp_export.h
 osdpctl/osdpctl
 config.make
 
