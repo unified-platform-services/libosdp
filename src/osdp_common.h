@@ -403,7 +403,9 @@ struct osdp_app_data_pool {
 };
 
 struct osdp_pd {
+#ifndef __XC8__
 	char name[OSDP_PD_NAME_MAXLEN];
+#endif
 	struct osdp *osdp_ctx; /* Ref to osdp * to access shared resources */
 	int idx;               /* Offset into osdp->pd[] for this PD */
 	uint32_t flags;        /* Used with: ISSET_FLAG, SET_FLAG, CLEAR_FLAG */
@@ -457,10 +459,10 @@ struct osdp_pd {
 #ifndef __XC8__
 	/* logger context (from utils/logger.h) */
 	logger_t logger;
-#endif
 
 	/* Opaque packet capture pointer (see osdp_pcap.c) */
 	void *packet_capture_ctx;
+#endif
 };
 
 struct osdp {

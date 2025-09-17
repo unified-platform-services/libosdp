@@ -1496,6 +1496,7 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
         pd = osdp_to_pd(ctx, i + old_num_pd);
 #endif
 		info = info_list + i;
+		pd = PD_ARR + i;
 		pd->idx = i;
 		pd->osdp_ctx = ctx;
 #ifndef __XC8__
