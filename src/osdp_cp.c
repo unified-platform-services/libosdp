@@ -419,8 +419,15 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != REPLY_NAK_DATA_LEN) {
 			break;
 		}
-		LOG_WRN("PD replied with NAK(%d) for CMD: %s(%02x)", buf[pos],
-			osdp_cmd_name(pd->cmd_id), pd->cmd_id);
+		if (buf[pos] == OSDP_PD_NAK_MSG_CHK &&
+		    ISSET_FLAG(pd, PD_FLAG_CP_USE_CRC)) {
+			LOG_INF("PD NAK'd CRC-16, falling back to checksum");
+			CLEAR_FLAG(pd, PD_FLAG_CP_USE_CRC);
+			ret = OSDP_CP_ERR_RETRY_CMD;
+			break;
+		}
+		LOG_WRN("PD replied with NAK(%d) for CMD: %s(%02x)",
+			buf[pos], osdp_cmd_name(pd->cmd_id), pd->cmd_id);
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_PDID:
@@ -480,6 +487,16 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 			SET_FLAG(pd, PD_FLAG_SC_CAPABLE);
 		} else {
 			CLEAR_FLAG(pd, PD_FLAG_SC_CAPABLE);
+		}
+
+		/* Check checksum/CRC support capability */
+		t1 = OSDP_PD_CAP_CHECK_CHARACTER_SUPPORT;
+		if (pd->cap[t1].function_code == t1) {
+			if (pd->cap[t1].compliance_level & 0x01) {
+				SET_FLAG(pd, PD_FLAG_CP_USE_CRC);
+			} else {
+				CLEAR_FLAG(pd, PD_FLAG_CP_USE_CRC);
+			}
 		}
 		ret = OSDP_CP_ERR_NONE;
 		break;
@@ -878,6 +895,13 @@ static void cp_phy_state_done(struct osdp_pd *pd)
 	pd->phy_state = OSDP_CP_PHY_STATE_DONE;
 }
 
+static void cp_phy_state_wait(struct osdp_pd *pd, uint32_t wait_ms)
+{
+	pd->wait_ms = wait_ms;
+	pd->phy_tstamp = osdp_millis_now();
+	pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
+}
+
 static int cp_phy_state_update(struct osdp_pd *pd)
 {
 	int rc, ret = OSDP_CP_ERR_CAN_YIELD;
@@ -925,19 +949,15 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 			goto error;
 		}
 		if (rc == OSDP_CP_ERR_RETRY_CMD) {
-			pd->phy_tstamp = osdp_millis_now();
-			pd->wait_ms = OSDP_CMD_RETRY_WAIT_MS;
-			pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
+			cp_phy_state_wait(pd, OSDP_CMD_RETRY_WAIT_MS);
 			return OSDP_CP_ERR_CAN_YIELD;
 		}
 		if (osdp_millis_since(pd->phy_tstamp) > OSDP_RESP_TOUT_MS) {
 			if (pd->phy_retry_count < OSDP_CMD_MAX_RETRIES) {
-				pd->wait_ms = OSDP_CMD_RETRY_WAIT_MS;
-				pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
 				pd->phy_retry_count += 1;
-				pd->phy_tstamp = osdp_millis_now();
 				LOG_WRN("No response in 200ms; probing (%d)",
 					pd->phy_retry_count);
+				cp_phy_state_wait(pd, OSDP_CMD_RETRY_WAIT_MS);
 				return OSDP_CP_ERR_CAN_YIELD;
 			}
 			LOG_ERR("Response timeout for CMD: %s(%02x)",
@@ -1599,6 +1619,8 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		pd->seq_number = -1;
 		pd->pd_to_offline_count = 0;
 		SET_FLAG(pd, PD_FLAG_SC_DISABLED);
+		/* Default to CRC-16 until we know PD capabilities */
+		SET_FLAG(pd, PD_FLAG_CP_USE_CRC);
 		memcpy(&pd->channel, &info->channel,
 		       sizeof(struct osdp_channel));
 

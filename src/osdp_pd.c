@@ -105,6 +105,7 @@ static struct osdp_event *pd_event_alloc(struct osdp_pd *pd)
 		LOG_ERR("Event slab allocation failed");
 		return NULL;
 	}
+	memset(&event->object, 0, sizeof(event->object));
 	return &event->object;
 }
 
@@ -187,7 +188,7 @@ static int pd_translate_event(struct osdp_pd *pd, struct osdp_event *event)
 		break;
 	default:
 		LOG_ERR("Unknown event type %d", event->type);
-		break;
+		BUG();
 	}
 	if (reply_code == 0) {
 		/* POLL command cannot fail even when there are errors here */
@@ -272,6 +273,21 @@ static int pd_cmd_cap_ok(struct osdp_pd *pd, struct osdp_cmd *cmd)
 	pd->ephemeral_data[0] = OSDP_PD_NAK_CMD_UNKNOWN;
 	LOG_ERR("PD is not capable of handling CMD(%02x); ", pd->cmd_id);
 	return 0;
+}
+
+static void pd_stage_event_mfgrep(struct osdp_pd *pd, struct osdp_cmd_mfg *cmd)
+{
+	struct osdp_event ev;
+
+	ev.type = OSDP_EVENT_MFGREP;
+	ev.flags = 0;
+
+	ev.mfgrep.command = cmd->command;
+	ev.mfgrep.length = cmd->length;
+	ev.mfgrep.vendor_code = cmd->vendor_code;
+	memcpy(ev.mfgrep.data, cmd->data, cmd->length);
+
+	memcpy(pd->ephemeral_data, &ev, sizeof(ev));
 }
 
 static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
@@ -570,8 +586,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		if (ret > 0) { /* App wants to send a REPLY_MFGREP to the CP */
-			memcpy(pd->ephemeral_data, &cmd,
-			       sizeof(struct osdp_cmd));
+			pd_stage_event_mfgrep(pd, &cmd.mfg);
 			pd->reply_id = REPLY_MFGREP;
 		} else {
 			pd->reply_id = REPLY_ACK;
@@ -1274,6 +1289,11 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 	input_check(ctx);
 	struct osdp_event *ev;
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
+
+	if (event->type <= 0 ||
+	    event->type >= OSDP_EVENT_SENTINEL) {
+		return -1;
+	}
 
 	ev = pd_event_alloc(pd);
 	if (ev == NULL) {
