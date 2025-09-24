@@ -741,6 +741,7 @@ static int cp_process_reply(struct osdp_pd *pd)
 	case OSDP_ERR_PKT_NO_DATA:
 		return OSDP_CP_ERR_NO_DATA;
 	case OSDP_ERR_PKT_BUSY:
+		LOG_DBG("BSY");
 		return OSDP_CP_ERR_RETRY_CMD;
 	case OSDP_ERR_PKT_NACK:
 		/* CP cannot do anything about an invalid reply from a PD. So it
@@ -748,6 +749,7 @@ static int cp_process_reply(struct osdp_pd *pd)
 		 * reason for this failure was probably better logged by lower
 		 * layers so we can treat it as a generic failure.
 		 */
+		LOG_DBG("NACK");
 		__fallthrough;
 	default:
 		return OSDP_CP_ERR_GENERIC;
@@ -902,7 +904,8 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 				pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
 				pd->phy_retry_count += 1;
 				pd->phy_tstamp = osdp_millis_now();
-				LOG_WRN("No response in 200ms; probing (%d)",
+				LOG_WRN("No response in 200ms; %d probing (%d)",
+					rc,
 					pd->phy_retry_count);
 				return OSDP_CP_ERR_CAN_YIELD;
 			}

@@ -51,7 +51,7 @@ static int osdp_channel_send(struct osdp_pd *pd, uint8_t *buf, int len)
 
 static int osdp_channel_receive(struct osdp_pd *pd)
 {
-	uint8_t buf[64];
+	uint8_t buf[32];
 	int recv, total_recv = 0;
 
 #ifdef UNIT_TESTING

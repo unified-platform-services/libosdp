@@ -19,6 +19,7 @@
 #include <utils/slab.h>
 #include <utils/assert.h>
 
+// #define DEBUG_EN 
 #define USE_CUSTOM_LOGGER
 #ifndef __XC8__
 #include <utils/logger.h>
@@ -57,16 +58,29 @@ do {\
 #define LOG_NOT(...)   __logger_log(&pd->logger, LOG_NOTICE, __FILE__, __LINE__, __VA_ARGS__)
 #define LOG_DBG(...)   __logger_log(&pd->logger, LOG_DEBUG,  __FILE__, __LINE__, __VA_ARGS__)
 #else
-#define LOG_EM(...)    
-#define LOG_ALERT(...) 
-#define LOG_CRIT(...)  
-#define LOG_ERR(...)   
-#define LOG_INF(...)   
-#define LOG_WRN(...)   
-#define LOG_WRN_ONCE(...) 
-#define LOG_NOT(...)   
+#if defined (DEBUG_EN)
+#define LOG_EM(...) do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#define LOG_ALERT(...) do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#define LOG_CRIT(...)  do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#define LOG_ERR(...)   do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#define LOG_INF(...)   do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#define LOG_WRN(...)   do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#define LOG_WRN_ONCE(...) do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#define LOG_NOT(...)   do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#define LOG_DBG(...) do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#define LOG_PRINT(...) do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#else
+#define LOG_EM(...)
+#define LOG_ALERT(...)
+#define LOG_CRIT(...)
+#define LOG_ERR(...)
+#define LOG_INF(...)
+#define LOG_WRN(...)
+#define LOG_WRN_ONCE(...)
+#define LOG_NOT(...)
 #define LOG_DBG(...)
 #define LOG_PRINT(...)
+#endif
 #endif
 
 #define ISSET_FLAG(p, f)       (((p)->flags & (f)) == (f))
