@@ -43,7 +43,7 @@
 #define REPLY_RAW_DATA_LEN             4   /* variable length command */
 #define REPLY_FMT_DATA_LEN     		   3 /* variable length command */
 #define REPLY_BUSY_DATA_LEN            0
-#define REPLY_MFGREP_LEN               4   /* variable length command */
+#define REPLY_MFGREP_LEN               3   /* variable length command */
 
 enum osdp_cp_error_e {
 	OSDP_CP_ERR_NONE = 0,
@@ -53,6 +53,7 @@ enum osdp_cp_error_e {
 	OSDP_CP_ERR_CAN_YIELD = -4,
 	OSDP_CP_ERR_INPROG = -5,
 	OSDP_CP_ERR_UNKNOWN = -6,
+	OSDP_CP_ERR_SEQ_NUM = -7,
 };
 
 struct cp_cmd_node {
@@ -302,7 +303,6 @@ static int cp_build_command(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = BYTE_0(cmd->mfg.vendor_code);
 		buf[len++] = BYTE_1(cmd->mfg.vendor_code);
 		buf[len++] = BYTE_2(cmd->mfg.vendor_code);
-		buf[len++] = cmd->mfg.command;
 		memcpy(buf + len, cmd->mfg.data, cmd->mfg.length);
 		len += cmd->mfg.length;
 		break;
@@ -646,7 +646,6 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		event.mfgrep.vendor_code = buf[pos++];
 		event.mfgrep.vendor_code |= buf[pos++] << 8;
 		event.mfgrep.vendor_code |= buf[pos++] << 16;
-		event.mfgrep.command = buf[pos++];
 		event.mfgrep.length = len - REPLY_MFGREP_LEN;
 		if (event.mfgrep.length > OSDP_EVENT_MFGREP_MAX_DATALEN) {
 			break;
@@ -765,10 +764,16 @@ static int cp_process_reply(struct osdp_pd *pd)
 	case OSDP_ERR_PKT_BUSY:
 		return OSDP_CP_ERR_RETRY_CMD;
 	case OSDP_ERR_PKT_NACK:
-		/* CP cannot do anything about an invalid reply from a PD. So it
-		 * just default to going offline and retrying after a while. The
-		 * reason for this failure was probably better logged by lower
-		 * layers so we can treat it as a generic failure.
+		if (pd->ephemeral_data[0] == OSDP_PD_NAK_SEQ_NUM) {
+			LOG_WRN("NAK(SEQ_NUM); restarting communication");
+			osdp_phy_state_reset(pd, true);
+			sc_deactivate(pd);
+			pd->state = OSDP_CP_STATE_INIT;
+			return OSDP_CP_ERR_SEQ_NUM;
+		}
+		/* Other NACKs: CP cannot do anything about an invalid reply from a PD.
+		 * Default to going offline and retrying after a while. The reason for
+		 * this failure was probably better logged by lower layers.
 		 */
 		__fallthrough;
 	default:
@@ -937,11 +942,13 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 		rc = cp_process_reply(pd);
 		if (rc == OSDP_CP_ERR_NONE) {
 			pd->tstamp = osdp_millis_now();
+			osdp_phy_progress_sequence(pd);
 			cp_phy_state_done(pd);
 			return OSDP_CP_ERR_NONE;
 		}
-		if (rc == OSDP_CP_ERR_UNKNOWN && pd->cmd_id == CMD_POLL &&
-		    ISSET_FLAG(pd, OSDP_FLAG_IGN_UNSOLICITED)) {
+		if (rc == OSDP_CP_ERR_SEQ_NUM ||
+		    (rc == OSDP_CP_ERR_UNKNOWN && pd->cmd_id == CMD_POLL &&
+		     ISSET_FLAG(pd, OSDP_FLAG_IGN_UNSOLICITED))) {
 			cp_phy_state_done(pd);
 			return OSDP_CP_ERR_NONE;
 		}
