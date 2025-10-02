@@ -7,12 +7,12 @@
 #include "osdp_common.h"
 #include "osdp_diag.h"
 
-#define OSDP_PKT_MARK                  0xFF
-#define OSDP_PKT_SOM                   0x53
-#define PKT_CONTROL_SQN                0x03
-#define PKT_CONTROL_CRC                0x04
-#define PKT_CONTROL_SCB                0x08
-#define PKT_TRACE_MANGLED              0x80
+#define OSDP_PKT_MARK	  0xFF
+#define OSDP_PKT_SOM	  0x53
+#define PKT_CONTROL_SQN	  0x03
+#define PKT_CONTROL_CRC	  0x04
+#define PKT_CONTROL_SCB	  0x08
+#define PKT_TRACE_MANGLED 0x80
 
 PACK(struct osdp_packet_header {
 	uint8_t som;
@@ -38,8 +38,8 @@ static int osdp_channel_send(struct osdp_pd *pd, uint8_t *buf, int len)
 	}
 
 	do { /* send can block; so be greedy */
-		sent = pd->channel.send(pd->channel.data,
-					buf + total_sent, len - total_sent);
+		sent = pd->channel.send(pd->channel.data, buf + total_sent,
+					len - total_sent);
 		if (sent <= 0) {
 			break;
 		}
@@ -162,7 +162,7 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	/* Fill packet header */
 	pkt = (struct osdp_packet_header *)buf;
 	pkt->som = OSDP_PKT_SOM;
-	pkt->pd_address = pd->address & 0x7F;	/* Use only the lower 7 bits */
+	pkt->pd_address = pd->address & 0x7F; /* Use only the lower 7 bits */
 	if (ISSET_FLAG(pd, PD_FLAG_PKT_BROADCAST)) {
 		pkt->pd_address = 0x7F;
 		CLEAR_FLAG(pd, PD_FLAG_PKT_BROADCAST);
@@ -187,12 +187,12 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		pkt->data[1] = SCS_11;
 	}
 
-	return (packet_has_mark(pd) +
-	        sizeof(struct osdp_packet_header) + scb_len);
+	return (packet_has_mark(pd) + sizeof(struct osdp_packet_header) +
+		scb_len);
 }
 
-static int osdp_phy_packet_finalize(struct osdp_pd *pd, uint8_t *buf,
-				    int len, int max_len)
+static int osdp_phy_packet_finalize(struct osdp_pd *pd, uint8_t *buf, int len,
+				    int max_len)
 {
 	uint16_t crc16;
 	struct osdp_packet_header *pkt;
@@ -245,8 +245,8 @@ static int osdp_phy_packet_finalize(struct osdp_pd *pd, uint8_t *buf,
 		pkt->control = control;
 	}
 
-	if (sc_is_active(pd) &&
-	    pkt->control & PKT_CONTROL_SCB && pkt->data[1] >= SCS_15) {
+	if (sc_is_active(pd) && pkt->control & PKT_CONTROL_SCB &&
+	    pkt->data[1] >= SCS_15) {
 		if (pkt->data[1] == SCS_17 || pkt->data[1] == SCS_18) {
 			/**
 			 * Only the data portion of message (after id byte)
@@ -269,7 +269,8 @@ static int osdp_phy_packet_finalize(struct osdp_pd *pd, uint8_t *buf,
 				/* data_len + 1 for OSDP_SC_EOM_MARKER */
 				goto out_of_space_error;
 			}
-			len += osdp_encrypt_data(pd, is_cp_mode(pd), data, data_len);
+			len += osdp_encrypt_data(pd, is_cp_mode(pd), data,
+						 data_len);
 		}
 		/* len: with 4bytes MAC; with 2 byte CRC; without 1 byte mark */
 		if (len + 4 > max_len) {
@@ -303,8 +304,7 @@ out_of_space_error:
 	return OSDP_ERR_PKT_FMT;
 }
 
-int osdp_phy_send_packet(struct osdp_pd *pd, uint8_t *buf,
-			 int len, int max_len)
+int osdp_phy_send_packet(struct osdp_pd *pd, uint8_t *buf, int len, int max_len)
 {
 	int ret;
 
@@ -320,8 +320,7 @@ int osdp_phy_send_packet(struct osdp_pd *pd, uint8_t *buf,
 
 	ret = osdp_channel_send(pd, buf, len);
 	if (ret != len) {
-		LOG_ERR("Channel send for %d bytes failed! ret: %d",
-			len, ret);
+		LOG_ERR("Channel send for %d bytes failed! ret: %d", len, ret);
 		return OSDP_ERR_PKT_BUILD;
 	}
 
@@ -412,7 +411,7 @@ static int phy_check_header(struct osdp_pd *pd)
 	if (pkt_len > OSDP_PACKET_BUF_SIZE ||
 	    pkt_len < sizeof(struct osdp_packet_header) + 1 ||
 	    (is_cp_mode(pd) && !(pkt->pd_address & 0x80)) ||
-	    (is_pd_mode(pd) &&  (pkt->pd_address & 0x80))) {
+	    (is_pd_mode(pd) && (pkt->pd_address & 0x80))) {
 		/*
 		 * Since SoM byte was encountered and the packet structure is
 		 * invalid, we cannot just discard all bytes extracted so far
@@ -485,8 +484,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 			 */
 			pd->seq_number = -1;
 			sc_deactivate(pd);
-		}
-		else if (comp == pd->seq_number) {
+		} else if (comp == pd->seq_number) {
 			/**
 			 * Sometimes, a CP re-sends the same command without
 			 * incrementing the sequence number. To handle such cases,
@@ -521,8 +519,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 	}
 	cur = osdp_phy_get_seq_number(pd, is_pd_mode(pd));
 	if (cur != comp && !ISSET_FLAG(pd, PD_FLAG_SKIP_SEQ_CHECK)) {
-		LOG_ERR("Packet sequence mismatch (%d/%d)",
-			cur, comp);
+		LOG_ERR("Packet sequence mismatch (%d/%d)", cur, comp);
 		pd->reply_id = REPLY_NAK;
 		pd->ephemeral_data[0] = OSDP_PD_NAK_SEQ_NUM;
 		return OSDP_ERR_PKT_NACK;
@@ -562,10 +559,11 @@ int osdp_phy_check_packet(struct osdp_pd *pd)
 
 	/* We have a valid header, collect one full packet */
 	ret = osdp_rb_pop_buf(&pd->rx_rb, pd->packet_buf + pd->packet_buf_len,
-				pd->packet_len - pd->packet_buf_len);
+			      pd->packet_len - pd->packet_buf_len);
 	pd->packet_buf_len += ret;
-	if (pd->packet_buf_len != pd->packet_len)
+	if (pd->packet_buf_len != pd->packet_len) {
 		return OSDP_ERR_PKT_WAIT;
+	}
 
 	if (is_packet_trace_enabled(pd)) {
 		osdp_capture_packet(pd, pd->packet_buf, pd->packet_buf_len);
@@ -638,7 +636,8 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 			 * secure channel is actually discarded from the CP
 			 * state machine.
 			 */
-			if (pd->cmd_id == CMD_KEYSET && pkt->data[0] == REPLY_ACK) {
+			if (pd->cmd_id == CMD_KEYSET &&
+			    pkt->data[0] == REPLY_ACK) {
 				is_sc_active = false;
 			}
 			/**
@@ -658,8 +657,8 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 		}
 	}
 
-	if (is_sc_active &&
-	    pkt->control & PKT_CONTROL_SCB && pkt->data[1] >= SCS_15) {
+	if (is_sc_active && pkt->control & PKT_CONTROL_SCB &&
+	    pkt->data[1] >= SCS_15) {
 		/* validate MAC */
 		is_cmd = is_pd_mode(pd);
 		osdp_compute_mac(pd, is_cmd, buf, mac_offset);
@@ -699,7 +698,8 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 				 * used SCS_15/SCS_16 but we will be tolerant
 				 * towards those faulty implementations.
 				 */
-				LOG_WRN_ONCE("Received encrypted data block with 0 "
+				LOG_WRN_ONCE(
+					"Received encrypted data block with 0 "
 					"length; tolerating non-conformance!");
 			}
 			len += 1; /* put back cmd/reply ID */
@@ -759,6 +759,6 @@ void osdp_phy_state_reset(struct osdp_pd *pd, bool is_error)
 }
 
 #ifdef UNIT_TESTING
-int (*test_osdp_phy_packet_finalize)(struct osdp_pd *pd, uint8_t *buf,
-			int len, int max_len) = osdp_phy_packet_finalize;
+int (*test_osdp_phy_packet_finalize)(struct osdp_pd *pd, uint8_t *buf, int len,
+				     int max_len) = osdp_phy_packet_finalize;
 #endif
