@@ -410,7 +410,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 #if (CONFIG_EDGE_QR == 1)
 		cmd.id = OSDP_CMD_MFG;
 		cmd.mfg.vendor_code = 0xdf9788;
-		cmd.mfg.command = CMD_ID;
+		cmd.mfg.data[0] = CMD_ID;
 		if (!do_command_callback(pd, &cmd)) {
 			ret = OSDP_PD_ERR_REPLY;
 			break;
