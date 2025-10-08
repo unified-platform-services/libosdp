@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "adcApp.h"
+#include "osdp.h"
 #include "osdp_common.h"
 #include "osdp_file.h"
 #include "osdp_diag.h"
@@ -311,7 +313,17 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		} else {
 			pd->reply_id = REPLY_ACK;
 // TODO :: reply adc status as subcoand mfg
-#ifdef W2OV2
+#if defined(W2O)
+			pd->reply_id = REPLY_MFGREP;
+			struct osdp_cmd *pCmd =
+				(struct osdp_cmd *)pd->ephemeral_data;
+			pCmd->mfg.vendor_code = 0xdf9788;
+			pCmd->mfg.command = 0x6b;
+			pCmd->mfg.length = 16;
+			for (uint8_t j = 0; j < 8; j++) {
+				pCmd->mfg.data[j * 2] = (uint8_t)(ADCGetRaw(j));
+				pCmd->mfg.data[j * 2 + 1] = (ADCGetRaw(j)) >> 8;
+			}
 #endif
 		}
 		ret = OSDP_PD_ERR_NONE;
