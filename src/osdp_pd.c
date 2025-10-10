@@ -5,6 +5,7 @@
  */
 
 #include "adcApp.h"
+#include "config.h"
 #include "osdp.h"
 #include "osdp_common.h"
 #include "osdp_file.h"
@@ -318,8 +319,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 				(struct osdp_cmd *)pd->ephemeral_data;
 			pCmd->mfg.vendor_code = 0xdf9788;
 			pCmd->mfg.command = 0x6b;
-			pCmd->mfg.length = 16;
-			for (uint8_t j = 0; j < 8; j++) {
+			pCmd->mfg.length = MAX_ADC_INPUT * 2;
+			for (uint8_t j = 0; j < MAX_ADC_INPUT; j++) {
 				pCmd->mfg.data[j * 2] = (uint8_t)(ADCGetRaw(j));
 				pCmd->mfg.data[j * 2 + 1] = (ADCGetRaw(j)) >> 8;
 			}
