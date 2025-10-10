@@ -310,8 +310,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			ret = pd_translate_event(pd, event);
 			pd->reply_id = ret;
 			pd_event_free(pd, event);
-		} else {
-			pd->reply_id = REPLY_ACK;
+		} else {			
 // TODO :: reply adc status as subcoand mfg
 #if defined(W2O)
 			pd->reply_id = REPLY_MFGREP;
@@ -324,6 +323,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 				pCmd->mfg.data[j * 2] = (uint8_t)(ADCGetRaw(j));
 				pCmd->mfg.data[j * 2 + 1] = (ADCGetRaw(j)) >> 8;
 			}
+#else
+            pd->reply_id = REPLY_ACK;
 #endif
 		}
 		ret = OSDP_PD_ERR_NONE;
@@ -548,9 +549,9 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		cmd.id = OSDP_CMD_MFG;
-		cmd.mfg.vendor_code = buf[pos++]; /* vendor_code */
-		cmd.mfg.vendor_code |= buf[pos++] << 8;
-		cmd.mfg.vendor_code |= buf[pos++] << 16;
+		cmd.mfg.vendor_code = (uint32_t) (buf[pos++]); /* vendor_code */
+		cmd.mfg.vendor_code |=  ((uint32_t)(buf[pos++])) << 8;
+		cmd.mfg.vendor_code |= ((uint32_t)(buf[pos++])) << 16;
 		cmd.mfg.command = buf[pos++];
 		cmd.mfg.length = len - CMD_MFG_DATA_LEN;
 		if (cmd.mfg.length > OSDP_CMD_MFG_MAX_DATALEN) {
