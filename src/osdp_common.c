@@ -26,7 +26,7 @@ uint16_t osdp_compute_crc16(const uint8_t *buf, size_t len)
 #ifdef __XC8__
 __weak uint32_t osdp_millis_now(void)
 {
-	return sysTickMs;
+  return getSysTickAtomic();
 }
 #else
 __weak int64_t osdp_millis_now(void)
