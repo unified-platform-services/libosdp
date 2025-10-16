@@ -30,7 +30,6 @@
 
 #ifndef CONFIG_NO_GENERATED_HEADERS
 #include "osdp_config.h" /* generated */
-#include "osdp_export.h" /* generated */
 #endif
 
 #ifndef NULL
@@ -312,11 +311,14 @@ union osdp_ephemeral_data {
 #define PD_FLAG_HAS_SCBK       BIT(12) /* PD has a dedicated SCBK */
 #define PD_FLAG_SC_DISABLED    BIT(13) /* master_key=NULL && scbk=NULL */
 #define PD_FLAG_PKT_BROADCAST  BIT(14) /* this packet was addressed to 0x7F */
+#define PD_FLAG_CP_USE_CRC     BIT(15) /* CP uses CRC-16 instead of checksum */
 
 /* CP event requests; used with make_request() and check_request() */
 #define CP_REQ_RESTART_SC              0x00000001
 #define CP_REQ_EVENT_SEND              0x00000002
 #define CP_REQ_OFFLINE                 0x00000004
+#define CP_REQ_DISABLE                 0x00000008
+#define CP_REQ_ENABLE                  0x00000010
 
 enum osdp_cp_phy_state_e {
 	OSDP_CP_PHY_STATE_IDLE,
@@ -336,6 +338,7 @@ enum osdp_cp_state_e {
 	OSDP_CP_STATE_ONLINE,
 	OSDP_CP_STATE_PROBE,
 	OSDP_CP_STATE_OFFLINE,
+	OSDP_CP_STATE_DISABLED,
 	OSDP_CP_STATE_SENTINEL
 };
 
@@ -510,6 +513,7 @@ int osdp_phy_packet_get_data_offset(struct osdp_pd *p, const uint8_t *buf);
 uint8_t *osdp_phy_packet_get_smb(struct osdp_pd *p, const uint8_t *buf);
 int osdp_phy_send_packet(struct osdp_pd *pd, uint8_t *buf,
 			 int len, int max_len);
+void osdp_phy_progress_sequence(struct osdp_pd *pd);
 
 /* from osdp_common.c */
 #ifdef __XC8__

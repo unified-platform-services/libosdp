@@ -14,7 +14,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include <osdp_export.h>
+#include "osdp_export.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -670,17 +670,13 @@ struct osdp_cmd_mfg {
 	 */
 	uint32_t vendor_code;
 	/**
-	 * 1-byte manufacturer defined osdp command
-	 */
-	uint8_t command;
-	/**
-	 * length Length of command data (optional)
-	 */
-	uint8_t length;
-	/**
-	 * Command data (optional)
+	 * Command data
 	 */
 	uint8_t data[OSDP_CMD_MFG_MAX_DATALEN];
+	/**
+	 * Length of the data (internal use)
+	 */
+	uint8_t length;
 };
 
 /**
@@ -837,10 +833,6 @@ struct osdp_event_mfgrep {
 	 * 3-bytes IEEE assigned OUI of manufacturer
 	 */
 	uint32_t vendor_code;
-	/**
-	 * 1-byte reply code
-	 */
-	uint8_t command;
 	/**
 	 * Length of manufacturer data in bytes (optional)
 	 */
@@ -1023,9 +1015,8 @@ void osdp_pd_set_command_callback(osdp_t *ctx, pd_command_callback_t cb,
  * @retval 0 on success
  * @retval -1 on failure
  */
-OSDP_EXPORT
-int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event)
-	__attribute__((deprecated("Use osdp_pd_submit_event() instead!")));
+OSDP_DEPRECATED_EXPORT("Use osdp_pd_submit_event() instead!")
+int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event);
 
 /**
  * @brief Submit PD events to CP. These events are delivered to the CP as a
@@ -1114,9 +1105,8 @@ void osdp_cp_teardown(osdp_t *ctx);
  * @note This method only adds the command on to a particular PD's command
  * queue. The command itself can fail due to various reasons.
  */
-OSDP_EXPORT
-int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd)
-	__attribute__((deprecated("Use osdp_cp_submit_command() instead!")));
+OSDP_DEPRECATED_EXPORT("Use osdp_cp_submit_command() instead!")
+int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
 
 /**
  * @brief Submit CP commands to PD. These commands are queued to be sent to the
@@ -1211,6 +1201,47 @@ void osdp_cp_set_event_callback(osdp_t *ctx, cp_event_callback_t cb, void *arg);
  */
 OSDP_EXPORT
 int osdp_cp_modify_flag(osdp_t *ctx, int pd, uint32_t flags, bool do_set);
+
+/**
+ * @brief Disable a PD managed by the CP. Disabled PDs are brought to a safe
+ * state and will not process commands or generate events.
+ *
+ * @param ctx OSDP context
+ * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
+ * osdp_cp_setup()
+ *
+ * @retval 0 on success
+ * @retval -1 on failure
+ */
+OSDP_EXPORT
+int osdp_cp_disable_pd(osdp_t *ctx, int pd);
+
+/**
+ * @brief Enable a previously disabled PD. The PD will start up as it would
+ * during initial setup.
+ *
+ * @param ctx OSDP context
+ * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
+ * osdp_cp_setup()
+ *
+ * @retval 0 on success
+ * @retval -1 on failure
+ */
+OSDP_EXPORT
+int osdp_cp_enable_pd(osdp_t *ctx, int pd);
+
+/**
+ * @brief Check if a PD is currently enabled.
+ *
+ * @param ctx OSDP context
+ * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
+ * osdp_cp_setup()
+ *
+ * @retval true if PD is enabled
+ * @retval false if PD is disabled or on error
+ */
+OSDP_EXPORT
+bool osdp_cp_is_pd_enabled(const osdp_t *ctx, int pd);
 
 /* ------------------------------- */
 /*          Common Methods         */

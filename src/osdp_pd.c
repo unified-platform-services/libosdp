@@ -16,25 +16,25 @@
 #include <stdlib.h>
 #endif
 
-#define CMD_POLL_DATA_LEN	0
-#define CMD_LSTAT_DATA_LEN	0
-#define CMD_ISTAT_DATA_LEN	0
-#define CMD_OSTAT_DATA_LEN	0
-#define CMD_RSTAT_DATA_LEN	0
-#define CMD_ID_DATA_LEN		1
-#define CMD_CAP_DATA_LEN	1
-#define CMD_OUT_DATA_LEN	4
-#define CMD_LED_DATA_LEN	14
-#define CMD_BUZ_DATA_LEN	5
-#define CMD_TEXT_DATA_LEN	6 /* variable length command */
-#define CMD_COMSET_DATA_LEN	5
-#define CMD_KEYSET_DATA_LEN	18
-#define CMD_CHLNG_DATA_LEN	8
-#define CMD_SCRYPT_DATA_LEN	16
-#define CMD_ABORT_DATA_LEN	0
-#define CMD_ACURXSIZE_DATA_LEN	2
-#define CMD_KEEPACTIVE_DATA_LEN 2
-#define CMD_MFG_DATA_LEN	4 /* variable length command */
+#define CMD_POLL_DATA_LEN              0
+#define CMD_LSTAT_DATA_LEN             0
+#define CMD_ISTAT_DATA_LEN             0
+#define CMD_OSTAT_DATA_LEN             0
+#define CMD_RSTAT_DATA_LEN             0
+#define CMD_ID_DATA_LEN                1
+#define CMD_CAP_DATA_LEN               1
+#define CMD_OUT_DATA_LEN               4
+#define CMD_LED_DATA_LEN               14
+#define CMD_BUZ_DATA_LEN               5
+#define CMD_TEXT_DATA_LEN              6   /* variable length command */
+#define CMD_COMSET_DATA_LEN            5
+#define CMD_KEYSET_DATA_LEN            18
+#define CMD_CHLNG_DATA_LEN             8
+#define CMD_SCRYPT_DATA_LEN            16
+#define CMD_ABORT_DATA_LEN             0
+#define CMD_ACURXSIZE_DATA_LEN         2
+#define CMD_KEEPACTIVE_DATA_LEN        2
+#define CMD_MFG_DATA_LEN               3 /* variable length command */
 
 #define REPLY_ACK_LEN	       1
 #define REPLY_PDID_LEN	       13
@@ -109,6 +109,7 @@ static struct osdp_event *pd_event_alloc(struct osdp_pd *pd)
 		LOG_ERR("Event slab allocation failed");
 		return NULL;
 	}
+	memset(&event->object, 0, sizeof(event->object));
 	return &event->object;
 }
 
@@ -191,7 +192,7 @@ static int pd_translate_event(struct osdp_pd *pd, struct osdp_event *event)
 		break;
 	default:
 		LOG_ERR("Unknown event type %d", event->type);
-		break;
+		BUG();
 	}
 	if (reply_code == 0) {
 		/* POLL command cannot fail even when there are errors here */
@@ -276,6 +277,20 @@ static int pd_cmd_cap_ok(struct osdp_pd *pd, struct osdp_cmd *cmd)
 	pd->ephemeral_data[0] = OSDP_PD_NAK_CMD_UNKNOWN;
 	LOG_ERR("PD is not capable of handling CMD(%02x); ", pd->cmd_id);
 	return 0;
+}
+
+static void pd_stage_event_mfgrep(struct osdp_pd *pd, struct osdp_cmd_mfg *cmd)
+{
+	struct osdp_event ev;
+
+	ev.type = OSDP_EVENT_MFGREP;
+	ev.flags = 0;
+
+	ev.mfgrep.length = cmd->length;
+	ev.mfgrep.vendor_code = cmd->vendor_code;
+	memcpy(ev.mfgrep.data, cmd->data, cmd->length);
+
+	memcpy(pd->ephemeral_data, &ev, sizeof(ev));
 }
 
 static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
@@ -557,7 +572,6 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		cmd.mfg.vendor_code = (uint32_t) (buf[pos++]); /* vendor_code */
 		cmd.mfg.vendor_code |=  ((uint32_t)(buf[pos++])) << 8;
 		cmd.mfg.vendor_code |= ((uint32_t)(buf[pos++])) << 16;
-		cmd.mfg.command = buf[pos++];
 		cmd.mfg.length = len - CMD_MFG_DATA_LEN;
 		if (cmd.mfg.length > OSDP_CMD_MFG_MAX_DATALEN) {
 			LOG_ERR("cmd length error");
@@ -566,13 +580,19 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		for (i = 0; i < cmd.mfg.length; i++) {
 			cmd.mfg.data[i] = buf[pos++];
 		}
-		if (!do_command_callback(pd, &cmd)) {
+
+		ret = 0;
+		if (pd->command_callback) {
+			ret = pd->command_callback(pd->command_callback_arg, &cmd);
+		}
+		if (ret < 0) { /* Callback failed */
+			pd->reply_id = REPLY_NAK;
+			pd->ephemeral_data[0] = OSDP_PD_NAK_RECORD;
 			ret = OSDP_PD_ERR_REPLY;
 			break;
 		}
 		if (ret > 0) { /* App wants to send a REPLY_MFGREP to the CP */
-			memcpy(pd->ephemeral_data, &cmd,
-			       sizeof(struct osdp_cmd));
+			pd_stage_event_mfgrep(pd, &cmd.mfg);
 			pd->reply_id = REPLY_MFGREP;
 		} else {
 			pd->reply_id = REPLY_ACK;
@@ -885,15 +905,14 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_MFGREP:
-		cmd = (struct osdp_cmd *)pd->ephemeral_data;
-		assert_buf_len(REPLY_MFGREP_LEN + cmd->mfg.length, max_len);
+		event = (struct osdp_event *)pd->ephemeral_data;
+		assert_buf_len(REPLY_MFGREP_LEN + event->mfgrep.length, max_len);
 		buf[len++] = pd->reply_id;
-		buf[len++] = BYTE_0(cmd->mfg.vendor_code);
-		buf[len++] = BYTE_1(cmd->mfg.vendor_code);
-		buf[len++] = BYTE_2(cmd->mfg.vendor_code);
-		buf[len++] = cmd->mfg.command;
-		memcpy(buf + len, cmd->mfg.data, cmd->mfg.length);
-		len += cmd->mfg.length;
+		buf[len++] = BYTE_0(event->mfgrep.vendor_code);
+		buf[len++] = BYTE_1(event->mfgrep.vendor_code);
+		buf[len++] = BYTE_2(event->mfgrep.vendor_code);
+		memcpy(buf + len, event->mfgrep.data, event->mfgrep.length);
+		len += event->mfgrep.length;
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_FTSTAT:
@@ -1109,6 +1128,7 @@ static void osdp_pd_update(struct osdp_pd *pd)
 			LOG_INF("COMSET Succeeded! New PD-Addr: %d; Baud: %d",
 				pd->address, pd->baud_rate);
 		}
+		osdp_phy_progress_sequence(pd);
 	} else {
 		/**
 		 * PD received and decoded a valid command from CP but failed to
@@ -1285,6 +1305,11 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 	input_check(ctx);
 	struct osdp_event *ev;
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
+
+	if (event->type <= 0 ||
+	    event->type >= OSDP_EVENT_SENTINEL) {
+		return -1;
+	}
 
 	ev = pd_event_alloc(pd);
 	if (ev == NULL) {

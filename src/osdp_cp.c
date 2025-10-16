@@ -44,7 +44,7 @@
 #define REPLY_KEYPAD_DATA_LEN          2   /* variable length command */
 #define REPLY_RAW_DATA_LEN             4   /* variable length command */
 #define REPLY_BUSY_DATA_LEN            0
-#define REPLY_MFGREP_LEN               4   /* variable length command */
+#define REPLY_MFGREP_LEN               3   /* variable length command */
 #define REPLY_FMT_DATA_LEN             3   /* variable length command */
 
 enum osdp_cp_error_e {
@@ -55,6 +55,7 @@ enum osdp_cp_error_e {
 	OSDP_CP_ERR_CAN_YIELD = -4,
 	OSDP_CP_ERR_INPROG = -5,
 	OSDP_CP_ERR_UNKNOWN = -6,
+	OSDP_CP_ERR_SEQ_NUM = -7,
 };
 
 struct cp_cmd_node {
@@ -302,7 +303,6 @@ static int cp_build_command(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = BYTE_0(cmd->mfg.vendor_code);
 		buf[len++] = BYTE_1(cmd->mfg.vendor_code);
 		buf[len++] = BYTE_2(cmd->mfg.vendor_code);
-		buf[len++] = cmd->mfg.command;
 		memcpy(buf + len, cmd->mfg.data, cmd->mfg.length);
 		len += cmd->mfg.length;
 		break;
@@ -423,6 +423,13 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != REPLY_NAK_DATA_LEN) {
 			break;
 		}
+		if (buf[pos] == OSDP_PD_NAK_MSG_CHK &&
+		    ISSET_FLAG(pd, PD_FLAG_CP_USE_CRC)) {
+			LOG_INF("PD NAK'd CRC-16, falling back to checksum");
+			CLEAR_FLAG(pd, PD_FLAG_CP_USE_CRC);
+			ret = OSDP_CP_ERR_RETRY_CMD;
+			break;
+		}
 		LOG_WRN("PD replied with NAK(%d) for CMD: %s(%02x)",
 			buf[pos], osdp_cmd_name(pd->cmd_id), pd->cmd_id);
 		ret = OSDP_CP_ERR_NONE;
@@ -480,6 +487,16 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 			SET_FLAG(pd, PD_FLAG_SC_CAPABLE);
 		} else {
 			CLEAR_FLAG(pd, PD_FLAG_SC_CAPABLE);
+		}
+
+		/* Check checksum/CRC support capability */
+		t1 = OSDP_PD_CAP_CHECK_CHARACTER_SUPPORT;
+		if (pd->cap[t1].function_code == t1) {
+			if (pd->cap[t1].compliance_level & 0x01) {
+				SET_FLAG(pd, PD_FLAG_CP_USE_CRC);
+			} else {
+				CLEAR_FLAG(pd, PD_FLAG_CP_USE_CRC);
+			}
 		}
 		ret = OSDP_CP_ERR_NONE;
 		break;
@@ -637,7 +654,6 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		event.mfgrep.vendor_code = buf[pos++];
 		event.mfgrep.vendor_code |= buf[pos++] << 8;
 		event.mfgrep.vendor_code |= buf[pos++] << 16;
-		event.mfgrep.command = buf[pos++];
 		event.mfgrep.length = len - REPLY_MFGREP_LEN;
 		if (event.mfgrep.length > OSDP_EVENT_MFGREP_MAX_DATALEN) {
 			break;
@@ -762,10 +778,16 @@ static int cp_process_reply(struct osdp_pd *pd)
 		LOG_DBG("BSY");
 		return OSDP_CP_ERR_RETRY_CMD;
 	case OSDP_ERR_PKT_NACK:
-		/* CP cannot do anything about an invalid reply from a PD. So it
-		 * just default to going offline and retrying after a while. The
-		 * reason for this failure was probably better logged by lower
-		 * layers so we can treat it as a generic failure.
+		if (pd->ephemeral_data[0] == OSDP_PD_NAK_SEQ_NUM) {
+			LOG_WRN("NAK(SEQ_NUM); restarting communication");
+			osdp_phy_state_reset(pd, true);
+			sc_deactivate(pd);
+			pd->state = OSDP_CP_STATE_INIT;
+			return OSDP_CP_ERR_SEQ_NUM;
+		}
+		/* Other NACKs: CP cannot do anything about an invalid reply from a PD.
+		 * Default to going offline and retrying after a while. The reason for
+		 * this failure was probably better logged by lower layers.
 		 */
 		LOG_DBG("NACK");
 		__fallthrough;
@@ -864,6 +886,13 @@ static void cp_phy_state_done(struct osdp_pd *pd)
 	pd->phy_state = OSDP_CP_PHY_STATE_DONE;
 }
 
+static void cp_phy_state_wait(struct osdp_pd *pd, uint32_t wait_ms)
+{
+	pd->wait_ms = wait_ms;
+	pd->phy_tstamp = osdp_millis_now();
+	pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
+}
+
 static int cp_phy_state_update(struct osdp_pd *pd)
 {
 	int rc, ret = OSDP_CP_ERR_CAN_YIELD;
@@ -899,11 +928,13 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 		rc = cp_process_reply(pd);
 		if (rc == OSDP_CP_ERR_NONE) {
 			pd->tstamp = osdp_millis_now();
+			osdp_phy_progress_sequence(pd);
 			cp_phy_state_done(pd);
 			return OSDP_CP_ERR_NONE;
 		}
-		if (rc == OSDP_CP_ERR_UNKNOWN && pd->cmd_id == CMD_POLL &&
-		    ISSET_FLAG(pd, OSDP_FLAG_IGN_UNSOLICITED)) {
+		if (rc == OSDP_CP_ERR_SEQ_NUM ||
+		    (rc == OSDP_CP_ERR_UNKNOWN && pd->cmd_id == CMD_POLL &&
+		     ISSET_FLAG(pd, OSDP_FLAG_IGN_UNSOLICITED))) {
 			cp_phy_state_done(pd);
 			return OSDP_CP_ERR_NONE;
 		}
@@ -911,20 +942,15 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 			goto error;
 		}
 		if (rc == OSDP_CP_ERR_RETRY_CMD) {
-			pd->phy_tstamp = osdp_millis_now();
-			pd->wait_ms = OSDP_CMD_RETRY_WAIT_MS;
-			pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
+			cp_phy_state_wait(pd, OSDP_CMD_RETRY_WAIT_MS);
 			return OSDP_CP_ERR_CAN_YIELD;
 		}
 		if (osdp_millis_since(pd->phy_tstamp) > OSDP_RESP_TOUT_MS) {
 			if (pd->phy_retry_count < OSDP_CMD_MAX_RETRIES) {
-				pd->wait_ms = OSDP_CMD_RETRY_WAIT_MS;
-				pd->phy_state = OSDP_CP_PHY_STATE_WAIT;
 				pd->phy_retry_count += 1;
-				pd->phy_tstamp = osdp_millis_now();
-				LOG_WRN("No response in 200ms; %d probing (%d)",
-					rc,
+				LOG_WRN("No response in 200ms; probing (%d)",
 					pd->phy_retry_count);
+				cp_phy_state_wait(pd, OSDP_CMD_RETRY_WAIT_MS);
 				return OSDP_CP_ERR_CAN_YIELD;
 			}
 			LOG_ERR("Response timeout for CMD: %s(%02x)",
@@ -951,6 +977,7 @@ static const char *state_get_name(enum osdp_cp_state_e state)
 	case OSDP_CP_STATE_SET_SCBK:  return "SC-SetSCBK";
 	case OSDP_CP_STATE_ONLINE:    return "Online";
 	case OSDP_CP_STATE_OFFLINE:   return "Offline";
+	case OSDP_CP_STATE_DISABLED:  return "Disabled";
 	default:
 		BUG();
 	}
@@ -1161,6 +1188,8 @@ static enum osdp_cp_state_e get_next_ok_state(struct osdp_pd *pd)
 			return OSDP_CP_STATE_INIT;
 		}
 		return OSDP_CP_STATE_OFFLINE;
+	case OSDP_CP_STATE_DISABLED:
+		return OSDP_CP_STATE_DISABLED;
 	default: BUG();
 	}
 }
@@ -1213,6 +1242,8 @@ static enum osdp_cp_state_e get_next_err_state(struct osdp_pd *pd)
 		return OSDP_CP_STATE_OFFLINE;
 	case OSDP_CP_STATE_OFFLINE:
 		return OSDP_CP_STATE_OFFLINE;
+	case OSDP_CP_STATE_DISABLED:
+		return OSDP_CP_STATE_DISABLED;
 	default: BUG();
 	}
 }
@@ -1245,6 +1276,13 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		break;
 	case OSDP_CP_STATE_SC_CHLNG:
 		osdp_sc_setup(pd);
+		break;
+	case OSDP_CP_STATE_DISABLED:
+		sc_deactivate(pd);
+		notify_sc_status(pd);
+		notify_pd_status(pd, false);
+		osdp_phy_state_reset(pd, true);
+		LOG_INF("PD disabled; going offline until re-enabled");
 		break;
 	default: break;
 	}
@@ -1351,6 +1389,14 @@ static int state_update(struct osdp_pd *pd)
 		}
 	}
 
+	if (check_request(pd, CP_REQ_DISABLE)) {
+		next = OSDP_CP_STATE_DISABLED;
+	}
+
+	if (check_request(pd, CP_REQ_ENABLE)) {
+		next = OSDP_CP_STATE_INIT;
+	}
+
 	if (cur != next) {
 		cp_state_change(pd, next);
 	}
@@ -1391,6 +1437,11 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	const uint32_t all_flags = (
 		OSDP_CMD_FLAG_BROADCAST
 	);
+
+	if (pd->state == OSDP_CP_STATE_DISABLED) {
+		LOG_ERR("PD is disabled");
+		return -1;
+	}
 
 	if (pd->state != OSDP_CP_STATE_ONLINE) {
 		LOG_ERR("PD is not online");
@@ -1533,6 +1584,8 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		pd->flags = info->flags;
 		pd->seq_number = -1;
 		SET_FLAG(pd, PD_FLAG_SC_DISABLED);
+		/* Default to CRC-16 until we know PD capabilities */
+		SET_FLAG(pd, PD_FLAG_CP_USE_CRC);
 		memcpy(&pd->channel, &info->channel, sizeof(struct osdp_channel));
 		if (info->scbk != NULL) {
 			memcpy(pd->sc.scbk, info->scbk, 16);
@@ -1748,6 +1801,52 @@ int osdp_cp_modify_flag(osdp_t *ctx, int pd_idx, uint32_t flags, bool do_set)
 
 	do_set ? SET_FLAG(pd, flags) : CLEAR_FLAG(pd, flags);
 	return 0;
+}
+
+int osdp_cp_disable_pd(osdp_t *ctx, int pd_idx)
+{
+	input_check(ctx, pd_idx);
+	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+
+	if (pd->state == OSDP_CP_STATE_DISABLED) {
+		LOG_DBG("PD is already disabled");
+		return -1;
+	}
+
+	if (test_request(pd, CP_REQ_DISABLE)) {
+		LOG_DBG("PD disable request already pending");
+		return -1;
+	}
+
+	make_request(pd, CP_REQ_DISABLE);
+	return 0;
+}
+
+int osdp_cp_enable_pd(osdp_t *ctx, int pd_idx)
+{
+	input_check(ctx, pd_idx);
+	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+
+	if (pd->state != OSDP_CP_STATE_DISABLED) {
+		LOG_DBG("PD is already enabled");
+		return -1;
+	}
+
+	if (test_request(pd, CP_REQ_ENABLE)) {
+		LOG_DBG("PD enable request already pending");
+		return -1;
+	}
+
+	make_request(pd, CP_REQ_ENABLE);
+	return 0;
+}
+
+bool osdp_cp_is_pd_enabled(const osdp_t *ctx, int pd_idx)
+{
+	input_check(ctx, pd_idx);
+	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+
+	return pd->state != OSDP_CP_STATE_DISABLED;
 }
 
 #ifdef UNIT_TESTING

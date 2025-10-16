@@ -103,7 +103,7 @@ list(APPEND LIB_OSDP_UTILS_SRC
 list(APPEND LIB_OSDP_HEADERS
 	${PROJECT_SOURCE_DIR}/include/osdp.h
 	${PROJECT_SOURCE_DIR}/include/osdp.hpp
-	${PROJECT_BINARY_DIR}/include/osdp_export.h
+	${PROJECT_SOURCE_DIR}/include/osdp_export.h
 )
 
 # These variables are used in other parts of this projects for rebuilding
@@ -133,6 +133,9 @@ set_target_properties(${LIB_OSDP_STATIC} PROPERTIES
 	VERSION ${PROJECT_VERSION}
 	COMPILE_FLAGS -DOSDP_STATIC_DEFINE
 	PUBLIC_HEADER "${LIB_OSDP_HEADERS}"
+	C_VISIBILITY_PRESET hidden
+	CXX_VISIBILITY_PRESET hidden
+	VISIBILITY_INLINES_HIDDEN YES
 )
 
 target_include_directories(${LIB_OSDP_STATIC}
@@ -199,6 +202,9 @@ set_target_properties(${LIB_OSDP_SHARED} PROPERTIES
 	VERSION ${PROJECT_VERSION}
 	SOVERSION ${PROJECT_VERSION_MAJOR}
 	PUBLIC_HEADER "${LIB_OSDP_HEADERS}"
+	C_VISIBILITY_PRESET hidden
+	CXX_VISIBILITY_PRESET hidden
+	VISIBILITY_INLINES_HIDDEN YES
 )
 
 target_include_directories(${LIB_OSDP_SHARED}
@@ -236,14 +242,7 @@ install(
 
 endif() # OPT_BUILD_SHARED
 
-# generate and install osdp_export.h for OSDP_EXPORT macro
-include(GenerateExportHeader)
-generate_export_header(${LIB_TARGET}
-	BASE_NAME osdp
-	EXPORT_FILE_NAME ${PROJECT_BINARY_DIR}/include/osdp_export.h
-)
-
-install(FILES ${PROJECT_BINARY_DIR}/include/osdp_export.h
+install(FILES ${PROJECT_SOURCE_DIR}/include/osdp_export.h
 	DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/libosdp
 	COMPONENT headers
 )

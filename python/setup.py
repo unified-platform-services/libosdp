@@ -11,7 +11,7 @@ import shutil
 import subprocess
 
 project_name = "libosdp"
-project_version = "3.0.8"
+project_version = "3.1.0"
 current_dir = os.path.dirname(os.path.realpath(__file__))
 repo_root = os.path.realpath(os.path.join(current_dir, ".."))
 
@@ -63,9 +63,6 @@ def try_vendor_sources(src_dir, src_files, vendor_dir):
 
     ## generate build headers into ./vendor
 
-    with open("vendor/src/osdp_export.h", "w") as f:
-        f.write("#define OSDP_EXPORT\n")
-
     git = get_git_info()
     shutil.move("vendor/src/osdp_config.h.in", "vendor/src/osdp_config.h")
     configure_file("vendor/src/osdp_config.h", {
@@ -112,6 +109,7 @@ lib_sources = [
 
 lib_includes = [
     "include/osdp.h",
+    "include/osdp_export.h",
     "src/osdp_common.h",
     "src/osdp_file.h",
     "src/crypto/tinyaes_src.h",
