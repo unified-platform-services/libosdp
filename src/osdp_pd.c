@@ -531,10 +531,10 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		cmd.id = OSDP_CMD_COMSET;
 		cmd.comset.address = buf[pos++];
-		cmd.comset.baud_rate = buf[pos++];
-		cmd.comset.baud_rate |= buf[pos++] << 8;
-		cmd.comset.baud_rate |= buf[pos++] << 16;
-		cmd.comset.baud_rate |= buf[pos++] << 24;
+		cmd.comset.baud_rate = (uint32_t)buf[pos++];
+		cmd.comset.baud_rate |= (uint32_t)buf[pos++] << 8;
+		cmd.comset.baud_rate |= (uint32_t)buf[pos++] << 16;
+		cmd.comset.baud_rate |= (uint32_t)buf[pos++] << 24;
 		if (cmd.comset.address >= 0x7F) {
 			LOG_ERR("COMSET Failed! command discarded");
 			cmd.comset.address = pd->address;
