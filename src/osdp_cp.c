@@ -45,6 +45,7 @@
 #define REPLY_RAW_DATA_LEN             4   /* variable length command */
 #define REPLY_BUSY_DATA_LEN            0
 #define REPLY_MFGREP_LEN               4   /* variable length command */
+#define REPLY_FMT_DATA_LEN             3   /* variable length command */
 
 enum osdp_cp_error_e {
 	OSDP_CP_ERR_NONE = 0,
@@ -601,7 +602,24 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		 *
 		 * See: https://github.com/goToMain/libosdp/issues/206
 		 */
-		LOG_WRN("Ignoring deprecated response osdp_FMT");
+		// LOG_WRN("Ignoring deprecated response osdp_FMT");
+		if (len < REPLY_FMT_DATA_LEN) {
+			break;
+		}
+		// event.type = OSDP_EVENT_CARDREAD;
+		event.type = OSDP_EVENT_QR_CODE;
+		// TODO: Modify the data, as according to HCB osdp_FMT process
+		event.cardread.reader_no = buf[pos++];
+		event.cardread.direction = buf[pos++];
+		event.cardread.length = buf[pos++];
+		event.cardread.format = OSDP_CARD_FMT_ASCII;
+		if (event.cardread.length != (len - REPLY_FMT_DATA_LEN) ||
+		    event.cardread.length > OSDP_EVENT_CARDREAD_MAX_DATALEN) {
+			break;
+		}
+		memcpy(event.cardread.data, buf + pos, event.cardread.length);
+		memcpy(pd->ephemeral_data, &event, sizeof(event));
+		make_request(pd, CP_REQ_EVENT_SEND);
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_BUSY:
@@ -1044,8 +1062,9 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		    pd->reply_id == REPLY_OSTATR ||
 		    pd->reply_id == REPLY_RSTATR ||
 		    pd->reply_id == REPLY_MFGREP ||
-		    pd->reply_id == REPLY_RAW ||
-		    pd->reply_id == REPLY_KEYPAD) {
+				pd->reply_id == REPLY_RAW ||
+		    pd->reply_id == REPLY_FMT || 
+				pd->reply_id == REPLY_KEYPAD) {
 			return true;
 		}
 		return ISSET_FLAG(pd, OSDP_FLAG_IGN_UNSOLICITED);

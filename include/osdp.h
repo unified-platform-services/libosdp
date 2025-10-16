@@ -903,6 +903,7 @@ enum osdp_event_type {
 	OSDP_EVENT_MFGREP,        /**< Manufacturer specific reply event */
 	OSDP_EVENT_STATUS,        /**< Status event */
 	OSDP_EVENT_NOTIFICATION,  /**< LibOSDP notification event */
+	OSDP_EVENT_QR_CODE,       /**< Entrypass - Smarfid reader */
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 
