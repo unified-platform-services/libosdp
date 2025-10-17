@@ -334,17 +334,17 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 // TODO :: reply adc status as subcoand mfg
 #if defined(W2O)
 			pd->reply_id = REPLY_MFGREP;
-			struct osdp_cmd *pCmd =
-				(struct osdp_cmd *)pd->ephemeral_data;
-			pCmd->mfg.vendor_code = 0xdf9788;
-			pCmd->mfg.command = 0x6b;
-			pCmd->mfg.length = MAX_ADC_INPUT * 2;
+			struct osdp_event *pCmd =
+				(struct osdp_event *)pd->ephemeral_data;
+			pCmd->mfgrep.vendor_code = EP_VENDOR_CODE;
+			pCmd->mfgrep.length = (MAX_ADC_INPUT * 2) + 1;
+			pCmd->mfgrep.data[0] = 0x6b;
 			for (uint8_t j = 0; j < MAX_ADC_INPUT; j++) {
-				pCmd->mfg.data[j * 2] = (uint8_t)(ADCGetRaw(j));
-				pCmd->mfg.data[j * 2 + 1] = (ADCGetRaw(j)) >> 8;
+				pCmd->mfgrep.data[(j * 2) + 1] = (ADCGetRaw(j)) >> 8;
+				pCmd->mfgrep.data[(j * 2 + 1) + 1] = (uint8_t)(ADCGetRaw(j));
 			}
 #else
-            pd->reply_id = REPLY_ACK;
+    	pd->reply_id = REPLY_ACK;
 #endif
 		}
 		ret = OSDP_PD_ERR_NONE;
