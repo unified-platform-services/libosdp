@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2024 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
+ * Copyright (c) 2019-2025 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -1067,6 +1067,7 @@ osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info);
 /**
  * @brief Adds more PD devices in the CP control list.
  *
+ * @param ctx OSDP context
  * @param num_pd Number of PDs connected to this CP. The `osdp_pd_info_t *` is
  * treated as an array of length num_pd.
  * @param info Pointer to info struct populated by application.
