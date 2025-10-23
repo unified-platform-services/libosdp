@@ -350,7 +350,7 @@ typedef struct {
 	/**
 	 * Can be one of 9600/19200/38400/57600/115200/230400
 	 */
-	int baud_rate;
+	uint32_t baud_rate;
 	/**
 	 * 7 bit PD address. the rest of the bits are ignored. The special
 	 * address 0x7F is used for broadcast. So there can be 2^7-1 devices on
@@ -453,7 +453,11 @@ struct osdp_status_report {
 
 #define OSDP_CMD_TEXT_MAX_LEN          1
 #define OSDP_CMD_KEYSET_KEY_MAX_LEN    32
-#define OSDP_CMD_MFG_MAX_DATALEN       128
+#if defined (W2O)
+#define OSDP_EVENT_MFGREP_MAX_DATALEN     128
+#else
+#define OSDP_EVENT_MFGREP_MAX_DATALEN     32
+#endif
 
 /**
  * @brief Command sent from CP to Control digital output of PD.
