@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2019-2024 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
+ * Copyright (c) 2019-2025 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
  *
  * SPDX-License-Identifier: Apache-2.0
  */
@@ -202,11 +202,44 @@ static int pd_translate_event(struct osdp_pd *pd, struct osdp_event *event)
 	return reply_code;
 }
 
+static bool validate_command(struct osdp_pd *pd, struct osdp_cmd *cmd)
+{
+	bool result = true;
+
+	switch (cmd->id) {
+	case OSDP_CMD_LED:
+		/* The ON Time OFF Time values cannot both be set to zero */
+		if (cmd->led.temporary.control_code == 0x02 && /* SET */
+		    cmd->led.temporary.on_count == 0 &&
+		    cmd->led.temporary.off_count == 0) {
+			result = false;
+		}
+		if (cmd->led.permanent.control_code == 0x01 &&  /* SET */
+		    cmd->led.permanent.on_count == 0 &&
+		    cmd->led.permanent.off_count == 0) {
+			result = false;
+		}
+		break;
+	case OSDP_CMD_BUZZER:
+		/* ON duration must nonzero unless the control_code is 0x01 */
+		if (cmd->buzzer.on_count == 0 &&
+		    cmd->buzzer.control_code != 1) {
+			result = false;
+		}
+		break;
+	}
+
+	if (!result) {
+		LOG_ERR("Command validation failed!");
+	}
+	return result;
+}
+
 static bool do_command_callback(struct osdp_pd *pd, struct osdp_cmd *cmd)
 {
 	int ret = -1;
 
-	if (pd->command_callback) {
+	if (validate_command(pd, cmd) && pd->command_callback) {
 		ret = pd->command_callback(pd->command_callback_arg, cmd);
 	}
 	if (ret != 0) {
@@ -314,7 +347,6 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		    pd->cmd_id != CMD_CHLNG && pd->cmd_id != CMD_SCRYPT) {
 			LOG_ERR("CMD: %s(%02x) not allowed due to ENFORCE_SECURE",
 				osdp_cmd_name(pd->cmd_id), pd->cmd_id);
-			pd->reply_id = REPLY_NAK;
 			pd->ephemeral_data[0] = OSDP_PD_NAK_SC_COND;
 			return OSDP_PD_ERR_REPLY;
 		}
@@ -586,7 +618,6 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			ret = pd->command_callback(pd->command_callback_arg, &cmd);
 		}
 		if (ret < 0) { /* Callback failed */
-			pd->reply_id = REPLY_NAK;
 			pd->ephemeral_data[0] = OSDP_PD_NAK_RECORD;
 			ret = OSDP_PD_ERR_REPLY;
 			break;
@@ -646,7 +677,6 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		ret = OSDP_PD_ERR_REPLY;
-		pd->reply_id = REPLY_NAK;
 		pd->ephemeral_data[0] = OSDP_PD_NAK_SC_COND;
 		if (!pd_cmd_cap_ok(pd, NULL)) {
 			break;
@@ -696,12 +726,20 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		if (sc_is_active(pd)) {
-			pd->reply_id = REPLY_NAK;
 			pd->ephemeral_data[0] = OSDP_PD_NAK_SC_COND;
 			LOG_EM("Out of order CMD_SCRYPT; has CP gone rogue?");
 			break;
 		}
 		memcpy(pd->sc.cp_cryptogram, buf + pos, CMD_SCRYPT_DATA_LEN);
+		if (osdp_verify_cp_cryptogram(pd)) {
+			/**
+			 * The PD can respond with NAK(5) when it fails to
+			 * verify the CP_crypt.
+			 */
+			pd->ephemeral_data[0] = OSDP_PD_NAK_SC_UNSUP;
+			LOG_WRN("failed to verify CP_crypt");
+			break;
+		}
 		pd->reply_id = REPLY_RMAC_I;
 		ret = OSDP_PD_ERR_NONE;
 		break;
@@ -953,20 +991,15 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = pd->reply_id;
 		memcpy(buf + len, pd->sc.r_mac, 16);
 		len += 16;
-		smb[0] = 3; /* length */
-		smb[1] = SCS_14; /* type */
-		if (osdp_verify_cp_cryptogram(pd) == 0) {
-			smb[2] = 1; /* CP auth succeeded */
-			sc_activate(pd);
-			pd->sc_tstamp = osdp_millis_now();
-			if (ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) {
-				LOG_WRN("SC Active with SCBK-D");
-			} else {
-				LOG_INF("SC Active");
-			}
+		smb[0] = 3;       /* length */
+		smb[1] = SCS_14;  /* type */
+		smb[2] = 1;       /* CP auth succeeded */
+		sc_activate(pd);
+		pd->sc_tstamp = osdp_millis_now();
+		if (ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) {
+			LOG_WRN("SC Active with SCBK-D");
 		} else {
-			smb[2] = 0; /* CP auth failed */
-			LOG_WRN("failed to verify CP_crypt");
+			LOG_INF("SC Active");
 		}
 		ret = OSDP_PD_ERR_NONE;
 		break;
