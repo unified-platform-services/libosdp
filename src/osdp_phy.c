@@ -51,7 +51,7 @@ static int osdp_channel_send(struct osdp_pd *pd, uint8_t *buf, int len)
 
 static int osdp_channel_receive(struct osdp_pd *pd)
 {
-	uint8_t buf[32];
+	uint8_t buf[64];
 	int recv, total_recv = 0;
 
 #ifdef UNIT_TESTING
@@ -174,7 +174,11 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	/* Fill packet header */
 	pkt = (struct osdp_packet_header *)buf;
 	pkt->som = OSDP_PKT_SOM;
+#ifdef __XC8__
+	pkt->pd_address = pd->idx & 0x7F; /* Use only the lower 7 bits */
+#else
 	pkt->pd_address = pd->address & 0x7F; /* Use only the lower 7 bits */
+#endif
 	if (ISSET_FLAG(pd, PD_FLAG_PKT_BROADCAST)) {
 		pkt->pd_address = 0x7F;
 		CLEAR_FLAG(pd, PD_FLAG_PKT_BROADCAST);
@@ -486,7 +490,11 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 
 	/* validate PD address */
 	pd_addr = pkt->pd_address & 0x7F;
+#ifdef __XC8__
+	if (pd_addr != pd->idx && pd_addr != 0x7F) {
+#else
 	if (pd_addr != pd->address && pd_addr != 0x7F) {
+#endif
 		/* not addressed to us and was not broadcasted */
 		if (is_cp_mode(pd)) {
 			LOG_ERR("Invalid pd address %d", pd_addr);

@@ -84,6 +84,7 @@ static struct osdp_pd_cap osdp_pd_cap[] = {
 	{ -1, 0, 0 } /* Sentinel */
 };
 
+#ifndef __XC8__
 struct pd_event_node {
 	queue_node_t node;
 	struct osdp_event object;
@@ -141,6 +142,42 @@ static int pd_event_dequeue(struct osdp_pd *pd, struct osdp_event **event)
 	*event = &n->object;
 	return 0;
 }
+#else
+#define OSDP_PD_EVENT_POOL_SIZE 3
+#define pd_event_free(...)
+static uint8_t taken_index = 0x00;
+struct osdp_event pd_event_pool[OSDP_PD_EVENT_POOL_SIZE];
+
+int pd_event_queue_init()
+{
+	memset(pd_event_pool, 0, sizeof(pd_event_pool));
+	return 0;
+}
+
+void pd_event_enqueue(struct osdp_pd *pd, struct osdp_event *event)
+{
+	for (uint8_t i = 0; i < OSDP_PD_EVENT_POOL_SIZE; i++) {
+		if ((taken_index & (1 << i)) == 0) {
+			taken_index |= (1 << i);
+			memcpy(&pd_event_pool[i], event, sizeof(struct osdp_event));
+			return;
+		}
+	}
+}
+
+int pd_event_dequeue(struct osdp_pd *pd, struct osdp_event **event)
+{
+	struct pd_event_node *n;
+	for (uint8_t i = 0; i < OSDP_PD_EVENT_POOL_SIZE; i++) {
+		if ((taken_index & (1 << i)) != 0) {
+			taken_index &= ~(1 << i);
+			*event = &pd_event_pool[i];
+			return 0;
+		}
+	}
+	return -1;
+}
+#endif
 
 static int pd_translate_event(struct osdp_pd *pd, struct osdp_event *event)
 {
@@ -364,7 +401,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			pd_event_free(pd, event);
 		} else {			
 // TODO :: reply adc status as subcoand mfg
-#if defined(W2O)
+#if defined(W2O) && FALSE
 			pd->reply_id = REPLY_MFGREP;
 			struct osdp_event *pCmd =
 				(struct osdp_event *)pd->ephemeral_data;
@@ -584,8 +621,10 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		cmd.comset.baud_rate |= (uint32_t)buf[pos++] << 24;
 		if (cmd.comset.address >= 0x7F) {
 			LOG_ERR("COMSET Failed! command discarded");
+#ifndef __XC8__
 			cmd.comset.address = pd->address;
 			cmd.comset.baud_rate = pd->baud_rate;
+#endif
 			break;
 		}
 		if (!do_command_callback(pd, &cmd)) {
@@ -630,6 +669,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		ret = OSDP_PD_ERR_NONE;
 		break;
+#ifndef __XC8__
 	case CMD_ACURXSIZE:
 		if (len < CMD_ACURXSIZE_DATA_LEN) {
 			break;
@@ -638,6 +678,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		pd->reply_id = REPLY_ACK;
 		ret = OSDP_PD_ERR_NONE;
 		break;
+#endif
 	case CMD_KEEPACTIVE:
 		if (len < CMD_KEEPACTIVE_DATA_LEN) {
 			break;
@@ -1156,10 +1197,12 @@ static void osdp_pd_update(struct osdp_pd *pd)
 			cmd = (struct osdp_cmd *)pd->ephemeral_data;
 			cmd->id = OSDP_CMD_COMSET_DONE;
 			do_command_callback(pd, cmd);
+#ifndef __XC8__
 			pd->address = (int)cmd->comset.address;
 			pd->baud_rate = (int)cmd->comset.baud_rate;
 			LOG_INF("COMSET Succeeded! New PD-Addr: %d; Baud: %d",
 				pd->address, pd->baud_rate);
+#endif
 		}
 		osdp_phy_progress_sequence(pd);
 	} else {
@@ -1238,9 +1281,9 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 	} else {
 		snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d", info->address);
 	}
-#endif
 	pd->baud_rate = info->baud_rate;
 	pd->address = info->address;
+#endif
 	pd->flags = info->flags;
 	pd->seq_number = -1;
 	memcpy(&pd->channel, &info->channel, sizeof(struct osdp_channel));
@@ -1249,11 +1292,10 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 	logger_get_default(&pd->logger);
 	snprintf(name, sizeof(name), "OSDP: PD-%d", pd->address);
 	logger_set_name(&pd->logger, name);
-#endif
-
 	if (pd_event_queue_init(pd)) {
 		goto error;
 	}
+#endif
 
 	if (info->scbk == NULL) {
 		if (is_enforce_secure(pd)) {
@@ -1336,7 +1378,9 @@ void osdp_pd_set_command_callback(osdp_t *ctx, pd_command_callback_t cb,
 int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 {
 	input_check(ctx);
+#ifndef __XC8__
 	struct osdp_event *ev;
+#endif
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 
 	if (event->type <= 0 ||
@@ -1344,13 +1388,14 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 		return -1;
 	}
 
+#ifndef __XC8__
 	ev = pd_event_alloc(pd);
 	if (ev == NULL) {
 		return -1;
 	}
-
 	memcpy(ev, event, sizeof(struct osdp_event));
-	pd_event_enqueue(pd, ev);
+#endif
+	pd_event_enqueue(pd, event);
 	return 0;
 }
 
