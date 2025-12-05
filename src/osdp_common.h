@@ -20,7 +20,7 @@
 #include <utils/slab.h>
 #include <utils/assert.h>
 
-// #define DEBUG_EN 
+#define DEBUG_EN 
 #define USE_CUSTOM_LOGGER
 #ifndef __XC8__
 #include <utils/logger.h>
@@ -59,16 +59,16 @@ do {\
 #define LOG_DBG(...)   __logger_log(&pd->logger, LOG_DEBUG,  __FILE__, __LINE__, __VA_ARGS__)
 #else
 #if defined (DEBUG_EN)
-#define LOG_EM(...) do { printf(__VA_ARGS__); putch('\n'); } while(0)
-#define LOG_ALERT(...) do { printf(__VA_ARGS__); putch('\n'); } while(0)
-#define LOG_CRIT(...)  do { printf(__VA_ARGS__); putch('\n'); } while(0)
-#define LOG_ERR(...)   do { printf(__VA_ARGS__); putch('\n'); } while(0)
-#define LOG_INF(...)   do { printf(__VA_ARGS__); putch('\n'); } while(0)
-#define LOG_WRN(...)   do { printf(__VA_ARGS__); putch('\n'); } while(0)
-#define LOG_WRN_ONCE(...) do { printf(__VA_ARGS__); putch('\n'); } while(0)
-#define LOG_NOT(...)   do { printf(__VA_ARGS__); putch('\n'); } while(0)
-#define LOG_DBG(...) do { printf(__VA_ARGS__); putch('\n'); } while(0)
-#define LOG_PRINT(...) do { printf(__VA_ARGS__); putch('\n'); } while(0)
+#define LOG_EM(fmt, ...) printf("[EM] " fmt "\n", ##__VA_ARGS__)
+#define LOG_ALERT(fmt, ...) printf("[ALERT] " fmt "\n", ##__VA_ARGS__)
+#define LOG_CRIT(fmt, ...)  printf("[CRITT] " fmt "\n", ##__VA_ARGS__)
+#define LOG_ERR(fmt, ...)   printf("[ERR] " fmt "\n", ##__VA_ARGS__)
+#define LOG_INF(fmt, ...)   printf("[INFO] " fmt "\n", ##__VA_ARGS__)
+#define LOG_WRN(fmt, ...)   printf("[WARN] " fmt "\n", ##__VA_ARGS__)
+#define LOG_WRN_ONCE(fmt, ...) printf("[WARN] " fmt "\n", ##__VA_ARGS__)
+#define LOG_NOT(fmt, ...)   printf("[NOT] " fmt "\n", ##__VA_ARGS__)
+#define LOG_DBG(fmt, ...) printf("[DEBUG] " fmt "\n", ##__VA_ARGS__)
+#define LOG_PRINT(fmt, ...) printf(fmt "\n", ##__VA_ARGS__)
 #else
 #define LOG_EM(...)
 #define LOG_ALERT(...)
