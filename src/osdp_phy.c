@@ -397,7 +397,11 @@ static int phy_check_header(struct osdp_pd *pd)
 
 	/* Scan for packet start */
 	while (pd->packet_buf_len == 0) {
+#if defined(EDGEPLUS_M3)
+		if (osdp_rb_pop(pd->rx_rb, &cur_byte)) {
+#else
 		if (osdp_rb_pop(&pd->rx_rb, &cur_byte)) {
+#endif
 			return OSDP_ERR_PKT_NO_DATA;
 		}
 		if (cur_byte == OSDP_PKT_SOM) {
@@ -420,8 +424,13 @@ static int phy_check_header(struct osdp_pd *pd)
 	}
 
 	/* Found start of a new packet; wait until we have atleast the header */
+#if defined (EDGEPLUS_M3)
+	len = osdp_rb_pop_buf(pd->rx_rb, buf + pd->packet_buf_len,
+			      sizeof(struct osdp_packet_header) - 1);
+#else
 	len = osdp_rb_pop_buf(&pd->rx_rb, buf + pd->packet_buf_len,
 			      sizeof(struct osdp_packet_header) - 1);
+#endif
 	pd->packet_buf_len += len;
 	if (pd->packet_buf_len < sizeof(struct osdp_packet_header)) {
 		return OSDP_ERR_PKT_WAIT;
@@ -592,8 +601,13 @@ int osdp_phy_check_packet(struct osdp_pd *pd)
 	}
 
 	/* We have a valid header, collect one full packet */
+	#if defined (EDGEPLUS_M3)
+	ret = osdp_rb_pop_buf(pd->rx_rb, pd->packet_buf + pd->packet_buf_len,
+			      pd->packet_len - pd->packet_buf_len);
+	#else
 	ret = osdp_rb_pop_buf(&pd->rx_rb, pd->packet_buf + pd->packet_buf_len,
 			      pd->packet_len - pd->packet_buf_len);
+	#endif
 	pd->packet_buf_len += ret;
 	if (pd->packet_buf_len != pd->packet_len) {
 		return OSDP_ERR_PKT_WAIT;

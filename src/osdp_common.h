@@ -463,10 +463,10 @@ struct osdp_pd {
 	uint32_t request;      /* Event loop requests */
 #ifndef __XC8__
 	uint16_t peer_rx_size; /* Receive buffer size of the peer PD/CP */
-#endif
-
 	/* Raw bytes received from the serial line for this PD */
 	struct osdp_rb rx_rb;
+#endif
+	struct osdp_rb* rx_rb;
 	uint8_t packet_buf[OSDP_PACKET_BUF_SIZE];
 #ifdef __XC8__
 	uint16_t packet_len;
@@ -519,6 +519,7 @@ struct osdp {
 	/* CP event callback to app with opaque arg pointer as passed by app */
 	void *event_callback_arg;
 	cp_event_callback_t event_callback;
+	uint8_t channel;
 };
 
 void osdp_keyset_complete(struct osdp_pd *pd);

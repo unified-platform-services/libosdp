@@ -756,7 +756,7 @@ struct osdp_cmd {
 /*          OSDP Events            */
 /* ------------------------------- */
 
-#define OSDP_EVENT_CARDREAD_MAX_DATALEN   240
+#define OSDP_EVENT_CARDREAD_MAX_DATALEN   40
 #define OSDP_EVENT_KEYPRESS_MAX_DATALEN   16
 #if defined (W2O)
 #define OSDP_EVENT_MFGREP_MAX_DATALEN     32
@@ -1062,7 +1062,11 @@ int osdp_pd_flush_events(osdp_t *ctx);
  * @retval NULL on errors
  */
 OSDP_EXPORT
+#if defined (EDGEPLUS_M3)
+osdp_t *osdp_cp_setup(uint8_t channel, int num_pd, const osdp_pd_info_t *info);
+#else
 osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info);
+#endif
 
 /**
  * @brief Adds more PD devices in the CP control list.

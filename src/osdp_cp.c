@@ -60,6 +60,17 @@ enum osdp_cp_error_e {
 	OSDP_CP_ERR_APP = -8, /* Application layer error */
 };
 
+#ifdef __XC8__
+
+#if defined(EDGEPLUS_M3)
+#else
+static struct osdp STATIC_CTX;
+#endif
+static struct osdp STATIC_CTX[4];
+static struct osdp_pd PD_ARR[4][4];
+static struct osdp_rb channel_rx_rb[4];
+#endif
+
 #ifndef __XC8__
 struct cp_cmd_node {
 	queue_node_t node;
@@ -1554,6 +1565,34 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	return 0;
 }
 
+#if defined (EDGEPLUS_M3)
+static int cp_detect_connection_topology(struct osdp *ctx)
+{
+    int i;
+    struct osdp_pd *pd;
+
+    /* All PDs share the same physical bus in this design */
+    ctx->num_channels = 1;
+
+    /* Free old lock if any */
+    safe_free(ctx->channel_lock);
+
+    /* Allocate a single channel lock */
+    ctx->channel_lock = calloc(NUM_PD(ctx), sizeof(int));
+    if (ctx->channel_lock == NULL) {
+        LOG_PRINT("Failed to allocate osdp channel lock");
+        return -1;
+    }
+
+    /* Mark all PDs as sharing the same channel */
+    for (i = 0; i < NUM_PD(ctx); i++) {
+        pd = osdp_to_pd(ctx, i);
+        SET_FLAG(pd, PD_FLAG_CHN_SHARED);
+    }
+
+    return 0;
+}
+#else
 static int cp_detect_connection_topology(struct osdp *ctx)
 {
 	int i, j, num_channels;
@@ -1578,39 +1617,37 @@ static int cp_detect_connection_topology(struct osdp *ctx)
 	}
 
 	num_channels = disjoint_set_num_roots(&set);
-/* 	if (num_channels != NUM_PD(ctx)) {
+	if (num_channels != NUM_PD(ctx)) {
 		channel_lock = calloc(1, sizeof(int) * NUM_PD(ctx));
 		if (channel_lock == NULL) {
 			LOG_PRINT("Failed to allocate osdp channel locks");
 			return -1;
 		}
-	} */
+	}
 
 	safe_free(ctx->channel_lock);
 	ctx->num_channels = num_channels;
 	ctx->channel_lock = channel_lock;
 	return 0;
 }
-
-#ifdef __XC8__
-static struct osdp_pd PD_ARR[OSDP_PD_MAX];
 #endif
-static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_list)
+
+static int cp_add_pd(struct osdp *ctx, int num_pd,
+		     const osdp_pd_info_t *info_list)
 {
-	
 #ifdef __XC8__
-    struct osdp_pd *pd;
+	struct osdp_pd *pd;
 #else
-    int i, old_num_pd;
-    struct osdp_pd *old_pd_array, *new_pd_array, *pd;
-    char name[24] = { 0 };
+	int i, old_num_pd;
+	struct osdp_pd *old_pd_array, *new_pd_array, *pd;
+	char name[24] = { 0 };
 #endif
 	const osdp_pd_info_t *info;
-    
+
 	assert(num_pd);
 	assert(info_list);
 #ifndef __XC8__
-    old_num_pd = ctx->_num_pd;
+	old_num_pd = ctx->_num_pd;
 	old_pd_array = ctx->pd;
 
     new_pd_array = calloc(old_num_pd + num_pd, sizeof(struct osdp_pd));
@@ -1620,11 +1657,11 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 	}
 #endif
 
-#ifdef __XC8__    
-    ctx->pd = PD_ARR;
-    ctx->_num_pd = num_pd;
-    
-    for (uint8_t i = 0; i < num_pd; i++) {
+#ifdef __XC8__
+	ctx->pd = PD_ARR[ctx->channel];
+	ctx->_num_pd = num_pd;
+
+	for (uint8_t i = 0; i < num_pd; i++) {
 #else
 	ctx->pd = new_pd_array;
 	ctx->_num_pd = old_num_pd + num_pd;
@@ -1634,7 +1671,7 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
         pd = osdp_to_pd(ctx, i + old_num_pd);
 #endif
 		info = info_list + i;
-		pd = PD_ARR + i;
+		pd = PD_ARR[ctx->channel] + i;
 		pd->idx = i;
 		pd->osdp_ctx = ctx;
 #ifndef __XC8__
@@ -1645,6 +1682,7 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		}
 		pd->baud_rate = info->baud_rate;
 		pd->address = info->address;
+		pd->rx_rb = &channel_rx_rb[ctx->channel];
 #endif
 		pd->flags = info->flags;
 		pd->seq_number = -1;
@@ -1702,15 +1740,17 @@ error:
 }
 
 /* --- Exported Methods --- */
-#ifdef __XC8__
-static struct osdp STATIC_CTX;
-#endif
+#if defined(EDGEPLUS_M3)
+osdp_t *osdp_cp_setup(uint8_t channel, int num_pd, const osdp_pd_info_t *info)
+#else
 osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info)
+#endif
 {
 #ifdef __XC8__
-	struct osdp *ctx = &STATIC_CTX;
+	struct osdp *ctx = &(STATIC_CTX[channel]);
+	ctx->channel = channel;
 #else
-    struct osdp *ctx;
+	struct osdp *ctx;
 #endif
 	input_check_init(ctx);
 
@@ -1733,13 +1773,13 @@ int osdp_cp_add_pd(osdp_t *ctx, int num_pd, const osdp_pd_info_t *info)
 	assert(num_pd);
 	assert(info);
 
-	if(cp_add_pd(ctx, num_pd, info)) {
+	if (cp_add_pd(ctx, num_pd, info)) {
 		LOG_PRINT("Failed to add PDs");
 		return -1;
 	}
 
-	LOG_PRINT("Added %d PDs; TotalPDs:%d Channels:%d",
-		  num_pd, ((struct osdp *)ctx)->_num_pd,
+	LOG_PRINT("Added %d PDs; TotalPDs:%d Channels:%d", num_pd,
+		  ((struct osdp *)ctx)->_num_pd,
 		  ((struct osdp *)ctx)->num_channels);
 	return 0;
 }

@@ -403,7 +403,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			pd_event_free(pd, event);
 		} else {			
 // TODO :: reply adc status as subcoand mfg
-#if defined(W2O) && FALSE
+#if defined(W2O)
 			pd->reply_id = REPLY_MFGREP;
 			struct osdp_event *pCmd =
 				(struct osdp_event *)pd->ephemeral_data;
