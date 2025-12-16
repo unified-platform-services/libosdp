@@ -759,8 +759,10 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 
 static inline void assert_buf_len(int need, int have)
 {
-	__ASSERT(need < have, "OOM at build command: need:%d have:%d", need,
-		 have);
+	__ASSERT(need < have, "OOM at build command: need:%d have:%d",
+		 need, have);
+	(void)need;
+	(void)have;
 }
 
 /**
