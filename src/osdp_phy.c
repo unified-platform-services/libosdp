@@ -69,7 +69,11 @@ static int osdp_channel_receive(struct osdp_pd *pd)
 		if (recv <= 0) {
 			break;
 		}
-		if (osdp_rb_push_buf(&pd->rx_rb, buf, recv) != recv) {
+#if defined (EDGEPLUS_M3)
+		if (osdp_rb_push_buf(pd->rx_rb, buf, recv) != recv) {
+#else
+		if (osdp_rb_push_buf*(&pd->rx_rb, buf, recv) != recv)
+#endif
 			LOG_EM("RX ring buffer overflow!");
 			return -1;
 		}

@@ -1015,12 +1015,12 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 		if (osdp_millis_since(pd->phy_tstamp) > OSDP_RESP_TOUT_MS) {
 			if (pd->phy_retry_count < OSDP_CMD_MAX_RETRIES) {
 				pd->phy_retry_count += 1;
-				LOG_WRN("No response in 200ms; probing (%d)",
-					pd->phy_retry_count);
+				LOG_WRN("No response in %dms; probing (%d)",
+					OSDP_RESP_TOUT_MS, pd->phy_retry_count);
 				cp_phy_state_wait(pd, OSDP_CMD_RETRY_WAIT_MS);
 				return OSDP_CP_ERR_CAN_YIELD;
 			}
-			LOG_ERR("Response timeout for CMD: %s(%02x)",
+			LOG_ERR("Response timeout for CMD (pdid: %d): %s(%02x)", pd->idx,
 				osdp_cmd_name(pd->cmd_id), pd->cmd_id);
 			goto error;
 		}
@@ -1662,6 +1662,7 @@ static int cp_add_pd(struct osdp *ctx, int num_pd,
 	ctx->_num_pd = num_pd;
 
 	for (uint8_t i = 0; i < num_pd; i++) {
+		pd->rx_rb = &channel_rx_rb[ctx->channel];
 #else
 	ctx->pd = new_pd_array;
 	ctx->_num_pd = old_num_pd + num_pd;
