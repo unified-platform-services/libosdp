@@ -1062,7 +1062,7 @@ int osdp_pd_flush_events(osdp_t *ctx);
  * @retval NULL on errors
  */
 OSDP_EXPORT
-#if defined (EDGEPLUS_M3)
+#if defined (__XC8__)
 osdp_t *osdp_cp_setup(uint8_t channel, int num_pd, const osdp_pd_info_t *info);
 #else
 osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info);

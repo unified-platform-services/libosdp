@@ -63,12 +63,15 @@ enum osdp_cp_error_e {
 #ifdef __XC8__
 
 #if defined(EDGEPLUS_M3)
-#else
-static struct osdp STATIC_CTX;
-#endif
 static struct osdp STATIC_CTX[4];
 static struct osdp_pd PD_ARR[4][4];
 static struct osdp_rb channel_rx_rb[4];
+#else
+static struct osdp_rb channel_rx_rb;
+static struct osdp STATIC_CTX[1];
+static struct osdp_pd PD_ARR[4];
+#endif
+
 #endif
 
 #ifndef __XC8__
@@ -1657,22 +1660,32 @@ static int cp_add_pd(struct osdp *ctx, int num_pd,
 	}
 #endif
 
-#ifdef __XC8__
+
+#if defined (EDGEPLUS_M3)
 	ctx->pd = PD_ARR[ctx->channel];
+#elif defined (W2O)
+	ctx->pd = PD_ARR;
+#endif
+
 	ctx->_num_pd = num_pd;
 
 	for (uint8_t i = 0; i < num_pd; i++) {
+#if defined (EDGEPLUS_M3)
 		pd->rx_rb = &channel_rx_rb[ctx->channel];
-#else
-	ctx->pd = new_pd_array;
-	ctx->_num_pd = old_num_pd + num_pd;
-	memcpy(new_pd_array, old_pd_array, sizeof(struct osdp_pd) * old_num_pd);
-    
-    for (i = 0; i < num_pd; i++) {
-        pd = osdp_to_pd(ctx, i + old_num_pd);
+		pd = PD_ARR[ctx->channel] + i;
+#elif defined (W2O)
+		pd->rx_rb = &channel_rx_rb;
+		pd = &PD_ARR[i];
+#else 
+		ctx->pd = new_pd_array;
+		ctx->_num_pd = old_num_pd + num_pd;
+		memcpy(new_pd_array, old_pd_array,
+		       sizeof(struct osdp_pd) * old_num_pd);
+
+		for (i = 0; i < num_pd; i++) {
+			pd = osdp_to_pd(ctx, i + old_num_pd);
 #endif
 		info = info_list + i;
-		pd = PD_ARR[ctx->channel] + i;
 		pd->idx = i;
 		pd->osdp_ctx = ctx;
 #ifndef __XC8__
@@ -1741,7 +1754,7 @@ error:
 }
 
 /* --- Exported Methods --- */
-#if defined(EDGEPLUS_M3)
+#if __XC8__ 
 osdp_t *osdp_cp_setup(uint8_t channel, int num_pd, const osdp_pd_info_t *info)
 #else
 osdp_t *osdp_cp_setup(int num_pd, const osdp_pd_info_t *info)
