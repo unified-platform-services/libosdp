@@ -453,7 +453,7 @@ struct osdp_status_report {
 
 #define OSDP_CMD_TEXT_MAX_LEN          1
 #define OSDP_CMD_KEYSET_KEY_MAX_LEN    32
-#define OSDP_CMD_MFG_MAX_DATALEN       128
+#define OSDP_CMD_MFG_MAX_DATALEN       88
 
 /**
  * @brief Command sent from CP to Control digital output of PD.
@@ -756,10 +756,10 @@ struct osdp_cmd {
 /*          OSDP Events            */
 /* ------------------------------- */
 
-#define OSDP_EVENT_CARDREAD_MAX_DATALEN   48
-#define OSDP_EVENT_KEYPRESS_MAX_DATALEN   32
+#define OSDP_EVENT_CARDREAD_MAX_DATALEN   240
+#define OSDP_EVENT_KEYPRESS_MAX_DATALEN   16
 #if defined (W2O)
-#define OSDP_EVENT_MFGREP_MAX_DATALEN     128
+#define OSDP_EVENT_MFGREP_MAX_DATALEN     32
 #else
 #define OSDP_EVENT_MFGREP_MAX_DATALEN     32
 #endif

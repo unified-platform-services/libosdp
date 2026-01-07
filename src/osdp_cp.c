@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <pic18.h>
 #include <stdlib.h>
 
 #include <utils/disjoint_set.h>
@@ -59,6 +60,7 @@ enum osdp_cp_error_e {
 	OSDP_CP_ERR_APP = -8, /* Application layer error */
 };
 
+#ifndef __XC8__
 struct cp_cmd_node {
 	queue_node_t node;
 	struct osdp_cmd object;
@@ -117,6 +119,49 @@ static int cp_cmd_dequeue(struct osdp_pd *pd, struct osdp_cmd **cmd)
 	*cmd = &n->object;
 	return 0;
 }
+#else
+#define cp_cmd_free(...)
+struct cp_cmd_node {
+	struct osdp_pd *pd;
+	struct osdp_cmd object;
+};
+struct cp_cmd_node cp_cmd_pool[OSDP_CP_CMD_POOL_SIZE];
+uint16_t taken_index = 0;
+
+static int cp_cmd_queue_init()
+{
+	memset(cp_cmd_pool, 0, sizeof(cp_cmd_pool));
+	return 0;
+}
+
+static void cp_cmd_enqueue(struct osdp_pd *pd, struct osdp_cmd *cmd)
+{
+	struct cp_cmd_node *cmd_node;
+	for (uint8_t i = 0; i < OSDP_CP_CMD_POOL_SIZE; i++) {
+		if (taken_index & (1 << i) == 0) {
+			taken_index |= (1 << i);
+			cmd_node = &cp_cmd_pool[i];
+			cmd_node->pd = pd;
+			memcpy(&cmd_node->object, cmd, sizeof(struct osdp_cmd));
+			return;
+		}
+	}
+}
+
+static int cp_cmd_dequeue(struct osdp_pd *pd, struct osdp_cmd **cmd)
+{
+	struct cp_cmd_node *n;
+	for (uint8_t i = 0; i < OSDP_CP_CMD_POOL_SIZE; i++) {
+		if ((taken_index & (1 << i)) != 0 && cp_cmd_pool[i].pd == pd) {
+			taken_index &= ~(1 << i);
+			memcpy(*cmd, &cp_cmd_pool[i],
+			       sizeof(struct cp_cmd_node));
+			return 0;
+		}
+	}
+	return -1;
+}
+#endif
 
 static int cp_channel_acquire(struct osdp_pd *pd, int *owner)
 {
@@ -475,12 +520,14 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 				pd->cap[t1].num_items);
 		}
 
+#ifndef __XC8__
 		/* Get peer RX buffer size */
 		t1 = OSDP_PD_CAP_RECEIVE_BUFFERSIZE;
 		if (pd->cap[t1].function_code == t1) {
 			pd->peer_rx_size = pd->cap[t1].compliance_level;
 			pd->peer_rx_size |= pd->cap[t1].num_items << 8;
 		}
+#endif
 
 		/* post-capabilities hooks */
 		t2 = OSDP_PD_CAP_COMMUNICATION_SECURITY;
@@ -574,8 +621,10 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		temp32 |= buf[pos++] << 16;
 		temp32 |= buf[pos++] << 24;
 		LOG_INF("COMSET responded with ID:%d Baud:%d", t1, temp32);
+#ifndef __XC8__
 		pd->address = t1;
 		pd->baud_rate = temp32;
+#endif
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_KEYPAD:
@@ -771,15 +820,19 @@ static int cp_process_reply(struct osdp_pd *pd)
 	/* Translate phy error codes to CP errors */
 	switch (err) {
 	case OSDP_ERR_PKT_NONE:
+		Nop();
 		break;
 	case OSDP_ERR_PKT_WAIT:
 	case OSDP_ERR_PKT_NO_DATA:
+		Nop();
 		return OSDP_CP_ERR_NO_DATA;
 	case OSDP_ERR_PKT_BUSY:
 		LOG_DBG("BSY");
+		Nop();
 		return OSDP_CP_ERR_RETRY_CMD;
 	case OSDP_ERR_PKT_NACK:
 		if (pd->ephemeral_data[0] == OSDP_PD_NAK_SEQ_NUM) {
+			Nop();
 			LOG_WRN("NAK(SEQ_NUM); restarting communication");
 			osdp_phy_state_reset(pd, true);
 			sc_deactivate(pd);
@@ -793,6 +846,7 @@ static int cp_process_reply(struct osdp_pd *pd)
 		LOG_DBG("NACK");
 		__fallthrough;
 	default:
+		Nop();
 		return OSDP_CP_ERR_GENERIC;
 	}
 
@@ -1441,7 +1495,9 @@ static int cp_refresh(struct osdp_pd *pd)
 
 static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 {
+#ifndef __XC8__
 	struct osdp_cmd *p;
+#endif
 	const uint32_t all_flags = (
 		OSDP_CMD_FLAG_BROADCAST
 	);
@@ -1479,21 +1535,22 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		return osdp_file_tx_command(pd, cmd->file_tx.id,
 					    cmd->file_tx.flags);
 #else
-        return -1;
+    return -1;
 #endif
 	} else if (cmd->id == OSDP_CMD_KEYSET &&
 		   (cmd->keyset.type != 1 || !sc_is_active(pd))) {
 		LOG_ERR("Invalid keyset request");
 		return -1;
 	}
-
+#ifndef __XC8__
 	p = cp_cmd_alloc(pd);
 	if (p == NULL) {
 		LOG_ERR("Failed to allocate command");
 		return -1;
 	}
 	memcpy(p, cmd, sizeof(struct osdp_cmd));
-	cp_cmd_enqueue(pd, p);
+#endif
+	cp_cmd_enqueue(pd, cmd);
 	return 0;
 }
 
@@ -1521,13 +1578,13 @@ static int cp_detect_connection_topology(struct osdp *ctx)
 	}
 
 	num_channels = disjoint_set_num_roots(&set);
-	if (num_channels != NUM_PD(ctx)) {
+/* 	if (num_channels != NUM_PD(ctx)) {
 		channel_lock = calloc(1, sizeof(int) * NUM_PD(ctx));
 		if (channel_lock == NULL) {
 			LOG_PRINT("Failed to allocate osdp channel locks");
 			return -1;
 		}
-	}
+	} */
 
 	safe_free(ctx->channel_lock);
 	ctx->num_channels = num_channels;
@@ -1586,9 +1643,9 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		} else {
 			snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d", info->address);
 		}
-#endif
 		pd->baud_rate = info->baud_rate;
 		pd->address = info->address;
+#endif
 		pd->flags = info->flags;
 		pd->seq_number = -1;
 		SET_FLAG(pd, PD_FLAG_SC_DISABLED);
@@ -1604,6 +1661,7 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 				  " ENFORCE_SECURE is requested.");
 			goto error;
 		}
+#ifndef __XC8__
 		if (cp_cmd_queue_init(pd)) {
 			goto error;
 		}
@@ -1611,7 +1669,6 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 			SET_FLAG(pd, PD_FLAG_PKT_SKIP_MARK);
 		}
         
-#ifndef __XC8__
 		logger_get_default(&pd->logger);
 		snprintf(name, sizeof(name), "OSDP: CP: PD-%d", pd->address);
 		logger_set_name(&pd->logger, name);
