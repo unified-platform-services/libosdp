@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "adcApp.h"
+#include "gpio/adcApp.h"
 #include "config.h"
 #include "osdp.h"
 #include "osdp_common.h"
