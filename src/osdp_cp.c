@@ -1082,20 +1082,14 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 
 	/* Otherwise, we permit only expected responses */
 	switch (pd->cmd_id) {
-	case CMD_FILETRANSFER:
-		return pd->reply_id == REPLY_FTSTAT;
-	case CMD_COMSET:
-		return pd->reply_id == REPLY_COM;
-	case CMD_MFG:
-		return pd->reply_id == REPLY_MFGREP;
-	case CMD_LSTAT:
-		return pd->reply_id == REPLY_LSTATR;
-	case CMD_ISTAT:
-		return pd->reply_id == REPLY_ISTATR;
-	case CMD_OSTAT:
-		return pd->reply_id == REPLY_OSTATR;
-	case CMD_RSTAT:
-		return pd->reply_id == REPLY_RSTATR;
+	case CMD_FILETRANSFER: return pd->reply_id == REPLY_FTSTAT;
+	case CMD_COMSET:       return pd->reply_id == REPLY_COM;
+	case CMD_MFG:          return pd->reply_id == REPLY_MFGREP;
+	case CMD_LSTAT:        return pd->reply_id == REPLY_LSTATR;
+	case CMD_ISTAT:        return pd->reply_id == REPLY_ISTATR;
+	case CMD_OSTAT:        return pd->reply_id == REPLY_OSTATR;
+	case CMD_OUT:          return pd->reply_id == REPLY_OSTATR;
+	case CMD_RSTAT:        return pd->reply_id == REPLY_RSTATR;
 	default:
 		LOG_ERR("Unexpected respose: CMD: %s(%02x) REPLY: %s(%02x)",
 			osdp_cmd_name(pd->cmd_id), pd->cmd_id,
