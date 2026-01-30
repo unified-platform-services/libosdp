@@ -403,17 +403,31 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			pd_event_free(pd, event);
 		} else {			
 // TODO :: reply adc status as subcoand mfg
-#if defined(W2O) && FALSE
+#if defined(W2O)
+			i = 0;
 			pd->reply_id = REPLY_MFGREP;
 			struct osdp_event *pCmd =
 				(struct osdp_event *)pd->ephemeral_data;
 			pCmd->mfgrep.vendor_code = EP_VENDOR_CODE;
-			pCmd->mfgrep.length = (MAX_ADC_INPUT * 2) + 1;
+			// 8 x input ports + 1 command + 1 VBAT + 1 PG
+			pCmd->mfgrep.length = (MAX_ADC_INPUT * 2) + 2 + 2 + 1;
 			pCmd->mfgrep.data[0] = 0x6b;
+			i++;
 			for (uint8_t j = 0; j < MAX_ADC_INPUT; j++) {
 				pCmd->mfgrep.data[(j * 2) + 1] = (ADCGetRaw(j)) >> 8;
 				pCmd->mfgrep.data[(j * 2 + 1) + 1] = (uint8_t)(ADCGetRaw(j));
+				i += 2;
 			}
+
+			pCmd->mfgrep.data[i++] = (ADCGetBatt()) >> 8;
+			pCmd->mfgrep.data[i++] = (uint8_t)(ADCGetBatt());
+
+			pCmd->mfgrep.data[i++] = (ADCGetPg()) >> 8;
+			pCmd->mfgrep.data[i++] = (uint8_t)(ADCGetPg());
+
+			// PD Status
+			pCmd->mfgrep.data[i++] = getConnectedPDStatus();
+			pCmd->mfgrep.data[i] = getConnectedPDSecureChannelStatus();
 #else
     	pd->reply_id = REPLY_ACK;
 #endif
