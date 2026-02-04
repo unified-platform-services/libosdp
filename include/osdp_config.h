@@ -26,7 +26,7 @@
 #define OSDP_PD_SC_RETRY_MS	          (5 * 1000)
 #define OSDP_PD_POLL_TIMEOUT_MS	      (100)
 #define OSDP_PD_SC_TIMEOUT_MS	        (2 * 1000)
-#define OSDP_PD_ONLINE_TOUT_MS	      (100)
+#define OSDP_PD_ONLINE_TOUT_MS	      (1000)
 #define OSDP_RESP_TOUT_MS	            (500)
 #define OSDP_CMD_MAX_RETRIES	        (3)
 #define OSDP_ONLINE_RETRY_WAIT_MAX_MS (1000)

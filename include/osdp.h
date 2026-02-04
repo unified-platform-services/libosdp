@@ -361,7 +361,7 @@ typedef struct {
 	 * Used to modify the way the context is setup. See `OSDP_FLAG_*`
 	 * macros.
 	 */
-	int flags;
+	uint32_t flags;
 	/**
 	 * Static information that the PD reports to the CP when it received a
 	 * `CMD_ID`. These information must be populated by a PD application.
