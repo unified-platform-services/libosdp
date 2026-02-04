@@ -138,7 +138,7 @@ static void cp_cmd_enqueue(struct osdp_pd *pd, struct osdp_cmd *cmd)
 {
 	struct cp_cmd_node *cmd_node;
 	for (uint8_t i = 0; i < OSDP_CP_CMD_POOL_SIZE; i++) {
-		if (taken_index & (1 << i) == 0) {
+		if ((taken_index & (1 << i)) == 0) {
 			taken_index |= (1 << i);
 			cmd_node = &cp_cmd_pool[i];
 			cmd_node->pd = pd;
@@ -154,8 +154,7 @@ static int cp_cmd_dequeue(struct osdp_pd *pd, struct osdp_cmd **cmd)
 	for (uint8_t i = 0; i < OSDP_CP_CMD_POOL_SIZE; i++) {
 		if ((taken_index & (1 << i)) != 0 && cp_cmd_pool[i].pd == pd) {
 			taken_index &= ~(1 << i);
-			memcpy(*cmd, &cp_cmd_pool[i],
-			       sizeof(struct cp_cmd_node));
+                        *cmd = &cp_cmd_pool[i].object;
 			return 0;
 		}
 	}
