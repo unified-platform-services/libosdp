@@ -620,8 +620,9 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		temp32 |= buf[pos++] << 16;
 		temp32 |= buf[pos++] << 24;
 		LOG_INF("COMSET responded with ID:%d Baud:%d", t1, temp32);
-#ifndef __XC8__
+
 		pd->address = t1;
+#ifndef __XC8__                
 		pd->baud_rate = temp32;
 #endif
 		ret = OSDP_CP_ERR_NONE;
@@ -1066,7 +1067,7 @@ static int cp_get_online_command(struct osdp_pd *pd)
 }
 
 static void notify_pd_status(struct osdp_pd *pd, bool is_online)
-{
+{ 
 	struct osdp *ctx = pd_to_osdp(pd);
 	struct osdp_event evt;
 
@@ -1635,15 +1636,15 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		info = info_list + i;
 		pd = PD_ARR + i;
 		pd->idx = i;
-		pd->osdp_ctx = ctx;
+		pd->osdp_ctx = ctx;                
+		pd->address = info->address;
 #ifndef __XC8__
 		if (info->name) {
 			strncpy(pd->name, info->name, OSDP_PD_NAME_MAXLEN - 1);
 		} else {
 			snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d", info->address);
-		}
-		pd->baud_rate = info->baud_rate;
-		pd->address = info->address;
+		}		
+                pd->baud_rate = info->baud_rate;
 #endif
 		pd->flags = info->flags;
 		pd->seq_number = -1;

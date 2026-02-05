@@ -631,8 +631,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		cmd.comset.baud_rate |= (uint32_t)buf[pos++] << 24;
 		if (cmd.comset.address >= 0x7F) {
 			LOG_ERR("COMSET Failed! command discarded");
-#ifndef __XC8__
-			cmd.comset.address = pd->address;
+			cmd.comset.address = pd->address;                        
+#ifndef __XC8__                        
 			cmd.comset.baud_rate = pd->baud_rate;
 #endif
 			break;
@@ -1207,8 +1207,8 @@ static void osdp_pd_update(struct osdp_pd *pd)
 			cmd = (struct osdp_cmd *)pd->ephemeral_data;
 			cmd->id = OSDP_CMD_COMSET_DONE;
 			do_command_callback(pd, cmd);
-#ifndef __XC8__
 			pd->address = (int)cmd->comset.address;
+#ifndef __XC8__                        
 			pd->baud_rate = (int)cmd->comset.baud_rate;
 			LOG_INF("COMSET Succeeded! New PD-Addr: %d; Baud: %d",
 				pd->address, pd->baud_rate);
@@ -1291,9 +1291,9 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 	} else {
 		snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d", info->address);
 	}
-	pd->baud_rate = info->baud_rate;
-	pd->address = info->address;
+	pd->baud_rate = info->baud_rate;	
 #endif
+        pd->address = info->address;
 	pd->flags = info->flags;
 	pd->seq_number = -1;
 	memcpy(&pd->channel, &info->channel, sizeof(struct osdp_channel));
