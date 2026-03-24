@@ -27,6 +27,7 @@
 #define CMD_OUT_DATA_LEN               4
 #define CMD_LED_DATA_LEN               14
 #define CMD_BUZ_DATA_LEN               5
+#define CMD_TDSET_DATA_LEN             7
 #define CMD_TEXT_DATA_LEN              6   /* variable length command */
 #define CMD_COMSET_DATA_LEN            5
 #define CMD_KEYSET_DATA_LEN            18
@@ -592,6 +593,24 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		pd->reply_id = REPLY_ACK;
 		ret = OSDP_PD_ERR_NONE;
 		break;
+	case CMD_TDSET:
+		if ((len != CMD_TDSET_DATA_LEN))
+			break;
+
+		cmd.id = OSDP_CMD_TDSET;
+		cmd.tdset.year = buf[pos++];
+		cmd.tdset.year = (buf[pos++] << 8);
+		cmd.tdset.month = buf[pos++];
+		cmd.tdset.day_of_month = buf[pos++];
+		cmd.tdset.hour = buf[pos++];
+		cmd.tdset.minute = buf[pos++];
+
+		if (!do_command_callback(pd, &cmd)) {
+			break;
+		}
+		pd->reply_id = REPLY_ACK;
+		ret = OSDP_PD_ERR_NONE;
+            break;
 	case CMD_TEXT:
 		if (len < CMD_TEXT_DATA_LEN) {
 			break;

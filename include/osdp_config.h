@@ -33,7 +33,7 @@
 #define OSDP_CMD_RETRY_WAIT_MS	      (100)
 #define OSDP_PACKET_BUF_SIZE	        (256)
 #define OSDP_RX_RB_SIZE		            (64)
-#define OSDP_CP_CMD_POOL_SIZE	        (2)
+#define OSDP_CP_CMD_POOL_SIZE	        (4)
 #define OSDP_FILE_ERROR_RETRY_MAX     (10)
 #define OSDP_PD_MAX		                (4)
 #define OSDP_CMD_ID_OFFSET	          (5)

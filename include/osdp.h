@@ -451,7 +451,7 @@ struct osdp_status_report {
 /*         OSDP Commands           */
 /* ------------------------------- */
 
-#define OSDP_CMD_TEXT_MAX_LEN          1
+#define OSDP_CMD_TEXT_MAX_LEN          25
 #define OSDP_CMD_KEYSET_KEY_MAX_LEN    32
 #define OSDP_CMD_MFG_MAX_DATALEN       88
 
@@ -662,6 +662,18 @@ struct osdp_cmd_keyset {
 };
 
 /**
+ * @brief This command transfers date time from CP to a PD.
+ */
+struct osdp_cmd_tdset{
+	uint16_t year;
+	uint8_t month;
+	uint8_t day_of_month;
+	uint8_t hour;
+	uint8_t minute;
+	uint8_t second;
+};
+
+/**
  * @brief Manufacturer Specific Commands
  */
 struct osdp_cmd_mfg {
@@ -712,6 +724,7 @@ enum osdp_cmd_e {
 	OSDP_CMD_LED,         /**< Reader LED control command */
 	OSDP_CMD_BUZZER,      /**< Reader buzzer control command */
 	OSDP_CMD_TEXT,        /**< Reader text output command */
+	OSDP_CMD_TDSET,       /**< Reader datetime output command */
 	OSDP_CMD_KEYSET,      /**< Encryption Key Set Command */
 	OSDP_CMD_COMSET,      /**< PD communication configuration command */
 	OSDP_CMD_MFG,         /**< Manufacturer specific command */
@@ -749,6 +762,7 @@ struct osdp_cmd {
 		struct osdp_cmd_mfg mfg;          /**< Manufacturer specific command structure */
 		struct osdp_cmd_file_tx file_tx;  /**< File transfer command structure */
 		struct osdp_status_report status; /**< Status report command structure */
+		struct osdp_cmd_tdset tdset;	  /**< Tdset command structure */
 	};
 };
 
