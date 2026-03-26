@@ -599,7 +599,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 
 		cmd.id = OSDP_CMD_TDSET;
 		cmd.tdset.year = buf[pos++];
-		cmd.tdset.year = (buf[pos++] << 8);
+		cmd.tdset.year |= (buf[pos++] << 8);
 		cmd.tdset.month = buf[pos++];
 		cmd.tdset.day_of_month = buf[pos++];
 		cmd.tdset.hour = buf[pos++];
