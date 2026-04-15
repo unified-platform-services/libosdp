@@ -26,7 +26,7 @@
 #include <osdp.h>
 
 #ifndef CONFIG_NO_GENERATED_HEADERS
-#include "osdp_config.h" /* generated */
+#include "../../../_02edgeplusm3/osdpApp/osdp_config.h"
 #endif
 
 #ifndef NULL
