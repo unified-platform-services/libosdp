@@ -1284,11 +1284,13 @@ osdp_t *osdp_pd_setup(struct osdp_channel *channel, const osdp_pd_info_t *info)
 	pd->osdp_ctx = ctx;
 	pd->idx = 0;
 	pd->packet_buf = osdp_tx_staging_buf(pd);
+#if !defined(__XC8__)		
 	if (info->name) {
 		strncpy(pd->name, info->name, OSDP_PD_NAME_MAXLEN - 1);
 	} else {
 		snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d", info->address);
 	}
+#endif	
 	pd->baud_rate = info->baud_rate;
 	pd->address = info->address;
 	pd->flags = 0;

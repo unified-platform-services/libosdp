@@ -212,17 +212,17 @@ enum osdp_pd_cap_function_code_e {
  * @brief OSDP specified NAK codes
  */
 enum osdp_pd_nak_code_e {
-	OSDP_PD_NAK_NONE,     /**< No error */
-	OSDP_PD_NAK_MSG_CHK,  /**< Message check character(s) error (bad cksum/crc) */
-	OSDP_PD_NAK_CMD_LEN,  /**< Command length error */
+	OSDP_PD_NAK_NONE, /**< No error */
+	OSDP_PD_NAK_MSG_CHK, /**< Message check character(s) error (bad cksum/crc) */
+	OSDP_PD_NAK_CMD_LEN, /**< Command length error */
 	OSDP_PD_NAK_CMD_UNKNOWN, /**< Unknown Command Code – Command not implemented by PD */
-	OSDP_PD_NAK_SEQ_NUM,  /**< Sequence number error */
+	OSDP_PD_NAK_SEQ_NUM, /**< Sequence number error */
 	OSDP_PD_NAK_SC_UNSUP, /**< Secure Channel is not supported by PD */
-	OSDP_PD_NAK_SC_COND,  /**< unsupported security block or security conditions not met */
+	OSDP_PD_NAK_SC_COND, /**< unsupported security block or security conditions not met */
 	OSDP_PD_NAK_BIO_TYPE, /**< BIO_TYPE not supported */
-	OSDP_PD_NAK_BIO_FMT,  /**< BIO_FORMAT not supported */
-	OSDP_PD_NAK_RECORD,   /**< Unable to process command record */
-	OSDP_PD_NAK_SENTINEL  /**< NAK codes max value */
+	OSDP_PD_NAK_BIO_FMT, /**< BIO_FORMAT not supported */
+	OSDP_PD_NAK_RECORD, /**< Unable to process command record */
+	OSDP_PD_NAK_SENTINEL /**< NAK codes max value */
 };
 
 /**
@@ -249,10 +249,15 @@ struct osdp_pd_cap {
  * @brief PD ID information advertised by the PD.
  */
 struct osdp_pd_id {
-	int version;               /**< 1-Byte Manufacturer's version number */
-	int model;                 /**< 1-byte Manufacturer's model number */
-	uint32_t vendor_code;      /**< 3-bytes IEEE assigned OUI */
-	uint32_t serial_number;    /**< 4-byte serial number for the PD */
+#if !defined (__XC8__)	
+	int version; /**< 1-Byte Manufacturer's version number */
+	int model; /**< 1-byte Manufacturer's model number */
+#else
+	uint8_t version; /**< 1-Byte Manufacturer's version number */
+	uint8_t model; /**< 1-byte Manufacturer's model number */
+#endif
+	uint32_t vendor_code; /**< 3-bytes IEEE assigned OUI */
+	uint32_t serial_number; /**< 4-byte serial number for the PD */
 	uint32_t firmware_version; /**< 3-byte version (major, minor, build) */
 };
 
@@ -282,7 +287,8 @@ typedef int (*osdp_read_fn_t)(void *data, uint8_t *buf, int maxlen);
  * @param max_len output maximum length LibOSDP may touch in this buffer
  * @return 0 when a complete packet is available; non-zero otherwise
  */
-typedef int (*osdp_read_pkt_fn_t)(void *data, const uint8_t **buf, int *max_len);
+typedef int (*osdp_read_pkt_fn_t)(void *data, const uint8_t **buf,
+				  int *max_len);
 
 /**
  * @brief Pointer to function used to release a buffer returned by recv_pkt().
@@ -378,6 +384,7 @@ struct osdp_channel {
  * @brief OSDP PD Information. This struct is used to describe a PD to LibOSDP.
  */
 typedef struct {
+#if !defined(__XC8__)		
 	/**
 	 * User provided name for this PD (log messages include this name)
 	 */
@@ -397,6 +404,23 @@ typedef struct {
 	 * macros.
 	 */
 	int flags;
+#else
+	/**
+	 * Can be one of 9600/19200/38400/57600/115200/230400
+	 */
+	uint32_t baud_rate;
+	/**
+	 * 7 bit PD address. the rest of the bits are ignored. The special
+	 * address 0x7F is used for broadcast. So there can be 2^7-1 devices on
+	 * a multi-drop channel
+	 */
+	uint8_t address;
+	/**
+	 * Used to modify the way the context is setup. See `OSDP_FLAG_*`
+	 * macros.
+	 */
+	uint32_t flags;
+#endif
 	/**
 	 * Static information that the PD reports to the CP when it received a
 	 * `CMD_ID`. These information must be populated by a PD application.
@@ -481,9 +505,14 @@ struct osdp_status_report {
 /*         OSDP Commands           */
 /* ------------------------------- */
 
-#define OSDP_CMD_TEXT_MAX_LEN          32
-#define OSDP_CMD_KEYSET_KEY_MAX_LEN    32
-#define OSDP_CMD_MFG_MAX_DATALEN       64
+#define OSDP_CMD_KEYSET_KEY_MAX_LEN 32
+#if !defined (__XC8__)
+#define OSDP_CMD_TEXT_MAX_LEN	    32
+#define OSDP_CMD_MFG_MAX_DATALEN    64
+#else
+#define OSDP_CMD_TEXT_MAX_LEN	    16
+#define OSDP_CMD_MFG_MAX_DATALEN    32
+#endif
 
 /**
  * @brief Command sent from CP to Control digital output of PD.
@@ -515,15 +544,15 @@ struct osdp_cmd_output {
  * parameters.
  */
 enum osdp_led_color_e {
-	OSDP_LED_COLOR_NONE,     /**< No color */
-	OSDP_LED_COLOR_RED,      /**< Red */
-	OSDP_LED_COLOR_GREEN,    /**< Green */
-	OSDP_LED_COLOR_AMBER,    /**< Amber */
-	OSDP_LED_COLOR_BLUE,     /**< Blue */
-	OSDP_LED_COLOR_MAGENTA,  /**< Magenta */
-	OSDP_LED_COLOR_CYAN,     /**< Cyan */
-	OSDP_LED_COLOR_WHITE,    /**< White */
-	OSDP_LED_COLOR_SENTINEL  /**< Max value */
+	OSDP_LED_COLOR_NONE, /**< No color */
+	OSDP_LED_COLOR_RED, /**< Red */
+	OSDP_LED_COLOR_GREEN, /**< Green */
+	OSDP_LED_COLOR_AMBER, /**< Amber */
+	OSDP_LED_COLOR_BLUE, /**< Blue */
+	OSDP_LED_COLOR_MAGENTA, /**< Magenta */
+	OSDP_LED_COLOR_CYAN, /**< Cyan */
+	OSDP_LED_COLOR_WHITE, /**< White */
+	OSDP_LED_COLOR_SENTINEL /**< Max value */
 };
 
 /**
@@ -738,17 +767,17 @@ struct osdp_cmd_file_tx {
  * @brief OSDP application exposed commands
  */
 enum osdp_cmd_e {
-	OSDP_CMD_OUTPUT = 1,  /**< Output control command */
-	OSDP_CMD_LED,         /**< Reader LED control command */
-	OSDP_CMD_BUZZER,      /**< Reader buzzer control command */
-	OSDP_CMD_TEXT,        /**< Reader text output command */
-	OSDP_CMD_KEYSET,      /**< Encryption Key Set Command */
-	OSDP_CMD_COMSET,      /**< PD communication configuration command */
-	OSDP_CMD_MFG,         /**< Manufacturer specific command */
-	OSDP_CMD_FILE_TX,     /**< File transfer command */
-	OSDP_CMD_STATUS,      /**< Status report command */
+	OSDP_CMD_OUTPUT = 1, /**< Output control command */
+	OSDP_CMD_LED, /**< Reader LED control command */
+	OSDP_CMD_BUZZER, /**< Reader buzzer control command */
+	OSDP_CMD_TEXT, /**< Reader text output command */
+	OSDP_CMD_KEYSET, /**< Encryption Key Set Command */
+	OSDP_CMD_COMSET, /**< PD communication configuration command */
+	OSDP_CMD_MFG, /**< Manufacturer specific command */
+	OSDP_CMD_FILE_TX, /**< File transfer command */
+	OSDP_CMD_STATUS, /**< Status report command */
 	OSDP_CMD_COMSET_DONE, /**< Comset completed; Alias for OSDP_CMD_COMSET */
-	OSDP_CMD_SENTINEL     /**< Max command value */
+	OSDP_CMD_SENTINEL /**< Max command value */
 };
 
 /**
@@ -778,19 +807,23 @@ struct osdp_queue_node_s {
  */
 struct osdp_cmd {
 	osdp_queue_node_t _node; /**< Reserved: internal queue linkage */
-	enum osdp_cmd_e id;    /**< Command ID. Used to select specific commands in union */
-	uint32_t flags;        /**< Flags; see OSDP_CMD_FLAG_* flags for possibilities */
+	enum osdp_cmd_e
+		id; /**< Command ID. Used to select specific commands in union */
+	uint32_t flags; /**< Flags; see OSDP_CMD_FLAG_* flags for possibilities */
 	/** Command */
 	union {
-		struct osdp_cmd_led led;          /**< LED command structure */
-		struct osdp_cmd_buzzer buzzer;    /**< Buzzer command structure */
-		struct osdp_cmd_text text;        /**< Text command structure */
-		struct osdp_cmd_output output;    /**< Output command structure */
-		struct osdp_cmd_comset comset;    /**< Comset command structure */
-		struct osdp_cmd_keyset keyset;    /**< Keyset command structure */
-		struct osdp_cmd_mfg mfg;          /**< Manufacturer specific command structure */
-		struct osdp_cmd_file_tx file_tx;  /**< File transfer command structure */
-		struct osdp_status_report status; /**< Status report command structure */
+		struct osdp_cmd_led led; /**< LED command structure */
+		struct osdp_cmd_buzzer buzzer; /**< Buzzer command structure */
+		struct osdp_cmd_text text; /**< Text command structure */
+		struct osdp_cmd_output output; /**< Output command structure */
+		struct osdp_cmd_comset comset; /**< Comset command structure */
+		struct osdp_cmd_keyset keyset; /**< Keyset command structure */
+		struct osdp_cmd_mfg
+			mfg; /**< Manufacturer specific command structure */
+		struct osdp_cmd_file_tx
+			file_tx; /**< File transfer command structure */
+		struct osdp_status_report
+			status; /**< Status report command structure */
 	};
 };
 
@@ -798,9 +831,9 @@ struct osdp_cmd {
 /*          OSDP Events            */
 /* ------------------------------- */
 
-#define OSDP_EVENT_CARDREAD_MAX_DATALEN   64
-#define OSDP_EVENT_KEYPRESS_MAX_DATALEN   64
-#define OSDP_EVENT_MFGREP_MAX_DATALEN     128
+#define OSDP_EVENT_CARDREAD_MAX_DATALEN 64
+#define OSDP_EVENT_KEYPRESS_MAX_DATALEN 64
+#define OSDP_EVENT_MFGREP_MAX_DATALEN	128
 
 /**
  * @brief Various card formats that a PD can support. This is sent to CP
@@ -808,9 +841,9 @@ struct osdp_cmd {
  */
 enum osdp_event_cardread_format_e {
 	OSDP_CARD_FMT_RAW_UNSPECIFIED, /**< Unspecified card format */
-	OSDP_CARD_FMT_RAW_WIEGAND,     /**< Wiegand card format */
-	OSDP_CARD_FMT_ASCII,           /**< ASCII card format (deprecated; don't use) */
-	OSDP_CARD_FMT_SENTINEL         /**< Max card format value */
+	OSDP_CARD_FMT_RAW_WIEGAND, /**< Wiegand card format */
+	OSDP_CARD_FMT_ASCII, /**< ASCII card format (deprecated; don't use) */
+	OSDP_CARD_FMT_SENTINEL /**< Max card format value */
 };
 
 /**
@@ -923,21 +956,21 @@ enum osdp_event_notification_type {
  * for documentation on how to use them.
  */
 struct osdp_event_notification {
-	enum osdp_event_notification_type type;  /**< Notification type */
-	int arg0;                                /**< Additional data member */
-	int arg1;                                /**< Additional data member */
+	enum osdp_event_notification_type type; /**< Notification type */
+	int arg0; /**< Additional data member */
+	int arg1; /**< Additional data member */
 };
 
 /**
  * @brief OSDP PD Events
  */
 enum osdp_event_type {
-	OSDP_EVENT_CARDREAD = 1,  /**< Card read event */
-	OSDP_EVENT_KEYPRESS,      /**< Keypad press event */
-	OSDP_EVENT_MFGREP,        /**< Manufacturer specific reply event */
-	OSDP_EVENT_STATUS,        /**< Status event */
-	OSDP_EVENT_NOTIFICATION,  /**< LibOSDP notification event */
-	OSDP_EVENT_SENTINEL       /**< Max event value */
+	OSDP_EVENT_CARDREAD = 1, /**< Card read event */
+	OSDP_EVENT_KEYPRESS, /**< Keypad press event */
+	OSDP_EVENT_MFGREP, /**< Manufacturer specific reply event */
+	OSDP_EVENT_STATUS, /**< Status event */
+	OSDP_EVENT_NOTIFICATION, /**< LibOSDP notification event */
+	OSDP_EVENT_SENTINEL /**< Max event value */
 };
 
 /**
@@ -945,15 +978,21 @@ enum osdp_event_type {
  */
 struct osdp_event {
 	osdp_queue_node_t _node; /**< Reserved: internal queue linkage */
-	enum osdp_event_type type;  /**< Event type. Used to select specific event in union */
-	uint32_t flags;             /**< Flags; reserved, set to zero */
+	enum osdp_event_type
+		type; /**< Event type. Used to select specific event in union */
+	uint32_t flags; /**< Flags; reserved, set to zero */
 	/** Event */
 	union {
-		struct osdp_event_keypress keypress; /**< Keypress event structure */
-		struct osdp_event_cardread cardread; /**< Card read event structure */
-		struct osdp_event_mfgrep mfgrep;     /**< Manufacturer specific response event struture */
-		struct osdp_status_report status;    /**< Status report event structure */
-		struct osdp_event_notification notif;/**< Notification event structure */
+		struct osdp_event_keypress
+			keypress; /**< Keypress event structure */
+		struct osdp_event_cardread
+			cardread; /**< Card read event structure */
+		struct osdp_event_mfgrep
+			mfgrep; /**< Manufacturer specific response event struture */
+		struct osdp_status_report
+			status; /**< Status report event structure */
+		struct osdp_event_notification
+			notif; /**< Notification event structure */
 	};
 };
 
@@ -997,8 +1036,8 @@ typedef int (*cp_event_callback_t)(void *arg, int pd, struct osdp_event *ev);
  * @brief Terminal status of a submitted command/event object.
  */
 enum osdp_completion_status {
-	OSDP_COMPLETION_OK = 0,  /**< Successfully completed */
-	OSDP_COMPLETION_FAILED,  /**< Transport/protocol failure */
+	OSDP_COMPLETION_OK = 0, /**< Successfully completed */
+	OSDP_COMPLETION_FAILED, /**< Transport/protocol failure */
 	OSDP_COMPLETION_FLUSHED, /**< Removed by flush API */
 	OSDP_COMPLETION_ABORTED, /**< Removed during teardown */
 };
@@ -1006,16 +1045,16 @@ enum osdp_completion_status {
 /**
  * @brief Callback for CP command completion notifications.
  */
-typedef void (*cp_command_completion_callback_t)(void *arg, int pd,
-						 const struct osdp_cmd *cmd,
-						 enum osdp_completion_status status);
+typedef void (*cp_command_completion_callback_t)(
+	void *arg, int pd, const struct osdp_cmd *cmd,
+	enum osdp_completion_status status);
 
 /**
  * @brief Callback for PD event completion notifications.
  */
-typedef void (*pd_event_completion_callback_t)(void *arg,
-					       const struct osdp_event *ev,
-					       enum osdp_completion_status status);
+typedef void (*pd_event_completion_callback_t)(
+	void *arg, const struct osdp_event *ev,
+	enum osdp_completion_status status);
 
 /* ------------------------------- */
 /*            PD Methods           */
@@ -1276,9 +1315,8 @@ void osdp_cp_set_event_callback(osdp_t *ctx, cp_event_callback_t cb, void *arg);
  * @param arg Opaque pointer passed as first callback argument
  */
 OSDP_EXPORT
-void osdp_cp_set_command_completion_callback(osdp_t *ctx,
-					     cp_command_completion_callback_t cb,
-					     void *arg);
+void osdp_cp_set_command_completion_callback(
+	osdp_t *ctx, cp_command_completion_callback_t cb, void *arg);
 
 /**
  * @brief Set or clear OSDP public flags
@@ -1349,15 +1387,15 @@ bool osdp_cp_is_pd_enabled(const osdp_t *ctx, int pd);
  * with LOG_EMERG being most critical to LOG_DEBUG being the least.
  */
 enum osdp_log_level_e {
-	OSDP_LOG_EMERG,     /**< Log level Emergency */
-	OSDP_LOG_ALERT,     /**< Log level Alert */
-	OSDP_LOG_CRIT,      /**< Log level Critical */
-	OSDP_LOG_ERROR,     /**< Log level Error */
-	OSDP_LOG_WARNING,   /**< Log level Warning */
-	OSDP_LOG_NOTICE,    /**< Log level Notice */
-	OSDP_LOG_INFO,      /**< Log level Info */
-	OSDP_LOG_DEBUG,     /**< Log level Debug */
-	OSDP_LOG_MAX_LEVEL  /**< Log level max value */
+	OSDP_LOG_EMERG, /**< Log level Emergency */
+	OSDP_LOG_ALERT, /**< Log level Alert */
+	OSDP_LOG_CRIT, /**< Log level Critical */
+	OSDP_LOG_ERROR, /**< Log level Error */
+	OSDP_LOG_WARNING, /**< Log level Warning */
+	OSDP_LOG_NOTICE, /**< Log level Notice */
+	OSDP_LOG_INFO, /**< Log level Info */
+	OSDP_LOG_DEBUG, /**< Log level Debug */
+	OSDP_LOG_MAX_LEVEL /**< Log level max value */
 };
 
 /**
@@ -1378,9 +1416,8 @@ typedef int (*osdp_log_puts_fn_t)(const char *msg);
  * @param file Relative path to file which produced the log message
  * @param line Line number in `file` which produced the log message
  */
-typedef void (*osdp_log_callback_fn_t)(int pd, int log_level,
-				       const char *msg, const char *file,
-				       unsigned long line);
+typedef void (*osdp_log_callback_fn_t)(int pd, int log_level, const char *msg,
+				       const char *file, unsigned long line);
 
 #ifndef OPT_OSDP_LOG_MINIMAL
 /**
@@ -1568,8 +1605,8 @@ typedef int (*osdp_file_read_fn_t)(void *arg, void *buf, int size, int offset);
  * @note LibOSDP will guarantee that size and offset params are always
  * positive and size is always greater than or equal to offset.
  */
-typedef int (*osdp_file_write_fn_t)(void *arg, const void *buf,
-				   int size, int offset);
+typedef int (*osdp_file_write_fn_t)(void *arg, const void *buf, int size,
+				    int offset);
 
 /**
  * @brief Close file that corresponds to a given file descriptor
@@ -1595,8 +1632,8 @@ struct osdp_file_ops {
 	 * such as the open file descriptors or any other private data here.
 	 */
 	void *arg;
-	osdp_file_open_fn_t open;   /**< open handler function */
-	osdp_file_read_fn_t read;   /**< read handler function */
+	osdp_file_open_fn_t open; /**< open handler function */
+	osdp_file_read_fn_t read; /**< read handler function */
 	osdp_file_write_fn_t write; /**< write handler function */
 	osdp_file_close_fn_t close; /**< close handler function */
 };
@@ -1632,4 +1669,4 @@ int osdp_get_file_tx_status(const osdp_t *ctx, int pd, int *size, int *offset);
 }
 #endif
 
-#endif	/* _OSDP_H_ */
+#endif /* _OSDP_H_ */

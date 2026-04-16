@@ -139,9 +139,20 @@ static uint8_t osdp_compute_checksum(uint8_t *msg, int length)
 	return checksum;
 }
 
-static inline int phy_get_next_seq_number(struct osdp_pd *pd)
+static inline
+#if !defined(__XC8__)
+	int
+#else
+	uint8_t
+#endif
+	phy_get_next_seq_number(struct osdp_pd *pd)
 {
-	int next_seq = pd->seq_number;
+#if !defined(__XC8__)
+	int
+#else
+	uint8_t
+#endif
+		next_seq = pd->seq_number;
 
 	next_seq += 1;
 	if (next_seq > 3) {
@@ -152,7 +163,7 @@ static inline int phy_get_next_seq_number(struct osdp_pd *pd)
 
 static inline void phy_rollback_seq_number(struct osdp_pd *pd)
 {
-	pd->seq_number -= 1;
+	pd->seq_number = pd->seq_number - 1;
 	if (pd->seq_number < 1) { /* rollback to zero is not supported */
 		pd->seq_number = 3;
 	}
@@ -160,7 +171,11 @@ static inline void phy_rollback_seq_number(struct osdp_pd *pd)
 
 static inline void phy_reset_seq_number(struct osdp_pd *pd)
 {
-	pd->seq_number = -1;
+	pd->seq_number =
+#if defined(__XC8__)
+		(char)
+#endif
+		-1;
 }
 
 int osdp_phy_packet_get_data_offset(struct osdp_pd *pd, const uint8_t *buf)
@@ -240,6 +255,7 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		pkt->control |= PKT_CONTROL_CRC;
 	}
 
+#if !defined (__XC8__)
 	if (sc_is_active(pd)) {
 		pkt->control |= PKT_CONTROL_SCB;
 		pkt->data[0] = scb_len = 2;
@@ -249,6 +265,7 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		pkt->data[0] = scb_len = 3;
 		pkt->data[1] = SCS_11;
 	}
+#endif
 
 	return (packet_has_mark(pd) +
 	        sizeof(struct osdp_packet_header) + scb_len);
@@ -308,7 +325,7 @@ static int phy_packet_finalize(struct osdp_pd *pd, uint8_t *buf,
 		osdp_capture_packet(pd, (uint8_t *)pkt, len + 2);
 		pkt->control = control;
 	}
-
+#if !defined (__XC8__)
 	if (sc_is_active(pd) &&
 	    pkt->control & PKT_CONTROL_SCB && pkt->data[1] >= SCS_15) {
 		if (pkt->data[1] == SCS_17 || pkt->data[1] == SCS_18) {
@@ -351,6 +368,7 @@ static int phy_packet_finalize(struct osdp_pd *pd, uint8_t *buf,
 		memcpy(buf + len, data, 4);
 		len += 4;
 	}
+#endif
 
 	/* fill crc16 or checksum */
 	if (pkt->control & PKT_CONTROL_CRC) {
@@ -395,8 +413,9 @@ int osdp_phy_send_packet(struct osdp_pd *pd, uint8_t *buf,
 			len, ret);
 		return OSDP_ERR_PKT_BUILD;
 	}
-
+#if !defined(__XC8__)
 	osdp_metrics_report(pd, OSDP_METRIC_PACKET_SENT);
+#endif	
 
 	/* return the number of bytes actually put on the wire so that
 	 * callers can cache the full finalized packet for retransmit */
@@ -540,9 +559,11 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 	}
 	pkt = (struct osdp_packet_header *)buf;
 
+#if !defined(__XC8__)
 	/* Frame passed framing checks upstream; account it as received
 	 * regardless of integrity-check outcome. */
 	osdp_metrics_report(pd, OSDP_METRIC_PACKET_RECEIVED);
+#endif	
 
 	/* validate CRC/checksum */
 	if (pkt->control & PKT_CONTROL_CRC) {
@@ -551,7 +572,9 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 		comp = osdp_compute_crc16(buf, pkt_len);
 		if (comp != cur) {
 			LOG_ERR("Invalid crc 0x%04x/0x%04x", comp, cur);
+#if !defined(__XC8__)			
 			osdp_metrics_report(pd, OSDP_METRIC_PACKET_CHECK_ERROR);
+#endif			
 			return OSDP_ERR_PKT_FMT;
 		}
 	} else {
@@ -560,7 +583,9 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 		comp = osdp_compute_checksum(buf, pkt_len);
 		if (comp != cur) {
 			LOG_ERR("Invalid checksum %02x/%02x", comp, cur);
+#if !defined(__XC8__)			
 			osdp_metrics_report(pd, OSDP_METRIC_PACKET_CHECK_ERROR);
+#endif			
 			return OSDP_ERR_PKT_FMT;
 		}
 	}
@@ -590,7 +615,9 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 			 */
 			phy_reset_seq_number(pd);
 			pd->last_tx_len = 0;
+#if !defined (__XC8__)			
 			sc_deactivate(pd);
+#endif			
 		}
 		else if (comp == pd->seq_number) {
 			/**
@@ -754,7 +781,9 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 	uint8_t *data, *mac, *buf = pd->packet_buf;
 	int mac_offset, is_cmd, len = pd->packet_buf_len;
 	struct osdp_packet_header *pkt;
+#if !defined (__XC8__)	
 	bool is_sc_active = sc_is_active(pd);
+#endif	
 
 	if (packet_has_mark(pd)) {
 		buf += 1;
@@ -765,7 +794,7 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 	mac_offset = len - 4;
 	data = pkt->data;
 	len -= sizeof(struct osdp_packet_header);
-
+#if !defined(__XC8__)
 	if (pkt->control & PKT_CONTROL_SCB) {
 		if (is_pd_mode(pd) && !sc_is_capable(pd)) {
 			LOG_ERR("PD is not SC capable");
@@ -879,6 +908,7 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 			len += 1; /* put back cmd/reply ID */
 		}
 	}
+#endif
 
 	if (is_data_trace_enabled(pd)) {
 		int ret = len;

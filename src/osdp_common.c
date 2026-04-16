@@ -6,6 +6,7 @@
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE /* See feature_test_macros(7) */
+#include "_02edgeplusm3/osdpApp/osdp_config.h"
 #endif
 
 #include <stdarg.h>
@@ -133,10 +134,14 @@ uint16_t osdp_compute_crc16(const uint8_t *buf, size_t len)
 	return crc16_itu_t(0x1D0F, buf, len);
 }
 
+#if !defined (__XC8__)
 __weak tick_t osdp_millis_now(void)
 {
 	return millis_now();
 }
+#else
+extern tick_t osdp_millis_now(void);
+#endif
 
 tick_t osdp_millis_since(tick_t last)
 {
