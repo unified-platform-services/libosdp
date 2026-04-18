@@ -325,7 +325,7 @@ enum osdp_cp_phy_state_e {
 enum osdp_cp_state_e {
 	OSDP_CP_STATE_INIT,
 	OSDP_CP_STATE_CAPDET,
-#if !defined (__XC8__)		
+#if defined (OSDP_SC_USED)		
 	OSDP_CP_STATE_SC_CHLNG,
 	OSDP_CP_STATE_SC_SCRYPT,
 	OSDP_CP_STATE_SET_SCBK,
@@ -418,40 +418,22 @@ struct osdp_pd {
 #endif	
 	struct osdp *osdp_ctx; /* Ref to osdp * to access shared resources */
 	
-#if !defined (__XC8__)	
 	int idx;               /* Offset into osdp->pd[] for this PD */
-#else
-	uint8_t idx;
-#endif
 
 	uint32_t flags;        /* Used with: ISSET_FLAG, SET_FLAG, CLEAR_FLAG */
 	uint32_t baud_rate;    /* Serial baud/bit rate */
-#if !defined (__XC8__)		
 	int address;           /* PD address */
 	int seq_number;        /* Current packet sequence number */
-#else
-	uint8_t address;           /* PD address */
- 	char seq_number;        /* Current packet sequence number */
-#endif
 	struct osdp_pd_id id;  /* PD ID information (as received from app) */
-
 	/* PD Capability; Those received from app + implicit capabilities */
 	struct osdp_pd_cap cap[OSDP_PD_CAP_SENTINEL];
-
-#if !defined (__XC8__)
 	int state;             /* FSM state (CP mode only) */
 	int phy_state;         /* phy layer FSM state (CP mode only) */
 	int phy_retry_count;   /* command retry counter */
 	int phy_tx_seq;        /* seq number embedded in last TX packet */
-#else
-	uint8_t state;             /* FSM state (CP mode only) */
-	uint8_t phy_state;         /* phy layer FSM state (CP mode only) */
-	uint8_t phy_retry_count;   /* command retry counter */
-	uint8_t phy_tx_seq;        /* seq number embedded in last TX packet */
-#endif	
 	uint32_t wait_ms;      /* wait time in MS to retry communication */
 	tick_t tstamp;         /* Last POLL command issued time in ticks */
-#if !defined(__XC8__)	
+#if defined(OSDP_SC_USED)	
 	tick_t sc_tstamp;      /* Last received secure reply time in ticks */
 #endif	
 	tick_t phy_tstamp;     /* Time in ticks since command was sent */
@@ -483,16 +465,13 @@ struct osdp_pd {
 	 * repeat we re-emit those bytes verbatim (see phy_check_packet). */
 	uint16_t last_tx_len; /* 0 = cache empty */
 	uint8_t last_cmd_id;
-#if !defined (__XC8__)			
 	int cmd_id;            /* Currently processing command ID */
 	int reply_id;          /* Currently processing reply ID */
-#else
-	uint8_t cmd_id;            /* Currently processing command ID */
-	uint8_t reply_id;          /* Currently processing reply ID */
-#endif
 	union {
 		uint8_t nak_code;
+#if defined(OSDP_SC_USED)		
 		uint8_t keyset_pending[16];
+#endif		
 		struct {
 			uint8_t address;
 			uint32_t baud_rate;
@@ -506,9 +485,15 @@ struct osdp_pd {
 	const struct osdp_cmd *active_cmd;      /* in-flight cmd (app-owned mode) */
 	const struct osdp_event *active_event;  /* in-flight event (app-owned mode) */
 
+#if defined(OSDP_SC_USED)	
 	struct osdp_secure_channel sc;   /* Secure Channel session context */
+#endif
+#if defined (OSDP_FILE_USED)	
 	struct osdp_file *file;          /* File transfer context */
+#endif
+#if defined (OSDP_METRIC_USED)	
 	struct osdp_metrics metrics;     /* link/protocol health counters */
+#endif	
 
 	/* PD command callback to app with opaque arg pointer as passed by app */
 	void *command_callback_arg;
@@ -516,7 +501,7 @@ struct osdp_pd {
 	void *event_completion_callback_arg;
 	pd_event_completion_callback_t event_completion_callback;
 
-#ifndef __BARE_METAL__
+#if !defined(__BARE_METAL__) &&  !defined (__XC8__)
 	/* Opaque packet capture pointer (see osdp_pcap.c) */
 	void *packet_capture_ctx;
 #endif
@@ -524,6 +509,7 @@ struct osdp_pd {
 
 struct osdp {
 	uint32_t _magic;       /* Canary to be used in input_check() */
+	uint8_t port;		   /* The port of CP for device with multiple CPs */
 	int _num_pd;           /* Number of PDs attached to this context */
 	struct osdp_pd *_current_pd; /* current operational pd's pointer */
 	struct osdp_pd *pd;    /* base of PD list (must be at lest one) */
@@ -730,7 +716,7 @@ static inline uint8_t *osdp_tx_staging_buf(struct osdp_pd *pd)
 {
 	return pd_to_osdp(pd)->tx_buf;
 }
-#if !defined (__XC8__)
+#if defined (OSDP_SC_USED)
 static inline bool sc_use_scbkd(struct osdp_pd *pd) {
 	return ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD);
 }
@@ -816,19 +802,22 @@ static inline bool is_install_mode(struct osdp_pd *pd) {
 }
 
 /* --- CP Alloc Helpers --- */
-
 #ifdef OPT_OSDP_STATIC
-static inline struct osdp *cp_static_ctx_get(void)
-{
-	static struct osdp g_osdp_ctx[OSDP_CP_MAX];
-    static uint8_t i =0;
-	return &g_osdp_ctx[i++];
+extern struct osdp g_osdp_ctx[OSDP_CP_MAX];
+extern struct osdp_pd g_cp_pd_ctx[OSDP_CP_MAX][OSDP_CP_MAX_PDS];
+static inline struct osdp *cp_static_ctx_get(uint8_t cp)
+{	
+	if (cp > (OSDP_CP_MAX - 1))
+		return NULL;
+	return &g_osdp_ctx[cp];
 }
 
-static inline struct osdp_pd *cp_static_pd_array_get(void)
+static inline struct osdp_pd *cp_static_pd_array_get(uint8_t cp)
 {
-	static struct osdp_pd g_cp_pd_ctx[OSDP_CP_MAX_PDS];
-	return g_cp_pd_ctx;
+	if (cp > (OSDP_CP_MAX - 1))
+		return NULL;
+
+	return g_cp_pd_ctx[cp];
 }
 
 #ifdef OPT_OSDP_RX_ZERO_COPY
@@ -846,13 +835,14 @@ static inline struct osdp_rb *cp_static_rx_rb_array_get(void)
 #endif /* OPT_OSDP_RX_ZERO_COPY */
 #endif /* OPT_OSDP_STATIC */
 
-static inline struct osdp *cp_ctx_alloc(void)
+static inline struct osdp *cp_ctx_alloc(uint8_t cp)
 {
 	struct osdp *ctx;
 #ifdef OPT_OSDP_STATIC
-	ctx = cp_static_ctx_get();
+	ctx = cp_static_ctx_get(cp);
 	memset(ctx, 0, sizeof(struct osdp));
 #else
+	(void) cp;
 	ctx = calloc(1, sizeof(struct osdp));
 	if (!ctx) {
 		return NULL;
@@ -864,10 +854,10 @@ static inline struct osdp *cp_ctx_alloc(void)
 	return ctx;
 }
 
-static inline struct osdp_pd *cp_pd_array_alloc(int old_num_pd, int num_pd)
+static inline struct osdp_pd *cp_pd_array_alloc(uint8_t cp, int old_num_pd, int num_pd)
 {
 #ifdef OPT_OSDP_STATIC
-	struct osdp_pd *pd = cp_static_pd_array_get();
+	struct osdp_pd *pd = cp_static_pd_array_get(cp);
 
 	if (old_num_pd + num_pd > OSDP_CP_MAX_PDS) {
 		return NULL;

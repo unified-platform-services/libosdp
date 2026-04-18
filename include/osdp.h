@@ -436,7 +436,9 @@ typedef struct {
 	 * Pointer to 16 bytes of Secure Channel Base Key for the PD. If
 	 * non-null, this is used to set-up the secure channel.
 	 */
+#if defined (OSDP_SC_USE)	 
 	const uint8_t *scbk;
+#endif
 } osdp_pd_info_t;
 
 /**
@@ -511,7 +513,7 @@ struct osdp_status_report {
 #define OSDP_CMD_MFG_MAX_DATALEN    64
 #else
 #define OSDP_CMD_TEXT_MAX_LEN	    16
-#define OSDP_CMD_MFG_MAX_DATALEN    32
+#define OSDP_CMD_MFG_MAX_DATALEN    64
 #endif
 
 /**
@@ -1180,7 +1182,7 @@ int osdp_pd_flush_events(osdp_t *ctx);
  * @retval NULL on errors
  */
 OSDP_EXPORT
-osdp_t *osdp_cp_setup(const struct osdp_channel *channel, int num_pd,
+osdp_t *osdp_cp_setup(const uint8_t port, const struct osdp_channel *channel, int num_pd,
 		      const osdp_pd_info_t *info);
 
 /**

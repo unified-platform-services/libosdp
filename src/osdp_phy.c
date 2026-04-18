@@ -6,7 +6,9 @@
 
 #include "osdp_common.h"
 #include "osdp_diag.h"
+#if defined (OSDP_METRIC_USED)
 #include "osdp_metrics.h"
+#endif
 
 #define OSDP_PKT_MARK                  0xFF
 #define OSDP_PKT_SOM                   0x53
@@ -255,7 +257,7 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		pkt->control |= PKT_CONTROL_CRC;
 	}
 
-#if !defined (__XC8__)
+#if defined (OSDP_SC_USED)
 	if (sc_is_active(pd)) {
 		pkt->control |= PKT_CONTROL_SCB;
 		pkt->data[0] = scb_len = 2;
@@ -325,7 +327,7 @@ static int phy_packet_finalize(struct osdp_pd *pd, uint8_t *buf,
 		osdp_capture_packet(pd, (uint8_t *)pkt, len + 2);
 		pkt->control = control;
 	}
-#if !defined (__XC8__)
+#if defined (OSDP_SC_USED)
 	if (sc_is_active(pd) &&
 	    pkt->control & PKT_CONTROL_SCB && pkt->data[1] >= SCS_15) {
 		if (pkt->data[1] == SCS_17 || pkt->data[1] == SCS_18) {
@@ -413,7 +415,7 @@ int osdp_phy_send_packet(struct osdp_pd *pd, uint8_t *buf,
 			len, ret);
 		return OSDP_ERR_PKT_BUILD;
 	}
-#if !defined(__XC8__)
+#if defined (OSDP_METRIC_USED)
 	osdp_metrics_report(pd, OSDP_METRIC_PACKET_SENT);
 #endif	
 
@@ -559,7 +561,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 	}
 	pkt = (struct osdp_packet_header *)buf;
 
-#if !defined(__XC8__)
+#if defined (OSDP_METRIC_USED)
 	/* Frame passed framing checks upstream; account it as received
 	 * regardless of integrity-check outcome. */
 	osdp_metrics_report(pd, OSDP_METRIC_PACKET_RECEIVED);
@@ -572,7 +574,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 		comp = osdp_compute_crc16(buf, pkt_len);
 		if (comp != cur) {
 			LOG_ERR("Invalid crc 0x%04x/0x%04x", comp, cur);
-#if !defined(__XC8__)			
+#if defined (OSDP_METRIC_USED)			
 			osdp_metrics_report(pd, OSDP_METRIC_PACKET_CHECK_ERROR);
 #endif			
 			return OSDP_ERR_PKT_FMT;
@@ -583,7 +585,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 		comp = osdp_compute_checksum(buf, pkt_len);
 		if (comp != cur) {
 			LOG_ERR("Invalid checksum %02x/%02x", comp, cur);
-#if !defined(__XC8__)			
+#if defined (OSDP_METRIC_USED)			
 			osdp_metrics_report(pd, OSDP_METRIC_PACKET_CHECK_ERROR);
 #endif			
 			return OSDP_ERR_PKT_FMT;
@@ -615,7 +617,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 			 */
 			phy_reset_seq_number(pd);
 			pd->last_tx_len = 0;
-#if !defined (__XC8__)			
+#if defined (OSDP_SC_USED)			
 			sc_deactivate(pd);
 #endif			
 		}
@@ -781,7 +783,7 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 	uint8_t *data, *mac, *buf = pd->packet_buf;
 	int mac_offset, is_cmd, len = pd->packet_buf_len;
 	struct osdp_packet_header *pkt;
-#if !defined (__XC8__)	
+#if defined (OSDP_SC_USED)	
 	bool is_sc_active = sc_is_active(pd);
 #endif	
 
@@ -794,7 +796,7 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 	mac_offset = len - 4;
 	data = pkt->data;
 	len -= sizeof(struct osdp_packet_header);
-#if !defined(__XC8__)
+#if defined(OSDP_SC_USED)
 	if (pkt->control & PKT_CONTROL_SCB) {
 		if (is_pd_mode(pd) && !sc_is_capable(pd)) {
 			LOG_ERR("PD is not SC capable");

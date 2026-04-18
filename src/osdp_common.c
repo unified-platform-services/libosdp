@@ -17,8 +17,11 @@
 
 #include <utils/crc16.h>
 
+struct osdp g_osdp_ctx[OSDP_CP_MAX];
+struct osdp_pd g_cp_pd_ctx[OSDP_CP_MAX][OSDP_CP_MAX_PDS];
+
 #ifdef OPT_OSDP_LOG_MINIMAL
-#define OSDP_MIN_LOG_BUF_LEN 160
+#define OSDP_MIN_LOG_BUF_LEN 5
 
 static struct {
 	osdp_log_callback_fn_t cb;

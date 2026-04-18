@@ -7,8 +7,10 @@
 #include <stdlib.h>
 
 #include "osdp_common.h"
-#if !defined (__XC8__)
+#if defined (OSDP_FILE_USED)
 #include "osdp_file.h"
+#endif
+#if defined (OSDP_METRIC_USED)
 #include "osdp_metrics.h"
 #endif
 #include "osdp_diag.h"
@@ -65,7 +67,7 @@ static void cp_dispatch_event(struct osdp_pd *pd,
 	if (ctx->event_callback) {
 		ctx->event_callback(ctx->event_callback_arg, pd->idx,
 				    (struct osdp_event *)event);
-#if !defined (__XC8__)						
+#if defined (OSDP_METRIC_USED)						
 		osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 #endif		
 	}
@@ -153,7 +155,7 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *active_cm
 	const struct osdp_cmd *cmd = active_cmd;
 	int ret, len = 0;
 	int data_off = osdp_phy_packet_get_data_offset(pd, buf);
-#if !defined(__XC8__)	
+#if defined(OSDP_SC_USED)	
 	uint8_t *smb = osdp_phy_packet_get_smb(pd, buf);
 #endif	
 
@@ -287,7 +289,7 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *active_cm
 	case CMD_ABORT:
 		buf[len++] = pd->cmd_id;
 		break;
-#if !defined (__XC8__)	
+#if defined (OSDP_FILE_USED)	
 	case CMD_FILETRANSFER:
 		ret = osdp_file_cmd_tx_build(pd, buf + len + 1, max_len);
 		if (ret <= 0) {
@@ -298,6 +300,8 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *active_cm
 		buf[len++] = pd->cmd_id;
 		len += ret;
 		break;
+#endif
+#if defined (OSDP_SC_USED)		
 	case CMD_KEYSET:
 		if (!sc_is_active(pd)) {
 			LOG_ERR("Cannot perform KEYSET without SC!");
@@ -358,7 +362,7 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *active_cm
 		return OSDP_CP_ERR_GENERIC;
 	}
 
-#if !defined (__XC8__)	
+#if defined (OSDP_SC_USED)	
 	if (smb && (smb[1] > SCS_14) && sc_is_active(pd)) {
 		/**
 		 * When SC active and current cmd is not a handshake (<= SCS_14)
@@ -392,7 +396,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != REPLY_NAK_DATA_LEN) {
 			break;
 		}
-#if !defined (__XC8__)		
+#if defined (OSDP_METRIC_USED)		
 		osdp_metrics_report(pd, OSDP_METRIC_NAK);
 #endif		
 		if (buf[pos] == OSDP_PD_NAK_MSG_CHK &&
@@ -428,7 +432,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 			if (t >= OSDP_PD_CAP_SENTINEL) {
 				break;
 			}
-			pd->cap[t].function_code = t;
+			pd->cap[t].function_code = (uint8_t) t;
 			pd->cap[t].compliance_level = buf[pos++];
 			pd->cap[t].num_items = buf[pos++];
 			LOG_DBG("Reports capability '%s' (%d/%d)",
@@ -441,10 +445,10 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		t = OSDP_PD_CAP_RECEIVE_BUFFERSIZE;
 		if (pd->cap[t].function_code == t) {
 			pd->peer_rx_size = pd->cap[t].compliance_level;
-			pd->peer_rx_size |= pd->cap[t].num_items << 8;
+			pd->peer_rx_size |= ((uint16_t)(pd->cap[t].num_items)) << 8;
 		}
 
-#if !defined (__XC8__)		
+#if defined (OSDP_SC_USED)		
 		/* post-capabilities hooks */
 		t = OSDP_PD_CAP_COMMUNICATION_SECURITY;
 		if (pd->cap[t].compliance_level & 0x01) {
@@ -595,10 +599,12 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		cp_dispatch_event(pd, &event);
 		ret = OSDP_CP_ERR_NONE;
 		break;
-#if !defined (__XC8__)
+#if defined (OSDP_FILE_USED)
 	case REPLY_FTSTAT:
 		ret = osdp_file_cmd_stat_decode(pd, buf + pos, len);
 		break;
+#endif
+#if defined (OSDP_SC_USED)
 	case REPLY_CCRYPT:
 		if (sc_is_active(pd) || pd->cmd_id != CMD_CHLNG) {
 			LOG_EM("Out of order REPLY_CCRYPT; has PD gone rogue?");
@@ -669,7 +675,7 @@ static int cp_build_and_send_packet(struct osdp_pd *pd)
 	}
 	pd->packet_buf_len = ret;
 
-#if !defined (__XC8__)
+#if defined (OSDP_SC_USED)
 	if (pd->state == OSDP_CP_STATE_SET_SCBK && pd->cmd_id == CMD_KEYSET) {
 		memset(&local_keyset_cmd, 0, sizeof(local_keyset_cmd));
 		fill_local_keyset_cmd(pd, &local_keyset_cmd);
@@ -690,7 +696,7 @@ static int cp_build_and_send_packet(struct osdp_pd *pd)
 		return OSDP_CP_ERR_GENERIC;
 	}
 
-#if !defined (__XC8__)		
+#if defined (OSDP_METRIC_USED)		
 	osdp_metrics_report(pd, OSDP_METRIC_COMMAND);
 #endif	
 	return OSDP_CP_ERR_NONE;
@@ -716,7 +722,7 @@ static int cp_process_reply(struct osdp_pd *pd)
 		if (pd->nak_code == OSDP_PD_NAK_SEQ_NUM) {
 			LOG_WRN("NAK(SEQ_NUM); restarting communication");
 			osdp_phy_state_reset(pd, true);
-#if !defined(__XC8__)			
+#if defined(OSDP_SC_USED)			
 			sc_deactivate(pd);
 #endif			
 			pd->state = OSDP_CP_STATE_INIT;
@@ -740,7 +746,7 @@ static int cp_process_reply(struct osdp_pd *pd)
 	return cp_decode_response(pd, buf, len);
 }
 
-#if !defined(__XC8__)
+#if defined(OSDP_SC_USED)
 static inline bool cp_sc_should_retry(struct osdp_pd *pd)
 {
 	return (sc_is_capable(pd) && !sc_is_active(pd) &&
@@ -765,13 +771,15 @@ static int cp_translate_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		case OSDP_STATUS_REPORT_REMOTE: return CMD_RSTAT;
 		default: return -1;
 		}
-#if !defined (__XC8__)			
+#if defined (OSDP_SC_USED)			
 	case OSDP_CMD_KEYSET:
 		if (cmd->keyset.type != 1 || !sc_is_active(pd)) {
 			return -1;
 		} else {
 			return CMD_KEYSET;
 		}
+#endif
+#if defined (OSDP_FILE_USED)		
 	case OSDP_CMD_FILE_TX:
 		/**
 		 * This external command is handled as multiple command from
@@ -786,7 +794,7 @@ static int cp_translate_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	return -1;
 }
 
-#if !defined (__XC8__)	
+#if defined (OSDP_SC_USED)	
 static void fill_local_keyset_cmd(struct osdp_pd *pd, struct osdp_cmd *cmd)
 {
 	cmd->id = OSDP_CMD_KEYSET;
@@ -820,7 +828,7 @@ static inline bool cp_phy_kick(struct osdp_pd *pd)
 
 static void cp_phy_state_done(struct osdp_pd *pd)
 {
-#if !defined(__XC8__)	
+#if defined(OSDP_SC_USED)	
 	/* called when we have a valid response from the PD */
 	if (sc_is_active(pd)) {
 		pd->sc_tstamp = osdp_millis_now();
@@ -933,7 +941,7 @@ static const char *state_get_name(enum osdp_cp_state_e state)
 	switch (state) {
 	case OSDP_CP_STATE_INIT:      return "ID-Request";
 	case OSDP_CP_STATE_CAPDET:    return "Cap-Detect";
-#if !defined (__XC8__)	
+#if defined (OSDP_SC_USED)	
 	case OSDP_CP_STATE_SC_CHLNG:  return "SC-Chlng";
 	case OSDP_CP_STATE_SC_SCRYPT: return "SC-Scrypt";
 	case OSDP_CP_STATE_SET_SCBK:  return "SC-SetSCBK";
@@ -965,7 +973,7 @@ static int cp_get_online_command(struct osdp_pd *pd)
 		cp_cmd_free(pd, cmd);
 		return ret;
 	}
-#if !defined (__XC8__)	
+#if defined (OSDP_FILE_USED)	
 	ret = osdp_file_tx_get_command(pd);
 	if (ret != 0) {
 		return ret;
@@ -993,12 +1001,12 @@ static void notify_pd_status(struct osdp_pd *pd, bool is_online)
 	evt.notif.type = OSDP_EVENT_NOTIFICATION_PD_STATUS;
 	evt.notif.arg0 = is_online;
 	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
-#if !defined (__XC8__)		
+#if defined (OSDP_METRIC_USED)		
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 #endif	
 }
 
-#if !defined (__XC8__)
+#if defined (OSDP_SC_USED)
 static void notify_sc_status(struct osdp_pd *pd)
 {
 	struct osdp *ctx = pd_to_osdp(pd);
@@ -1042,7 +1050,7 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 {
 	/* Always allow an ACK from the PD; Also, the most common case */
 	if (pd->reply_id == REPLY_ACK) {
-#if !defined (__XC8__)		
+#if defined (OSDP_SC_USED)		
 		if (pd->cmd_id == CMD_KEYSET) {
 			/**
 			 * When we received an ACK for keyset (either in current
@@ -1102,7 +1110,7 @@ static inline int state_get_cmd(struct osdp_pd *pd)
 	switch (state) {
 	case OSDP_CP_STATE_INIT:      return CMD_ID;
 	case OSDP_CP_STATE_CAPDET:    return CMD_CAP;
-#if !defined (__XC8__)			
+#if defined (OSDP_SC_USED)			
 	case OSDP_CP_STATE_SC_CHLNG:  return CMD_CHLNG;
 	case OSDP_CP_STATE_SC_SCRYPT: return CMD_SCRYPT;
 	case OSDP_CP_STATE_SET_SCBK:  return CMD_KEYSET;
@@ -1119,7 +1127,7 @@ static inline bool state_check_reply(struct osdp_pd *pd)
 	switch (state) {
 	case OSDP_CP_STATE_INIT:      return pd->reply_id == REPLY_PDID;
 	case OSDP_CP_STATE_CAPDET:    return pd->reply_id == REPLY_PDCAP;
-#if !defined (__XC8__)			
+#if defined (OSDP_SC_USED)			
 	case OSDP_CP_STATE_SC_CHLNG:  return pd->reply_id == REPLY_CCRYPT;
 	case OSDP_CP_STATE_SC_SCRYPT: return pd->reply_id == REPLY_RMAC_I;
 	case OSDP_CP_STATE_SET_SCBK:  return pd->reply_id == REPLY_ACK;
@@ -1137,7 +1145,7 @@ static enum osdp_cp_state_e get_next_ok_state(struct osdp_pd *pd)
 	case OSDP_CP_STATE_INIT:
 		return OSDP_CP_STATE_CAPDET;
 	case OSDP_CP_STATE_CAPDET:
-#if !defined (__XC8__)			
+#if defined (OSDP_SC_USED)			
 		if (sc_is_capable(pd)) {
 			CLEAR_FLAG(pd, PD_FLAG_SC_USE_SCBKD);
 			return OSDP_CP_STATE_SC_CHLNG;
@@ -1149,7 +1157,7 @@ static enum osdp_cp_state_e get_next_ok_state(struct osdp_pd *pd)
 		}
 #endif		
 		return OSDP_CP_STATE_ONLINE;
-#if !defined (__XC8__)				
+#if defined (OSDP_SC_USED)				
 	case OSDP_CP_STATE_SC_CHLNG:
 		osdp_metrics_report(pd, OSDP_METRIC_SC_HANDSHAKE);
 		return OSDP_CP_STATE_SC_SCRYPT;
@@ -1166,7 +1174,7 @@ static enum osdp_cp_state_e get_next_ok_state(struct osdp_pd *pd)
 		return OSDP_CP_STATE_SC_CHLNG;
 #endif		
 	case OSDP_CP_STATE_ONLINE:
-#if !defined (__XC8__)			
+#if defined (OSDP_SC_USED)			
 		if (cp_sc_should_retry(pd)) {
 			LOG_INF("Attempting to restart SC after %d seconds",
 				OSDP_PD_SC_RETRY_MS/1000);
@@ -1194,7 +1202,7 @@ static enum osdp_cp_state_e get_next_err_state(struct osdp_pd *pd)
 		return OSDP_CP_STATE_OFFLINE;
 	case OSDP_CP_STATE_CAPDET:
 		return OSDP_CP_STATE_OFFLINE;
-#if !defined (__XC8__)				
+#if defined (OSDP_SC_USED)				
 	case OSDP_CP_STATE_SC_CHLNG:
 		if (is_enforce_secure(pd)) {
 			LOG_ERR("CHLNG failed. Set PD offline due to "
@@ -1260,7 +1268,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	case OSDP_CP_STATE_OFFLINE:
 		pd->tstamp = osdp_millis_now();
 		pd->wait_ms = OSDP_ONLINE_RETRY_WAIT_MAX_MS;
-#if !defined (__XC8__)				
+#if defined (OSDP_SC_USED)				
 		sc_deactivate(pd);
 		notify_sc_status(pd);
 #endif		
@@ -1268,13 +1276,13 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 			pd->wait_ms / 1000, state_get_name(cur));
 		notify_pd_status(pd, false);
 		break;
-#if !defined (__XC8__)				
+#if defined (OSDP_SC_USED)				
 	case OSDP_CP_STATE_SC_CHLNG:
 		osdp_sc_setup(pd);
 		break;
 #endif		
 	case OSDP_CP_STATE_DISABLED:
-#if !defined (__XC8__)			
+#if defined (OSDP_SC_USED)			
 		sc_deactivate(pd);
 		notify_sc_status(pd);
 #endif		
@@ -1337,7 +1345,7 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 	evt.notif.arg1 = status;
 
 	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
-#if !defined (__XC8__)			
+#if defined (OSDP_METRIC_USED)			
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 #endif	
 }
@@ -1390,7 +1398,7 @@ static int state_update(struct osdp_pd *pd)
 	next = get_next_state(pd, err);
 
 	if (pd->state == OSDP_CP_STATE_ONLINE || next == OSDP_CP_STATE_ONLINE) {
-#if !defined (__XC8__)				
+#if defined (OSDP_SC_USED)				
 		if (check_request(pd, CP_REQ_RESTART_SC)) {
 			osdp_phy_state_reset(pd, true);
 			next = OSDP_CP_STATE_SC_CHLNG;
@@ -1443,7 +1451,7 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 				" PD environments");
 			return -1;
 		}
-#if !defined (__XC8__)				
+#if defined (OSDP_SC_USED)				
 		if (is_enforce_secure(pd)) {
 			LOG_ERR("Cannot send command in broadcast mode"
 				" due to ENFORCE_SECURE");
@@ -1452,12 +1460,18 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 #endif		
 	}
 
-#if !defined (__XC8__)			
+#if defined (OSDP_FILE_USED)
 	if (cmd->id == OSDP_CMD_FILE_TX) {
 		return osdp_file_tx_command(pd, cmd->file_tx.id,
 					    cmd->file_tx.flags);
-	} else if (cmd->id == OSDP_CMD_KEYSET &&
-		   (cmd->keyset.type != 1 || !sc_is_active(pd))) {
+	}
+#endif
+#if defined (OSDP_FILE_USED) && defined(OSDP_SC_USED)
+	else
+#endif
+#if defined(OSDP_SC_USED)
+		if (cmd->id == OSDP_CMD_KEYSET &&
+		    (cmd->keyset.type != 1 || !sc_is_active(pd))) {
 		LOG_ERR("Invalid keyset request");
 		return -1;
 	}
@@ -1494,7 +1508,7 @@ static int cp_expand_pd_array(struct osdp *ctx, int num_pd,
 {
 	*old_num_pd = ctx->_num_pd;
 	*old_pd_array = ctx->pd;
-	*new_pd_array = cp_pd_array_alloc(*old_num_pd, num_pd);
+	*new_pd_array = cp_pd_array_alloc(ctx->port, *old_num_pd, num_pd);
 	if (*new_pd_array == NULL) {
 		LOG_PRINT("Failed to allocate new osdp_pd[] context");
 		return -1;
@@ -1577,24 +1591,28 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		if (cp_setup_pd_rx_storage(ctx, pd, i + old_num_pd)) {
 			goto error;
 		}
+#if defined (OSDP_SC_USED)
 		if (info->scbk != NULL) {
 			memcpy(pd->sc.scbk, info->scbk, 16);
 			CLEAR_FLAG(pd, PD_FLAG_SC_DISABLED);
-		} else if (is_enforce_secure(pd)) {
+		}
+		else if (is_enforce_secure(pd)) {
 			LOG_PRINT("SCBK must be passed for each PD when"
 				  " ENFORCE_SECURE is requested.");
 			goto error;
 		}
+#endif		
 		if (cp_cmd_queue_init(pd)) {
 			goto error;
 		}
 		if (IS_ENABLED(OPT_OSDP_SKIP_MARK_BYTE)) {
 			SET_FLAG(pd, PD_FLAG_PKT_SKIP_MARK);
 		}
-
+#if !defined (__XC8__)
 		if (is_capture_enabled(pd)) {
 			osdp_packet_capture_init(pd);
 		}
+#endif		
 	}
 	SET_CURRENT_PD(ctx, 0);
 
@@ -1619,12 +1637,12 @@ error:
 
 /* --- Exported Methods --- */
 
-osdp_t *osdp_cp_setup(const struct osdp_channel *channel, int num_pd,
+osdp_t *osdp_cp_setup(const uint8_t port, const struct osdp_channel *channel, int num_pd,
 		      const osdp_pd_info_t *info)
 {
 	assert(channel);
 
-	struct osdp *ctx = cp_ctx_alloc();
+	struct osdp *ctx = cp_ctx_alloc(port);
 	if (ctx == NULL) {
 		LOG_PRINT("Failed to allocate osdp context");
 		return NULL;
@@ -1636,7 +1654,7 @@ osdp_t *osdp_cp_setup(const struct osdp_channel *channel, int num_pd,
 	logger_get_default(&ctx->logger);
 #endif
 	memcpy(&ctx->channel, channel, sizeof(ctx->channel));
-
+	ctx->port = port;
 	if (num_pd && cp_add_pd(ctx, num_pd, info)) {
 		LOG_PRINT("Failed to add PDs");
 		goto error;
@@ -1686,12 +1704,16 @@ void osdp_cp_teardown(osdp_t *ctx)
 		}
 		cp_complete_cmd(pd, pd->active_cmd, OSDP_COMPLETION_ABORTED);
 		pd->active_cmd = NULL;
+#if !defined (__XC8__)		
 		if (is_capture_enabled(pd)) {
 			osdp_packet_capture_finish(pd);
 		}
+#endif		
 
 #ifndef OPT_OSDP_STATIC
+#if defined (OSDP_FILE_USED)		
 		safe_free(pd->file);
+#endif		
 #ifdef OPT_OSDP_RX_ZERO_COPY
 		safe_free(pd->rx_pkt);
 #else
