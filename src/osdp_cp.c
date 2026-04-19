@@ -917,7 +917,7 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 		if (osdp_millis_now() > pd->resp_expected) {
 			if (pd->phy_retry_count < OSDP_CMD_MAX_RETRIES) {
 				pd->phy_retry_count += 1;
-				LOG_WRN("No response in 200ms; probing (%d)",
+				LOG_DBG("No response in 200ms; probing (%d)",
 					pd->phy_retry_count);
 				cp_phy_state_wait(pd, OSDP_CMD_RETRY_WAIT_MS);
 				return OSDP_CP_ERR_DEFER;
@@ -1021,7 +1021,9 @@ static void notify_sc_status(struct osdp_pd *pd)
 	evt.notif.arg0 = sc_is_active(pd);
 	evt.notif.arg1 = sc_use_scbkd(pd);
 	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
+#if defined (OSDP_METRIC_USED)	
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
+#endif	
 }
 
 static void cp_keyset_complete(struct osdp_pd *pd)
@@ -1043,6 +1045,28 @@ static void cp_keyset_complete(struct osdp_pd *pd)
 		make_request(pd, CP_REQ_RESTART_SC);
 		LOG_INF("SCBK set; restarting SC to verify new SCBK");
 	}
+}
+#endif
+
+#if defined (OSDP_FILE_USED)
+void osdp_file_tx_notify_done(struct osdp_pd *pd, int file_id,
+			      enum osdp_file_tx_outcome outcome)
+{
+	struct osdp *ctx = pd_to_osdp(pd);
+	struct osdp_event evt;
+
+	if (!ctx->event_callback || !is_notifications_enabled(pd)) {
+		return;
+	}
+
+	evt.type = OSDP_EVENT_NOTIFICATION;
+	evt.notif.type = OSDP_EVENT_NOTIFICATION_FILE_TX_DONE;
+	evt.notif.arg0 = file_id;
+	evt.notif.arg1 = outcome;
+	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
+#if defined (OSDP_METRIC_USED)		
+	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
+#endif	
 }
 #endif
 
@@ -1278,6 +1302,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		break;
 #if defined (OSDP_SC_USED)				
 	case OSDP_CP_STATE_SC_CHLNG:
+		osdp_phy_state_reset(pd, true);
 		osdp_sc_setup(pd);
 		break;
 #endif		
@@ -1342,7 +1367,7 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 	evt.type = OSDP_EVENT_NOTIFICATION;
 	evt.notif.type = OSDP_EVENT_NOTIFICATION_COMMAND;
 	evt.notif.arg0 = app_cmd;
-	evt.notif.arg1 = status;
+	evt.notif.arg1 = status ? 0 : -1;
 
 	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
 #if defined (OSDP_METRIC_USED)			

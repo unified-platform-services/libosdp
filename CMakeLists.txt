@@ -37,6 +37,10 @@ option(OPT_OSDP_STATIC "Build without dynamic memory allocation" OFF)
 option(OPT_OSDP_LIB_ONLY "Only build the library" OFF)
 option(OPT_BUILD_BARE_METAL "Build library for bare metal targets" OFF)
 option(OPT_USE_32BIT_TICK_T "Use uint32_t tick_t on bare-metal targets" OFF)
+set(OPT_OSDP_CRYPTO_BACKEND "auto" CACHE STRING
+	"Crypto backend selection: auto, openssl, mbedtls, or tinyaes")
+set_property(CACHE OPT_OSDP_CRYPTO_BACKEND PROPERTY STRINGS
+	auto openssl mbedtls tinyaes)
 
 ## Includes
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -47,6 +51,14 @@ include(BuildType)
 ## Global settings
 if(NOT MSVC)
 	add_compile_options(-Wall -Wextra)
+else()
+	# MSVC's legacy preprocessor mis-handles the token-paste + rescan used
+	# by IS_ENABLED() in utils/include/utils/utils.h, silently returning 0
+	# for every defined-as-1 flag. /Zc:preprocessor switches to the
+	# C99/C11-conformant preprocessor (VS 2019 16.5+). /std:c11 is also
+	# required so _Static_assert (used by the IS_ENABLED self-test in
+	# utils/src/utils.c) is recognised as a keyword.
+	add_compile_options(/Zc:preprocessor /std:c11)
 endif()
 
 if (OPT_BUILD_BARE_METAL)

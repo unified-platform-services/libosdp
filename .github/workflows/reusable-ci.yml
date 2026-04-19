@@ -127,3 +127,21 @@ jobs:
         run: pip install --upgrade platformio
       - name: Build PlatformIO examples
         run: pio ci --verbose --lib . --board=megaatmega2560 ${{ matrix.examples }}
+
+  # MSVC covers the libosdp core (src/) only — CMakeLists.txt gates utils/,
+  # unit-tests, and examples behind `NOT MSVC` because utils/ relies on POSIX
+  # APIs and GNU C extensions that MSVC does not provide. The MSYS2 GCC/Clang
+  # toolchains exercise the same core library on non-MSVC Windows backends and
+  # live in the Cross Platform Build workflow (run out-of-band, not on every
+  # push/PR).
+  WindowsMSVC:
+    name: Windows MSVC
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug .
+      - name: Build
+        run: cmake --build build --config Debug --parallel

@@ -608,13 +608,19 @@ void test_mock_pd_flush(void *data)
 	CIRCBUF_FLUSH(cp_to_pd_buf);
 }
 
-int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd)
+int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
+			   uint32_t cp_flags, uint32_t pd_flags)
 {
 #ifndef OPT_OSDP_LOG_MINIMAL
 	osdp_logger_init("osdp", t->loglevel, NULL);
 #else
 	ARG_UNUSED(t);
 #endif /* OPT_OSDP_LOG_MINIMAL */
+
+	/* Shared mock channel; drop stale bytes left by the previous suite so a
+	 * fresh PD does not read a non-zero sequence on its first packet. */
+	CIRCBUF_FLUSH(cp_to_pd_buf);
+	CIRCBUF_FLUSH(pd_to_cp_buf);
 
 	uint8_t scbk[16] = {
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -630,7 +636,7 @@ int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd)
 	osdp_pd_info_t info_cp = {
 		.address = 101,
 		.baud_rate = 9600,
-		.flags = 0, //OSDP_FLAG_ENFORCE_SECURE,
+		.flags = cp_flags,
 		.scbk = scbk,
 	};
 
@@ -658,7 +664,7 @@ int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd)
 	osdp_pd_info_t info_pd = {
 		.address = 101,
 		.baud_rate = 9600,
-		.flags = 0, //OSDP_FLAG_ENFORCE_SECURE,
+		.flags = pd_flags,
 		.id = {
 			.version = 1,
 			.model = 153,
@@ -678,6 +684,11 @@ int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd)
 	}
 
 	return 0;
+}
+
+int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd)
+{
+	return test_setup_devices_ext(t, cp, pd, 0, 0);
 }
 
 void test_start(struct test *t, int log_level)
