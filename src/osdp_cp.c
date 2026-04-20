@@ -1685,6 +1685,7 @@ static int cp_add_pd(struct osdp *ctx, int num_pd,
 		pd->address = info->address;
 		pd->rx_rb = &channel_rx_rb[ctx->channel];
 #endif
+        pd->address = info->address;
 		pd->flags = info->flags;
 		pd->seq_number = -1;
 		SET_FLAG(pd, PD_FLAG_SC_DISABLED);

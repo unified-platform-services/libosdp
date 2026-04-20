@@ -265,10 +265,19 @@ void osdp_get_status_mask(const osdp_t *ctx, uint8_t *bitmask)
 		*mask = osdp_millis_since(pd->tstamp) < OSDP_PD_ONLINE_TOUT_MS;
 		return;
 	}
-
+    
 	*mask = 0;
 	for (i = 0; i < NUM_PD(ctx); i++) {
+#ifdef __XC8__
+		pd = osdp_to_pd(ctx, i);
+		// Skip uninitialized PDs
+		if (pd->address == 0xFF) {
+			continue;
+		}
+		pos = pd->address & 0x07;  // Use physical address for bit position
+#else
 		pos = i & 0x07;
+#endif
 		if (i && pos == 0) {
 			mask++;
 			*mask = 0;

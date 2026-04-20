@@ -432,9 +432,7 @@ struct osdp_pd {
 	uint32_t baud_rate;    /* Serial baud/bit rate */
 #endif
 
-#ifndef __XC8__
-	int address;           /* PD address */
-#endif
+    int address;           /* PD address */
 	int seq_number;        /* Current packet sequence number */
 	struct osdp_pd_id id;  /* PD ID information (as received from app) */
 
