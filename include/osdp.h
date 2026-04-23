@@ -835,7 +835,7 @@ struct osdp_cmd {
 
 #define OSDP_EVENT_CARDREAD_MAX_DATALEN 64
 #define OSDP_EVENT_KEYPRESS_MAX_DATALEN 64
-#define OSDP_EVENT_MFGREP_MAX_DATALEN	128
+#define OSDP_EVENT_MFGREP_MAX_DATALEN	220
 
 /**
  * @brief Various card formats that a PD can support. This is sent to CP
