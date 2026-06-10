@@ -10,7 +10,7 @@ cmake_policy(SET CMP0063 NEW)
 # Generate compile_commands.json for IDE support
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-project(libosdp VERSION 3.2.1)
+project(libosdp VERSION 3.2.2)
 
 set(PROJECT_AUTHOR       "Siddharth Chandrasekaran")
 set(PROJECT_AUTHOR_EMAIL "sidcha.dev@gmail.com")
@@ -46,6 +46,14 @@ include(BuildType)
 ## Global settings
 if(NOT MSVC)
 	add_compile_options(-Wall -Wextra)
+else()
+	# MSVC's legacy preprocessor mis-handles the token-paste + rescan used
+	# by IS_ENABLED() in utils/include/utils/utils.h, silently returning 0
+	# for every defined-as-1 flag. /Zc:preprocessor switches to the
+	# C99/C11-conformant preprocessor (VS 2019 16.5+). /std:c11 is also
+	# required so _Static_assert (used by the IS_ENABLED self-test in
+	# utils/src/utils.c) is recognised as a keyword.
+	add_compile_options(/Zc:preprocessor /std:c11)
 endif()
 
 if (OPT_BUILD_BARE_METAL)
