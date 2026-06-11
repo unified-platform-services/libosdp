@@ -6,7 +6,7 @@
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE /* See feature_test_macros(7) */
-#include "_02edgeplusm3/osdpApp/osdp_config.h"
+#include "osdp_config.h"
 #endif
 
 #include <stdarg.h>
