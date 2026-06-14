@@ -229,6 +229,12 @@ setup(
     author_email = "sidcha.dev@gmail.com",
     description  = "Library implementation of IEC 60839-11-5 OSDP (Open Supervised Device Protocol)",
     url          = "https://github.com/goToMain/libosdp",
+    project_urls = {
+        "Documentation": "https://doc.osdp.dev/",
+        "Python Docs":   "https://doc.osdp.dev/python/getting-started",
+        "Source":        "https://github.com/goToMain/libosdp",
+        "Changelog":     "https://doc.osdp.dev/changelog",
+    },
     ext_modules  = [
         Extension(
             name               = "osdp_sys",
