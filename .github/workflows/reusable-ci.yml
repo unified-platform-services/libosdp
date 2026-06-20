@@ -13,7 +13,7 @@ jobs:
   Changelog:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
     - name: Validate changelog files
@@ -22,7 +22,7 @@ jobs:
   CmakeBuild:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
     - name: Configure
@@ -39,7 +39,7 @@ jobs:
   MakeBuild:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
     - name: configure
@@ -52,7 +52,7 @@ jobs:
   DoxygenCheck:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
     - name: Install Doxygen
@@ -67,7 +67,7 @@ jobs:
   Test:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
     - name: Configure
@@ -78,7 +78,7 @@ jobs:
   CheckPatch:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
       with:
         submodules: recursive
     - name: ClangFormatCheck
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Install pypa/build
@@ -106,7 +106,7 @@ jobs:
     name: PyTest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: actions/setup-python@v6
@@ -123,7 +123,7 @@ jobs:
           - examples/platformio/cp.ino
           - examples/platformio/pd.ino
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - uses: actions/cache@v5
@@ -150,7 +150,7 @@ jobs:
     name: Windows MSVC
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: recursive
       - name: Configure
