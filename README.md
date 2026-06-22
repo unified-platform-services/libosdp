@@ -105,7 +105,7 @@ commands and replies and their support status in LibOSDP [here][22].
 
   * A working C compiler; such as gcc, clang or msvc
   * CMake 3.14 or newer (or GNU Make)
-  * [goToMain/C-Utils][25] submodule
+  * [osdp-dev/C-Utils][25] submodule
 
 Optionally,
   * Python3 (host)
@@ -142,7 +142,7 @@ You can also read the [API documentation][26] for a comprehensive list of APIs
 that are exposed by LibOSDP.
 
 ```sh
-git clone https://github.com/goToMain/libosdp --recurse-submodules
+git clone https://github.com/osdp-dev/libosdp --recurse-submodules
 cd libosdp
 cmake -B build .
 cmake --build build --parallel
@@ -203,7 +203,7 @@ supporting the development by donations though my [GitHub sponsors page][15].
 Your support will ensure sustained development of LibOSDP.
 
 [1]: https://img.shields.io/github/v/release/GoToMain/libosdp?display_name=tag&logo=github
-[2]: https://github.com/goToMain/libosdp/releases/latest
+[2]: https://github.com/osdp-dev/libosdp/releases/latest
 [3]: https://github.com/goTomain/libosdp/workflows/Build%20CI/badge.svg
 [4]: https://github.com/goTomain/libosdp/actions?query=workflow%3A%22Build+CI%22
 [5]: https://docs.pytest.org/en/latest/
@@ -211,9 +211,9 @@ Your support will ensure sustained development of LibOSDP.
 [8]: https://www.openssl.org/
 [9]: https://www.doxygen.nl/index.html
 [10]: https://crates.io/crates/libosdp
-[11]: https://github.com/goToMain/libosdp-rs/tree/master/libosdp
+[11]: https://github.com/osdp-dev/libosdp-rs/tree/master/libosdp
 [12]: https://pypi.org/project/libosdp/
-[13]: https://github.com/goToMain/libosdp/tree/master/python
+[13]: https://github.com/osdp-dev/libosdp/tree/master/python
 [14]: https://doc.osdp.dev/libosdp/debugging
 [15]: https://github.com/sponsors/sidcha
 [16]: https://img.shields.io/pypi/v/libosdp?logo=python&link=https%3A%2F%2Fpypi.org%2Fproject%2Flibosdp%2F
@@ -227,15 +227,15 @@ Your support will ensure sustained development of LibOSDP.
 [25]: https://github.com/goTomain/c-utils
 [26]: https://doc.osdp.dev/api/
 [27]: https://doc.osdp.dev/protocol/faq
-[28]: https://github.com/goToMain/libosdp/issues/new/choose
-[31]: https://github.com/goToMain/libosdp/issues
+[28]: https://github.com/osdp-dev/libosdp/issues/new/choose
+[31]: https://github.com/osdp-dev/libosdp/issues
 [32]: https://img.shields.io/vcpkg/v/libosdp
 [33]: https://vcpkg.link/ports/libosdp
 [34]: https://img.shields.io/crates/v/libosdp?style=flat&logo=rust&logoColor=DDD&label=crate%20%3A%20libosdp&link=https%3A%2F%2Fcrates.io%2Fcrates%2Flibosdp
 [35]: https://crates.io/crates/libosdp
 [36]: https://img.shields.io/crates/v/osdpctl?style=flat&logo=rust&logoColor=DDD&label=crate%20%3A%20osdpctl&link=https%3A%2F%2Fcrates.io%2Fcrates%2Fosdpctl
 [37]: https://crates.io/crates/osdpctl
-[38]: https://github.com/goToMain/libosdp/blob/master/include/osdp.h
-[39]: https://github.com/goToMain/libosdp/tree/master/examples
+[38]: https://github.com/osdp-dev/libosdp/blob/master/include/osdp.h
+[39]: https://github.com/osdp-dev/libosdp/tree/master/examples
 [40]: https://doc.osdp.dev/libosdp/compatibility
 [41]: https://doc.osdp.dev/libosdp/secure-channel

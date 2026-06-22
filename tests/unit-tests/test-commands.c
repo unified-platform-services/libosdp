@@ -540,7 +540,7 @@ static bool wait_for_cmd_notification(int expected_cmd, int expected_arg1,
 }
 
 /*
- * Regression test for https://github.com/goToMain/libosdp/issues/262:
+ * Regression test for https://github.com/osdp-dev/libosdp/issues/262:
  * the PD used to unconditionally ACK multi-record commands (OUT/LED/BUZ)
  * even when pd_cmd_cap_ok() had set REPLY_NAK. The fix preserves the NAK
  * so the CP reports arg1=0 (failure) via OSDP_NOTIFICATION_COMMAND.

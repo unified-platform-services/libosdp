@@ -44,6 +44,6 @@ email address is usually sufficient to establish this.
 You may also monitor the [security advisories][3] page, though it is updated only
 after an issue has been disclosed publicly.
 
-[1]: https://github.com/goToMain/libosdp/releases
+[1]: https://github.com/osdp-dev/libosdp/releases
 [2]: https://github.com/sidcha.gpg
-[3]: https://github.com/goToMain/libosdp/security/advisories
+[3]: https://github.com/osdp-dev/libosdp/security/advisories

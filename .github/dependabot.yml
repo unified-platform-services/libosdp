@@ -1,5 +1,5 @@
 # Dependabot keeps our exposed dependency surfaces current.
-# The git submodule (utils -> goToMain/c-utils) is intentionally excluded:
+# The git submodule (utils -> osdp-dev/c-utils) is intentionally excluded:
 # its pointer is bumped manually under controlled review.
 version: 2
 updates:

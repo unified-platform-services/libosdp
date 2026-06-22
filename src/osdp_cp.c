@@ -554,7 +554,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		 * for deprecation in v2.2.2. To avoid confusions, we will just
 		 * ignore it here.
 		 *
-		 * See: https://github.com/goToMain/libosdp/issues/206
+		 * See: https://github.com/osdp-dev/libosdp/issues/206
 		 */
 		LOG_WRN("Ignoring deprecated response osdp_FMT");
 		ret = OSDP_CP_ERR_NONE;

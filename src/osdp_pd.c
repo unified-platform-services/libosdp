@@ -132,7 +132,7 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 			 * osdp_FMT was underspecified by SIA from get-go. It
 			 * was marked for deprecation in v2.2.2.
 			 *
-			 * See: https://github.com/goToMain/libosdp/issues/206
+			 * See: https://github.com/osdp-dev/libosdp/issues/206
 			 */
 			LOG_WRN("Event CardRead::format::OSDP_CARD_FMT_ASCII"
 				" is deprecated. Ignoring");

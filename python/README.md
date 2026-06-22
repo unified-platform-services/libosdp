@@ -31,13 +31,13 @@ pip install libosdp
 Or, from github,
 
 ```sh
-pip install -e "git+https://github.com/goToMain/libosdp#egg=libosdp&subdirectory=python"
+pip install -e "git+https://github.com/osdp-dev/libosdp#egg=libosdp&subdirectory=python"
 ```
 
 Or, from source using,
 
 ```sh
-git clone https://github.com/goToMain/libosdp --recurse-submodules
+git clone https://github.com/osdp-dev/libosdp --recurse-submodules
 cd libosdp/python
 pip install .
 ```
@@ -180,5 +180,5 @@ def on_event_complete(event, status):
 pd.set_event_completion_handler(on_event_complete)
 ```
 
-[2]: https://github.com/goToMain/libosdp/blob/master/examples/python/cp_app.py
-[3]: https://github.com/goToMain/libosdp/blob/master/examples/python/pd_app.py
+[2]: https://github.com/osdp-dev/libosdp/blob/master/examples/python/cp_app.py
+[3]: https://github.com/osdp-dev/libosdp/blob/master/examples/python/pd_app.py

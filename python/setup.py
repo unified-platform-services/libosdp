@@ -228,11 +228,11 @@ setup(
     author       = "Siddharth Chandrasekaran",
     author_email = "sidcha.dev@gmail.com",
     description  = "Library implementation of IEC 60839-11-5 OSDP (Open Supervised Device Protocol)",
-    url          = "https://github.com/goToMain/libosdp",
+    url          = "https://github.com/osdp-dev/libosdp",
     project_urls = {
         "Documentation": "https://doc.osdp.dev/",
         "Python Docs":   "https://doc.osdp.dev/python/getting-started",
-        "Source":        "https://github.com/goToMain/libosdp",
+        "Source":        "https://github.com/osdp-dev/libosdp",
         "Changelog":     "https://doc.osdp.dev/changelog",
     },
     ext_modules  = [
