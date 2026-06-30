@@ -810,29 +810,82 @@ static inline bool is_install_mode(struct osdp_pd *pd) {
 /* --- CP Alloc Helpers --- */
 
 #ifdef OPT_OSDP_STATIC
+
+#ifdef OPT_OSDP_EXCLUSIVE_ROLE
+/*
+ * Exclusive-role arena: a context is either CP or PD. When a build only ever runs
+ * one role at a time, the inactive role's pool sits idle for the lifetime of
+ * the active one, so overlaying the CP and PD static pools in a union reclaims
+ * the smaller (PD) pool's worth of BSS.
+ *
+ * Opt-in only: leaving OPT_OSDP_EXCLUSIVE_ROLE undefined keeps the CP and PD
+ * pools as independent storage, which is required when a CP and a PD context
+ * are instantiated at the same time. One external instance (defined in
+ * osdp_common.c) is shared across the osdp_cp.c / osdp_pd.c TUs.
+ */
+union osdp_role_arena {
+	struct {
+		struct osdp        ctx;
+		struct osdp_pd     pd[OSDP_CP_MAX_PDS];
+#ifdef OPT_OSDP_RX_ZERO_COPY
+		struct osdp_rx_pkt rx_pkt[OSDP_CP_MAX_PDS];
+#else
+		struct osdp_rb     rb[OSDP_CP_MAX_PDS];
+#endif
+	} cp;
+	struct {
+		struct osdp        ctx;
+		struct osdp_pd     pd;
+		uint8_t            rx_buf[OSDP_PACKET_BUF_SIZE];
+#ifdef OPT_OSDP_RX_ZERO_COPY
+		struct osdp_rx_pkt rx_pkt;
+#else
+		struct osdp_rb     rb;
+#endif
+	} pd;
+};
+extern union osdp_role_arena g_osdp_role_arena;
+#endif /* OPT_OSDP_EXCLUSIVE_ROLE */
+
 static inline struct osdp *cp_static_ctx_get(void)
 {
+#ifdef OPT_OSDP_EXCLUSIVE_ROLE
+	return &g_osdp_role_arena.cp.ctx;
+#else
 	static struct osdp g_osdp_ctx;
 	return &g_osdp_ctx;
+#endif
 }
 
 static inline struct osdp_pd *cp_static_pd_array_get(void)
 {
+#ifdef OPT_OSDP_EXCLUSIVE_ROLE
+	return g_osdp_role_arena.cp.pd;
+#else
 	static struct osdp_pd g_cp_pd_ctx[OSDP_CP_MAX_PDS];
 	return g_cp_pd_ctx;
+#endif
 }
 
 #ifdef OPT_OSDP_RX_ZERO_COPY
 static inline struct osdp_rx_pkt *cp_static_rx_pkt_array_get(void)
 {
+#ifdef OPT_OSDP_EXCLUSIVE_ROLE
+	return g_osdp_role_arena.cp.rx_pkt;
+#else
 	static struct osdp_rx_pkt g_cp_rx_pkt[OSDP_CP_MAX_PDS];
 	return g_cp_rx_pkt;
+#endif
 }
 #else /* OPT_OSDP_RX_ZERO_COPY */
 static inline struct osdp_rb *cp_static_rx_rb_array_get(void)
 {
+#ifdef OPT_OSDP_EXCLUSIVE_ROLE
+	return g_osdp_role_arena.cp.rb;
+#else
 	static struct osdp_rb g_cp_rb[OSDP_CP_MAX_PDS];
 	return g_cp_rb;
+#endif
 }
 #endif /* OPT_OSDP_RX_ZERO_COPY */
 #endif /* OPT_OSDP_STATIC */
@@ -906,36 +959,56 @@ static inline struct osdp_rb *cp_rx_rb_alloc(int pd_idx)
 
 static inline struct osdp *pd_static_ctx_get(void)
 {
+#ifdef OPT_OSDP_EXCLUSIVE_ROLE
+	return &g_osdp_role_arena.pd.ctx;
+#else
 	static struct osdp g_osdp_ctx;
 	return &g_osdp_ctx;
+#endif
 }
 
 static inline struct osdp_pd *pd_static_ctx_pd_get(void)
 {
+#ifdef OPT_OSDP_EXCLUSIVE_ROLE
+	return &g_osdp_role_arena.pd.pd;
+#else
 	static struct osdp_pd g_osdp_pd_ctx;
 	return &g_osdp_pd_ctx;
+#endif
 }
 
 static inline uint8_t *pd_static_rx_buf_get(void)
 {
+#ifdef OPT_OSDP_EXCLUSIVE_ROLE
+	return g_osdp_role_arena.pd.rx_buf;
+#else
 	static uint8_t g_osdp_pd_rx_buf[OSDP_PACKET_BUF_SIZE];
 	return g_osdp_pd_rx_buf;
+#endif
 }
 
 #ifdef OPT_OSDP_RX_ZERO_COPY
 
 static inline struct osdp_rx_pkt *pd_static_rx_pkt_get(void)
 {
+#ifdef OPT_OSDP_EXCLUSIVE_ROLE
+	return &g_osdp_role_arena.pd.rx_pkt;
+#else
 	static struct osdp_rx_pkt g_osdp_rx_pkt;
 	return &g_osdp_rx_pkt;
+#endif
 }
 
 #else /* OPT_OSDP_RX_ZERO_COPY */
 
 static inline struct osdp_rb *pd_static_rx_rb_get(void)
 {
+#ifdef OPT_OSDP_EXCLUSIVE_ROLE
+	return &g_osdp_role_arena.pd.rb;
+#else
 	static struct osdp_rb g_osdp_rb;
 	return &g_osdp_rb;
+#endif
 }
 
 #endif /* OPT_OSDP_RX_ZERO_COPY */

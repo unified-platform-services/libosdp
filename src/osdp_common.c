@@ -16,6 +16,13 @@
 
 #include <utils/crc16.h>
 
+#if defined(OPT_OSDP_STATIC) && defined(OPT_OSDP_EXCLUSIVE_ROLE)
+/* One shared instance overlaying the CP and PD static pools; the accessors
+ * in osdp_common.h carve role-specific pointers out of it. Defined once here so
+ * the osdp_cp.c and osdp_pd.c translation units reference the same storage. */
+union osdp_role_arena g_osdp_role_arena;
+#endif
+
 #ifdef OPT_OSDP_LOG_MINIMAL
 #define OSDP_MIN_LOG_BUF_LEN 160
 
