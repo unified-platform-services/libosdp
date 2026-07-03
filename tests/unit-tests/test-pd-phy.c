@@ -12,8 +12,8 @@
 
 #include "test.h"
 
-extern uint16_t (*test_osdp_compute_crc16)(const uint8_t *buf, size_t len);
-extern uint8_t (*test_osdp_compute_checksum)(uint8_t *msg, int length);
+extern uint16_t test_osdp_compute_crc16(const uint8_t *buf, size_t len);
+extern uint8_t test_osdp_compute_checksum(uint8_t *msg, int length);
 
 #define PD_TEST_ADDR 101
 

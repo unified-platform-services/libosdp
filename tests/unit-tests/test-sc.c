@@ -6,12 +6,12 @@
 
 #include "test.h"
 
-extern int (*test_osdp_compute_mac)(struct osdp_pd *pd, int is_cmd,
-				    const uint8_t *data, int len);
-extern int (*test_osdp_encrypt_data)(struct osdp_pd *pd, int is_cmd,
-				     uint8_t *data, int len);
-extern int (*test_osdp_decrypt_data)(struct osdp_pd *pd, int is_cmd,
-				     uint8_t *data, int len);
+extern int test_osdp_compute_mac(struct osdp_pd *pd, int is_cmd,
+				 const uint8_t *data, int len);
+extern int test_osdp_encrypt_data(struct osdp_pd *pd, int is_cmd,
+				  uint8_t *data, int len);
+extern int test_osdp_decrypt_data(struct osdp_pd *pd, int is_cmd,
+				  uint8_t *data, int len);
 
 /* Source: NIST SP 800-38A, F.2.1 AES-128 CBC vectors. */
 static const uint8_t tv_key[16] = {

@@ -6,11 +6,11 @@
 
 #include "test.h"
 
-extern int (*test_osdp_phy_packet_finalize)(struct osdp_pd *pd, uint8_t *buf,
-					    int len, int max_len);
-extern int (*test_osdp_phy_packet_init)(struct osdp_pd *pd, uint8_t *buf, int max_len);
-extern uint16_t (*test_osdp_compute_crc16)(const uint8_t *buf, size_t len);
-extern uint8_t (*test_osdp_compute_checksum)(uint8_t *msg, int length);
+extern int test_osdp_phy_finalize_packet(struct osdp_pd *pd, uint8_t *buf,
+					 int len, int max_len);
+extern int test_osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len);
+extern uint16_t test_osdp_compute_crc16(const uint8_t *buf, size_t len);
+extern uint8_t test_osdp_compute_checksum(uint8_t *msg, int length);
 
 struct refresh_yield_test_data {
 	int send_count;
@@ -128,7 +128,7 @@ static int test_cp_build_and_send_packet(struct osdp_pd *p, uint8_t *buf, int le
 	}
 	memcpy(buf + len, cmd_buf, cmd_len);
 	len += cmd_len;
-	if ((len = test_osdp_phy_packet_finalize(p, buf, len, maxlen)) < 0) {
+	if ((len = test_osdp_phy_finalize_packet(p, buf, len, maxlen)) < 0) {
 		printf("failed to build command\n");
 		return -1;
 	}

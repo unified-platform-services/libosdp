@@ -37,6 +37,27 @@
 
 #define ARG_UNUSED(x) (void)(x)
 
+/*
+ * OSDP_TEST_ALIAS(fn) exposes an internal function to an out-of-module driver
+ * without touching its definition. Under UNIT_TESTING (the in-tree tests) or
+ * OSDP_UNIT_TESTABLE (an embedder opting in to drive libosdp internals) it
+ * emits a test_<fn> alias of fn -- which may be static -- so a caller in
+ * another translation unit reaches it by forward-declaring test_<fn>. It must
+ * appear after fn's definition and in the same translation unit. In a normal
+ * build it expands to a harmless forward declaration: no test_* symbols reach
+ * shipping images and every function keeps its original linkage.
+ *
+ * This replaces the older idiom of a hand-written test_<fn> function pointer:
+ * the alias binds to fn by name (no signature can drift), costs no .data slot,
+ * and adds no indirection at the call site.
+ */
+#if defined(UNIT_TESTING) || defined(OSDP_UNIT_TESTABLE)
+#define OSDP_TEST_ALIAS(fn) \
+	extern __typeof__(fn) test_##fn __attribute__((alias(#fn)))
+#else
+#define OSDP_TEST_ALIAS(fn) struct osdp_test_alias_##fn /* swallow the ';' */
+#endif
+
 #ifdef OPT_OSDP_LOG_MINIMAL
 
 __format_printf(4, 5)

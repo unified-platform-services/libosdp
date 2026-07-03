@@ -9,7 +9,7 @@
 #include <osdp.h>
 #include "test.h"
 
-extern int (*test_state_update)(struct osdp_pd *);
+extern int test_state_update(struct osdp_pd *);
 
 int test_fsm_resp = 0;
 

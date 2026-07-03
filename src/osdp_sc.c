@@ -269,11 +269,7 @@ void osdp_sc_teardown(struct osdp_pd *pd)
 	osdp_crypt_teardown();
 }
 
-#ifdef UNIT_TESTING
-int (*test_osdp_compute_mac)(struct osdp_pd *pd, int is_cmd,
-			     const uint8_t *data, int len) = osdp_compute_mac;
-int (*test_osdp_encrypt_data)(struct osdp_pd *pd, int is_cmd,
-			      uint8_t *data, int length) = osdp_encrypt_data;
-int (*test_osdp_decrypt_data)(struct osdp_pd *pd, int is_cmd,
-			      uint8_t *data, int length) = osdp_decrypt_data;
-#endif /* UNIT_TESTING */
+/* Export the secure-channel crypto primitives to the unit tests. */
+OSDP_TEST_ALIAS(osdp_compute_mac);
+OSDP_TEST_ALIAS(osdp_encrypt_data);
+OSDP_TEST_ALIAS(osdp_decrypt_data);

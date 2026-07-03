@@ -961,12 +961,7 @@ void osdp_phy_progress_sequence(struct osdp_pd *pd)
 	pd->seq_number = phy_get_next_seq_number(pd);
 }
 
-#ifdef UNIT_TESTING
-int (*test_osdp_phy_packet_finalize)(struct osdp_pd *pd, uint8_t *buf,
-			int len, int max_len) = osdp_phy_finalize_packet;
-
-/* Export packet creation functions through function pointers for testing */
-int (*test_osdp_phy_packet_init)(struct osdp_pd *pd, uint8_t *buf, int max_len) = osdp_phy_packet_init;
-uint16_t (*test_osdp_compute_crc16)(const uint8_t *buf, size_t len) = osdp_compute_crc16;
-uint8_t (*test_osdp_compute_checksum)(uint8_t *msg, int length) = osdp_compute_checksum;
-#endif
+/* Export packet build/verify internals to the unit tests. */
+OSDP_TEST_ALIAS(osdp_phy_finalize_packet);
+OSDP_TEST_ALIAS(osdp_phy_packet_init);
+OSDP_TEST_ALIAS(osdp_compute_checksum);

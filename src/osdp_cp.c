@@ -1874,17 +1874,13 @@ bool osdp_cp_is_pd_enabled(const osdp_t *ctx, int pd_idx)
 	return pd->state != OSDP_CP_STATE_DISABLED;
 }
 
-#ifdef UNIT_TESTING
+/* Export the CP command queue and state machine to the unit tests. */
+OSDP_TEST_ALIAS(cp_cmd_enqueue);
+OSDP_TEST_ALIAS(cp_phy_state_update);
+OSDP_TEST_ALIAS(state_update);
 
-/**
- * Force export some private methods for testing.
- */
-int (*test_cp_cmd_enqueue)(struct osdp_pd *,
-                           const struct osdp_cmd *) = cp_cmd_enqueue;
-int (*test_cp_phy_state_update)(struct osdp_pd *) = cp_phy_state_update;
-int (*test_state_update)(struct osdp_pd *) = state_update;
+#ifdef UNIT_TESTING
 const int CP_ERR_DEFER = OSDP_CP_ERR_DEFER;
 const int CP_ERR_CAN_YIELD = OSDP_CP_ERR_DEFER;
 const int CP_ERR_INPROG = OSDP_CP_ERR_INPROG;
-
 #endif /* UNIT_TESTING */
