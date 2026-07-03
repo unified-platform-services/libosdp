@@ -1576,3 +1576,7 @@ int osdp_pd_flush_events(osdp_t *ctx)
 
 	return count;
 }
+
+/* Export the PD frame codecs to out-of-module drivers (tests, embedders). */
+OSDP_TEST_ALIAS(pd_decode_command);
+OSDP_TEST_ALIAS(pd_build_reply);

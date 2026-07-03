@@ -865,6 +865,7 @@ int main(int argc, char *argv[])
 		{ "hotplug", run_hotplug_tests },
 		{ "notifications", run_notification_tests },
 		{ "async_fuzz", run_async_fuzz_tests },
+		{ "codec_fuzz", run_codec_fuzz_tests },
 		{ "sc", run_sc_tests },
 		{ "vectors", run_vector_tests },
 	};

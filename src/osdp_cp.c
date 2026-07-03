@@ -1879,6 +1879,10 @@ OSDP_TEST_ALIAS(cp_cmd_enqueue);
 OSDP_TEST_ALIAS(cp_phy_state_update);
 OSDP_TEST_ALIAS(state_update);
 
+/* Export the CP frame codecs to out-of-module drivers (tests, embedders). */
+OSDP_TEST_ALIAS(cp_build_command);
+OSDP_TEST_ALIAS(cp_decode_response);
+
 #ifdef UNIT_TESTING
 const int CP_ERR_DEFER = OSDP_CP_ERR_DEFER;
 const int CP_ERR_CAN_YIELD = OSDP_CP_ERR_DEFER;

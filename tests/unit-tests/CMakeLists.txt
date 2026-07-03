@@ -29,6 +29,7 @@ list(APPEND OSDP_UNIT_TEST_SRC
 	test-hotplug.c
 	test-notifications.c
 	test-async-fuzz.c
+	test-codec-fuzz.c
 	test-sc.c
 	test-sc-sia-vectors.c
 )

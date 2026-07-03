@@ -140,6 +140,7 @@ void run_event_tests(struct test *t);
 void run_hotplug_tests(struct test *t);
 void run_notification_tests(struct test *t);
 void run_async_fuzz_tests(struct test *t);
+void run_codec_fuzz_tests(struct test *t);
 void run_sc_tests(struct test *t);
 void run_vector_tests(struct test *t);
 
