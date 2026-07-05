@@ -89,8 +89,14 @@ void osdp_phy_release_packet(struct osdp_pd *pd)
 		pd->rx_pkt->max_len = 0;
 	}
 	pd->packet_len = 0;
-	CLEAR_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
-	pd->packet_buf = NULL;
+	/* A staged reply (pd_prebuild_status_reply) re-homes packet_buf to the
+	 * TX staging buffer during command dispatch, before this teardown runs.
+	 * Only reset the RX-side pointer when no such reply is pending, else we
+	 * null the finalized reply out from under pd_send_reply(). */
+	if (!pd->reply_prebuilt) {
+		CLEAR_FLAG(pd, PD_FLAG_PKT_HAS_MARK);
+		pd->packet_buf = NULL;
+	}
 #else /* OPT_OSDP_RX_ZERO_COPY */
 	ARG_UNUSED(pd);
 #endif /* OPT_OSDP_RX_ZERO_COPY */
