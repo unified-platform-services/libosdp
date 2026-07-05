@@ -21,8 +21,79 @@
 #define MAX_TEST_WORK 20  /* Increased for async fuzz testing */
 #define MOCK_BUF_LEN 512
 
+#ifndef OPT_OSDP_RX_ZERO_COPY
 CIRCBUF_DEF(uint8_t, cp_to_pd_buf, MOCK_BUF_LEN);
 CIRCBUF_DEF(uint8_t, pd_to_cp_buf, MOCK_BUF_LEN);
+#else
+/*
+ * Zero-copy mock channel: models the wire as whole packets, not a byte stream.
+ * The production zero-copy channel (e.g. osprio's osdp_frame.c) delimits frames
+ * by an inter-byte idle gap and hands libosdp one complete packet per recv_pkt;
+ * here each send() enqueues exactly one packet and recv_pkt() dequeues one. That
+ * preserves frame boundaries even when line-noise corrupts bytes within a frame,
+ * which is precisely how the timing-delimited hardware framer behaves.
+ *
+ * Single-producer/single-consumer per direction (send writes head; recv/release
+ * write tail), matching the lock-free discipline the byte CIRCBUF already relied
+ * on for the threaded async-fuzz runners.
+ */
+#define TEST_PKTQ_DEPTH 8
+#define TEST_PKT_MAXLEN OSDP_PACKET_BUF_SIZE
+
+struct test_pktq {
+	uint8_t pkt[TEST_PKTQ_DEPTH][TEST_PKT_MAXLEN];
+	int len[TEST_PKTQ_DEPTH];
+	volatile int head;
+	volatile int tail;
+};
+
+static struct test_pktq cp_to_pd_q; /* CP send -> PD recv */
+static struct test_pktq pd_to_cp_q; /* PD send -> CP recv */
+
+static int pktq_push(struct test_pktq *q, const uint8_t *buf, int len)
+{
+	int next = (q->head + 1) % TEST_PKTQ_DEPTH;
+
+	/* Mirror the production uart_send NULL guard: a channel must reject a
+	 * NULL/empty buffer rather than transmit it. Keeps a libosdp defect
+	 * that hands us a NULL packet_buf a graceful test failure, not a crash. */
+	if (buf == NULL || len <= 0) {
+		return -1;
+	}
+	if (next == q->tail) {
+		return 0; /* full: transient, caller may retry next refresh */
+	}
+	if (len > TEST_PKT_MAXLEN) {
+		len = TEST_PKT_MAXLEN;
+	}
+	memcpy(q->pkt[q->head], buf, len);
+	q->len[q->head] = len;
+	q->head = next;
+	return len;
+}
+
+static int pktq_recv(struct test_pktq *q, const uint8_t **buf, int *max_len)
+{
+	if (q->tail == q->head) {
+		return -1; /* empty */
+	}
+	*buf = q->pkt[q->tail];
+	*max_len = q->len[q->tail];
+	return 0;
+}
+
+static void pktq_release(struct test_pktq *q)
+{
+	if (q->tail != q->head) {
+		q->tail = (q->tail + 1) % TEST_PKTQ_DEPTH;
+	}
+}
+
+static void pktq_flush(struct test_pktq *q)
+{
+	q->tail = q->head;
+}
+#endif /* OPT_OSDP_RX_ZERO_COPY */
 
 struct test_suite_entry {
 	const char *name;
@@ -543,6 +614,8 @@ void maybe_corrupt_buffer(uint8_t *buf, int len)
 	g_corrupted_packets++;
 }
 
+#ifndef OPT_OSDP_RX_ZERO_COPY
+
 int test_mock_cp_send(void *data, uint8_t *buf, int len)
 {
 	int i;
@@ -608,6 +681,68 @@ void test_mock_pd_flush(void *data)
 	CIRCBUF_FLUSH(cp_to_pd_buf);
 }
 
+#else /* OPT_OSDP_RX_ZERO_COPY */
+
+int test_mock_cp_send(void *data, uint8_t *buf, int len)
+{
+	ARG_UNUSED(data);
+	if (buf == NULL || len <= 0) {
+		return -1;
+	}
+	maybe_corrupt_buffer(buf, len);
+	return pktq_push(&cp_to_pd_q, buf, len);
+}
+
+int test_mock_cp_recv_pkt(void *data, const uint8_t **buf, int *max_len)
+{
+	ARG_UNUSED(data);
+	return pktq_recv(&pd_to_cp_q, buf, max_len);
+}
+
+void test_mock_cp_release_pkt(void *data, const uint8_t *buf)
+{
+	ARG_UNUSED(data);
+	ARG_UNUSED(buf);
+	pktq_release(&pd_to_cp_q);
+}
+
+void test_mock_cp_flush(void *data)
+{
+	ARG_UNUSED(data);
+	pktq_flush(&pd_to_cp_q);
+}
+
+int test_mock_pd_send(void *data, uint8_t *buf, int len)
+{
+	ARG_UNUSED(data);
+	if (buf == NULL || len <= 0) {
+		return -1;
+	}
+	maybe_corrupt_buffer(buf, len);
+	return pktq_push(&pd_to_cp_q, buf, len);
+}
+
+int test_mock_pd_recv_pkt(void *data, const uint8_t **buf, int *max_len)
+{
+	ARG_UNUSED(data);
+	return pktq_recv(&cp_to_pd_q, buf, max_len);
+}
+
+void test_mock_pd_release_pkt(void *data, const uint8_t *buf)
+{
+	ARG_UNUSED(data);
+	ARG_UNUSED(buf);
+	pktq_release(&cp_to_pd_q);
+}
+
+void test_mock_pd_flush(void *data)
+{
+	ARG_UNUSED(data);
+	pktq_flush(&cp_to_pd_q);
+}
+
+#endif /* OPT_OSDP_RX_ZERO_COPY */
+
 int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 			   uint32_t cp_flags, uint32_t pd_flags)
 {
@@ -617,10 +752,15 @@ int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 	ARG_UNUSED(t);
 #endif /* OPT_OSDP_LOG_MINIMAL */
 
-	/* Shared mock channel; drop stale bytes left by the previous suite so a
+	/* Shared mock channel; drop stale traffic left by the previous suite so a
 	 * fresh PD does not read a non-zero sequence on its first packet. */
+#ifndef OPT_OSDP_RX_ZERO_COPY
 	CIRCBUF_FLUSH(cp_to_pd_buf);
 	CIRCBUF_FLUSH(pd_to_cp_buf);
+#else
+	pktq_flush(&cp_to_pd_q);
+	pktq_flush(&pd_to_cp_q);
+#endif
 
 	uint8_t scbk[16] = {
 		0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
@@ -630,7 +770,12 @@ int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 	struct osdp_channel cp_channel = {
 		.data = NULL,
 		.send = test_mock_cp_send,
+#ifndef OPT_OSDP_RX_ZERO_COPY
 		.recv = test_mock_cp_receive,
+#else
+		.recv_pkt = test_mock_cp_recv_pkt,
+		.release_pkt = test_mock_cp_release_pkt,
+#endif
 		.flush = test_mock_cp_flush,
 	};
 	osdp_pd_info_t info_cp = {
@@ -658,7 +803,12 @@ int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 	struct osdp_channel pd_channel = {
 		.data = NULL,
 		.send = test_mock_pd_send,
+#ifndef OPT_OSDP_RX_ZERO_COPY
 		.recv = test_mock_pd_receive,
+#else
+		.recv_pkt = test_mock_pd_recv_pkt,
+		.release_pkt = test_mock_pd_release_pkt,
+#endif
 		.flush = test_mock_pd_flush,
 	};
 	osdp_pd_info_t info_pd = {
@@ -856,6 +1006,12 @@ int main(int argc, char *argv[])
 	int i, rc;
 	struct test t;
 	static const struct test_suite_entry suites[] = {
+#ifdef OPT_OSDP_RX_ZERO_COPY
+		/* Fast zero-copy canary first: gives a precise signal before the
+		 * long general suites, which also cover the prebuilt-reply path
+		 * but abort hard if a reply's packet_buf is lost. */
+		{ "pd_zc", run_pd_zc_tests },
+#endif
 		{ "cp_phy", run_cp_phy_tests },
 		{ "pd_phy", run_pd_phy_tests },
 		{ "cp_fsm", run_cp_fsm_tests },

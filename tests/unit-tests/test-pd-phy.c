@@ -12,6 +12,13 @@
 
 #include "test.h"
 
+/* These tests push raw bytes into pd->rx_rb and drive osdp_phy_check_packet
+ * directly. The ring buffer and byte-stream framer only exist without
+ * OPT_OSDP_RX_ZERO_COPY; under zero-copy the channel delivers pre-framed
+ * packets, so the seq-repeat cache path is exercised by the loopback suites
+ * instead. */
+#ifndef OPT_OSDP_RX_ZERO_COPY
+
 extern uint16_t test_osdp_compute_crc16(const uint8_t *buf, size_t len);
 extern uint8_t test_osdp_compute_checksum(uint8_t *msg, int length);
 
@@ -369,3 +376,13 @@ void run_pd_phy_tests(struct test *t)
 
 	test_pd_phy_teardown(t);
 }
+
+#else /* OPT_OSDP_RX_ZERO_COPY */
+
+void run_pd_phy_tests(struct test *t)
+{
+	ARG_UNUSED(t);
+	printf(SUB_1 "pd_phy skipped: byte-stream framer path is non-zero-copy\n");
+}
+
+#endif /* OPT_OSDP_RX_ZERO_COPY */
