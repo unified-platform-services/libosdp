@@ -37,7 +37,7 @@ static int pyosdp_make_struct_cmd_output(struct osdp_cmd *p, PyObject *dict)
 
 	cmd->output_no = (uint8_t)output_no;
 	cmd->control_code = (uint8_t)control_code;
-	cmd->timer_count = (uint8_t)timer_count;
+	cmd->timer_count = (uint16_t)timer_count;
 	return 0;
 }
 
