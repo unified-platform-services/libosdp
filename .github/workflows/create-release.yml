@@ -40,6 +40,8 @@ jobs:
     name: Create Release
     needs: cross_platform_build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -48,14 +50,9 @@ jobs:
       - name: Produce Release Artifacts
         run: perl -e 'local $/; $_=<>; print $1 if (/-{4,}\n+\d+.*?\n+(.*?)\n+v\d+\./sg)' CHANGELOG > RELEASE.txt
       - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          # This token is provided by Actions, you do not need to create your own token
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          body_path: ./RELEASE.txt
+          name: Release ${{ github.ref_name }}
+          body_path: RELEASE.txt
           draft: false
           prerelease: false
