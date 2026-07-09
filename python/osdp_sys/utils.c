@@ -369,8 +369,18 @@ void pyosdp_get_channel(PyObject *channel, struct osdp_channel *ops)
 	PyObject *id_obj;
 
 	id_obj = PyObject_GetAttrString(channel, "id");
-	if (id_obj && PyLong_Check(id_obj)) {
-		id = (int)PyLong_AsLong(id_obj);
+	if (id_obj) {
+		if (PyLong_Check(id_obj)) {
+			id = (int)PyLong_AsLong(id_obj);
+		}
+		Py_DECREF(id_obj);
+	} else {
+		/* "id" is optional on the channel object; GetAttrString raises
+		 * AttributeError when it's absent. Clear it so the exception
+		 * doesn't linger and get flagged as "ignored" by the next
+		 * unrelated C-API call (seen under CPython 3.13+).
+		 */
+		PyErr_Clear();
 	}
 
 	ops->id = id;
