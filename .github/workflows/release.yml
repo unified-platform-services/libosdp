@@ -170,9 +170,9 @@ jobs:
           CIBW_ARCHS_MACOS: ${{ matrix.archs }}
           CIBW_ARCHS_WINDOWS: ${{ matrix.archs }}
           CIBW_BUILD: "*-${{ matrix.image }}_*"
-          # Python 3.8 is EOL and unbuildable: the PEP 639 license_expression
-          # in setup.py needs setuptools>=77, which dropped Python 3.8.
-          CIBW_SKIP: "cp38-*"
+          # Build for Python >= 3.10 only: setuptools >= 83 (needed for the
+          # PEP 639 license expression in setup.py) dropped Python 3.9.
+          CIBW_SKIP: "cp39-*"
       - name: Upload wheelhouse artifact
         uses: actions/upload-artifact@v7
         with:

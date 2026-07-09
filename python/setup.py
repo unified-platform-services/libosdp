@@ -253,6 +253,6 @@ setup(
     ],
     long_description              = long_description,
     long_description_content_type = "text/markdown",
-    python_requires               = ">=3.9",
+    python_requires               = ">=3.10",
     license_files                 = [ os.path.join("vendor", license_file) ],
 )
