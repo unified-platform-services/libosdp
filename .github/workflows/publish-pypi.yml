@@ -96,6 +96,9 @@ jobs:
           CIBW_ARCHS_WINDOWS: ${{ matrix.archs }}
           # Only build for the selected image type
           CIBW_BUILD: "*-${{ matrix.image }}_*"
+          # Drop Python < 3.10 (backported from master). cibuildwheel 3.x
+          # still builds cp38/cp39, so skip both.
+          CIBW_SKIP: "cp38-* cp39-*"
 
       - name: List produced wheels
         shell: bash
