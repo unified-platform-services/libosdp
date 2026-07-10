@@ -12,7 +12,7 @@ import shutil
 import subprocess
 
 project_name = "libosdp"
-project_version = "3.2.2"
+project_version = "3.2.3"
 current_dir = os.path.dirname(os.path.realpath(__file__))
 repo_root = os.path.realpath(os.path.join(current_dir, ".."))
 
@@ -248,6 +248,6 @@ setup(
     ],
     long_description              = long_description,
     long_description_content_type = "text/markdown",
-    python_requires               = ">=3.8",
+    python_requires               = ">=3.10",
     package_data = { project_name : other_files }
 )

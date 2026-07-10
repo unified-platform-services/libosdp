@@ -7,25 +7,35 @@
 #include <stdarg.h>
 #include "module.h"
 
-#if PY_VERSION_HEX < 0x030c0000
+#if PY_VERSION_HEX < 0x030C0000
+/*
+ * PyErr_GetRaisedException() / PyErr_SetRaisedException() were added in
+ * Python 3.12. Back-fill them with the legacy fetch/restore API (matching
+ * reference-stealing semantics) so this file compiles on 3.8 - 3.11.
+ */
 static PyObject *PyErr_GetRaisedException(void)
 {
 	PyObject *type, *value, *tb;
-	PyErr_Fetch(&type, &value, &tb);
+
+	PyErr_Fetch(&type, &value, &tb);	/* clears the error indicator */
+	if (type == NULL)
+		return NULL;			/* no active exception */
 	PyErr_NormalizeException(&type, &value, &tb);
 	if (tb != NULL) {
 		PyException_SetTraceback(value, tb);
 		Py_DECREF(tb);
 	}
-	Py_XDECREF(type);
-	return value;
+	Py_DECREF(type);
+	return value;				/* strong ref (normalized instance) */
 }
 
 static void PyErr_SetRaisedException(PyObject *exc)
 {
 	PyObject *type = (PyObject *)Py_TYPE(exc);
+	PyObject *tb = PyException_GetTraceback(exc);	/* new ref or NULL */
+
 	Py_INCREF(type);
-	PyErr_Restore(type, exc, NULL);
+	PyErr_Restore(type, exc, tb);		/* steals type, exc, tb */
 }
 #endif
 
@@ -391,8 +401,18 @@ void pyosdp_get_channel(PyObject *channel, struct osdp_channel *ops)
 	PyObject *id_obj;
 
 	id_obj = PyObject_GetAttrString(channel, "id");
-	if (id_obj && PyLong_Check(id_obj)) {
-		id = (int)PyLong_AsLong(id_obj);
+	if (id_obj) {
+		if (PyLong_Check(id_obj)) {
+			id = (int)PyLong_AsLong(id_obj);
+		}
+		Py_DECREF(id_obj);
+	} else {
+		/* "id" is optional on the channel object; GetAttrString raises
+		 * AttributeError when it's absent. Clear it so the exception
+		 * doesn't linger and get flagged as "ignored" by the next
+		 * unrelated C-API call (seen under CPython 3.13+).
+		 */
+		PyErr_Clear();
 	}
 
 	ops->id = id;

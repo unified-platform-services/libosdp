@@ -1,3 +1,15 @@
+v3.2.3
+------
+
+09 July 2026
+
+Point release for python users
+
+Fixes:
+  - fix(python): build wheels on Python < 3.12
+  - python: Clear stale AttributeError from optional channel "id" lookup
+
+
 v3.2.2
 ------
 
