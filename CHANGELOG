@@ -1,3 +1,30 @@
+v3.2.5
+------
+
+10 July 2026
+
+Re-release v.3.2.4 to fix python publishing
+
+Fixes:
+  - ci: Publish PyPI from tag push, not workflow_run
+
+
+v3.2.4
+------
+
+10 July 2026
+
+Security and stability fixes.
+
+Fixes:
+  - file: Fix another instance of runtime check placed as assert
+  - file: Fix OOB read due to critical check placed as assert
+  - cp: Fix OOB write in cp_decode_response REPLY_KEYPAD/RAW
+  - phy: Guard packet length subtraction against underflow
+  - phy: Fix framer wedge on fragmented packet header
+  - python: Drop Python 3.9 from wheel builds
+
+
 v3.2.3
 ------
 

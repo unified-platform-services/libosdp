@@ -465,6 +465,7 @@ static bool phy_rescan_packet_buf(struct osdp_pd *pd)
 static int phy_check_header(struct osdp_pd *pd)
 {
 	int ret, len;
+	unsigned long need;
 	uint8_t cur_byte = 0, prev_byte = 0;
 	uint8_t *buf = pd->packet_buf;
 
@@ -490,10 +491,19 @@ static int phy_check_header(struct osdp_pd *pd)
 		prev_byte = cur_byte;
 	}
 
-	/* Found start of a new packet; wait until we have atleast the header */
-	len = osdp_rb_pop_buf(pd->rx.rb, buf + pd->packet_buf_len,
-			      sizeof(struct osdp_packet_header) - 1);
-	pd->packet_buf_len += len;
+	/*
+	 * Found start of a new packet; top up only the header bytes still
+	 * missing. On re-entry with a partially collected header, popping a
+	 * fixed sizeof(header)-1 bytes would overshoot packet_buf_len past the
+	 * packet and wedge the framer (see osdp_phy_check_packet()).
+	 */
+	need = sizeof(struct osdp_packet_header) +
+	       (buf[0] == OSDP_PKT_MARK ? 1 : 0);
+	if (pd->packet_buf_len < need) {
+		len = osdp_rb_pop_buf(pd->rx.rb, buf + pd->packet_buf_len,
+				      need - pd->packet_buf_len);
+		pd->packet_buf_len += len;
+	}
 
 	/* Validate header using shared function */
 	ret = phy_validate_header(pd, buf, pd->packet_buf_len, OSDP_PACKET_BUF_SIZE);
@@ -670,6 +680,17 @@ int osdp_phy_check_packet(struct osdp_pd *pd)
 	}
 
 	if (!zero_copy) {
+		/*
+		 * Guard the unsigned subtraction below: if we ever hold more
+		 * bytes than the header declared, the wrap-around would ask for
+		 * a huge (negative when cast to int) count and wedge the framer.
+		 * Treat it as a malformed frame so the link resets and recovers.
+		 */
+		if (pd->packet_buf_len > pd->packet_len) {
+			LOG_ERR("Buffered %lu bytes exceeds packet length %lu",
+				pd->packet_buf_len, pd->packet_len);
+			return OSDP_ERR_PKT_FMT;
+		}
 		/* Traditional: collect remaining packet bytes from ring buffer */
 		ret = osdp_rb_pop_buf(pd->rx.rb,
 				      pd->packet_buf + pd->packet_buf_len,

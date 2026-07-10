@@ -577,7 +577,8 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		event.type = OSDP_EVENT_KEYPRESS;
 		event.keypress.reader_no = buf[pos++];
 		event.keypress.length = buf[pos++];
-		if ((len - REPLY_KEYPAD_DATA_LEN) != event.keypress.length) {
+		if (event.keypress.length != (len - REPLY_KEYPAD_DATA_LEN) ||
+		    event.keypress.length > OSDP_EVENT_KEYPRESS_MAX_DATALEN) {
 			break;
 		}
 		memcpy(event.keypress.data, buf + pos, event.keypress.length);
@@ -595,7 +596,8 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		event.cardread.length = bread_u16_le(buf, &pos);
 		event.cardread.direction = 0; /* un-specified */
 		t = (event.cardread.length + 7) / 8; /* len: bytes */
-		if (t != (len - REPLY_RAW_DATA_LEN)) {
+		if (t != (len - REPLY_RAW_DATA_LEN) ||
+		    t > OSDP_EVENT_CARDREAD_MAX_DATALEN) {
 			break;
 		}
 		memcpy(event.cardread.data, buf + pos, t);

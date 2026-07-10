@@ -8,9 +8,12 @@ name: Publish PyPI
 
 on:
   workflow_dispatch:
-  workflow_run:
-    workflows: ["Create Release"]
-    types: [completed]
+  push:
+    # Publish directly off the pushed tag. Do not use workflow_run here:
+    # it runs the default-branch workflow against the default branch, so a
+    # tag cut from a maintenance branch would rebuild and publish master.
+    tags:
+      - 'v*'
 
 jobs:
   build_wheels:
@@ -148,3 +151,6 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python/dist/
+          # Tolerate re-runs and partially-uploaded releases instead of
+          # failing the whole job on the first already-present file.
+          skip-existing: true
