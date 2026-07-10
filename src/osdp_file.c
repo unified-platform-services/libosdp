@@ -288,7 +288,12 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 	xfer.offset = bread_u32_le(buf, &pos);
 	xfer.length = bread_u16_le(buf, &pos);
 	assert(pos == sizeof(struct osdp_cmd_file_xfer));
-	assert(xfer.length + pos == len);
+
+	if (xfer.length > (uint16_t)(len - FILE_TRANSFER_HEADER_SIZE)) {
+		LOG_ERR("TX_Decode: declared length %d exceeds %d bytes present",
+			xfer.length, len - FILE_TRANSFER_HEADER_SIZE);
+		return -1;
+	}
 
 	if (f->state == OSDP_FILE_TX_STATE_IDLE) {
 		if (pd->command_callback) {
