@@ -227,6 +227,77 @@ int test_phy_decode_packet_ack(struct osdp *ctx)
 	return 0;
 }
 
+/*
+ * A packet header that arrives split across multiple osdp_phy_check_packet()
+ * calls (normal on a slow/bursty serial link) must not wedge the framer.
+ * phy_check_header() used to top up a fixed sizeof(header)-1 bytes on every
+ * re-entry; resuming a partial header then overshot packet_buf_len past
+ * packet_len, and the unsigned (packet_len - packet_buf_len) underflowed into
+ * a permanent OSDP_ERR_PKT_WAIT.
+ *
+ * Related-to: GitHub issue #322
+ */
+int test_phy_decode_packet_fragmented_header(struct osdp *ctx)
+{
+	uint8_t *buf;
+	int len, err, i;
+	struct osdp_pd *p = GET_CURRENT_PD(ctx);
+	reset_pd_packet_state(p);
+	uint8_t expected[] = { REPLY_ACK };
+
+	printf(SUB_1 "Testing phy_check_packet with a fragmented header (issue #322) -- ");
+
+	SET_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK);
+
+	/* A valid mark-less ACK from the PD (address MSB set): 7 bytes of
+	 * [SOM addr len_lsb len_msb control REPLY_ACK checksum]. */
+	uint8_t packet[7];
+	len = 0;
+	packet[len++] = 0x53;        /* SOM (no leading mark) */
+	packet[len++] = 0xe5;        /* PD address with reply bit */
+	packet[len++] = 7;           /* len_lsb: 5 header + 1 data + 1 checksum */
+	packet[len++] = 0;           /* len_msb */
+	packet[len++] = 0x01;        /* control: sequence 1, no CRC */
+	packet[len++] = REPLY_ACK;   /* data */
+	packet[len] = test_osdp_compute_checksum(packet, len);
+	len++;                       /* len == 7 */
+
+	/* Deliver a 4-byte partial header; the framer must report "not complete"
+	 * without consuming past what arrived. */
+	osdp_rb_push_buf(p->rx_rb, packet, 4);
+	err = osdp_phy_check_packet(p);
+	if (err != OSDP_ERR_PKT_WAIT && err != OSDP_ERR_PKT_NO_DATA) {
+		printf("unexpected err %d on partial header!\n", err);
+		CLEAR_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK);
+		return -1;
+	}
+
+	/* Deliver the remaining 3 bytes plus one byte of the next frame, so more
+	 * than the header's worth of bytes are now queued. A framer that over-reads
+	 * on re-entry wedges here permanently. */
+	osdp_rb_push_buf(p->rx_rb, packet + 4, 3);
+	osdp_rb_push(p->rx_rb, 0xff); /* leading mark of the following reply */
+
+	err = OSDP_ERR_PKT_WAIT;
+	for (i = 0; i < 8 && err != OSDP_ERR_PKT_NONE; i++) {
+		err = osdp_phy_check_packet(p);
+	}
+	if (err != OSDP_ERR_PKT_NONE) {
+		printf("framer wedged on fragmented header (err %d)!\n", err);
+		CLEAR_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK);
+		return -1;
+	}
+	if ((len = osdp_phy_decode_packet(p, &buf)) < 0) {
+		printf("decode failed!\n");
+		CLEAR_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK);
+		return -1;
+	}
+	CHECK_ARRAY(buf, len, expected);
+	CLEAR_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK);
+	printf("success!\n");
+	return 0;
+}
+
 static int test_phy_parse_hardcoded_plain_checksum_ack(struct osdp *ctx)
 {
 	uint8_t *buf;
@@ -1490,6 +1561,7 @@ void run_cp_phy_tests(struct test *t)
 	DO_TEST(t, test_phy_build_packet_without_mark);
 	DO_TEST(t, test_phy_packet_multiple_commands);
 	DO_TEST(t, test_phy_decode_packet_ack);
+	DO_TEST(t, test_phy_decode_packet_fragmented_header);
 	DO_TEST(t, test_phy_decode_packet_nak);
 	DO_TEST(t, test_phy_decode_packet_busy);
 	DO_TEST(t, test_phy_decode_packet_ignore_leading_mark_bytes);
