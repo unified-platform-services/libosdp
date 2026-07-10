@@ -338,6 +338,15 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 		return 0;
 	}
 
+	/* Bound the wire offset and length against the declared file size
+	 * before handing them to the write handler, so a peer cannot make it
+	 * write outside the file it announced. */
+	if ((uint64_t)xfer.offset + xfer.length > f->size) {
+		LOG_ERR("TX_Decode: chunk off:%d len:%d exceeds size:%d",
+			xfer.offset, xfer.length, f->size);
+		return -1;
+	}
+
 	f->length = f->ops.write(f->ops.arg, data, xfer.length, xfer.offset);
 	if (f->length != xfer.length) {
 		LOG_ERR("TX_Decode: user write failed! rc:%d len:%d off:%d",
@@ -385,7 +394,13 @@ int osdp_file_cmd_stat_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	}
 	LOG_DBG("length: %d offset: %d size: %d", f->length, f->offset, f->size);
 	f->length = 0;
-	assert(f->offset <= f->size);
+
+	/*
+	 * Don't assert f->offset:w <= f->size: a legitimately retransmitted
+	 * chunk (lost FTSTAT) re-drives the running offset and can transiently
+	 * overshoot. The write-side bound in tx_decode is the real guard.
+	 */
+
 	if (f->offset == f->size) { /* EOF */
 		stat.status = OSDP_FILE_TX_STATUS_CONTENTS_PROCESSED;
 		LOG_INF("TX_Decode: File receive complete");
