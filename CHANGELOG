@@ -1,3 +1,14 @@
+v3.2.5
+------
+
+10 July 2026
+
+Re-release v.3.2.4 to fix python publishing
+
+Fixes:
+  - ci: Publish PyPI from tag push, not workflow_run
+
+
 v3.2.4
 ------
 
