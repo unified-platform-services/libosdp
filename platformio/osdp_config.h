@@ -11,7 +11,7 @@
  * @brief The following macros are defined defined from the variable in cmake
  * files. All @XXX@ are replaced by the value of XXX as resolved by cmake.
  */
-#define PROJECT_VERSION                "3.2.3"
+#define PROJECT_VERSION                "3.2.4"
 #define PROJECT_NAME                   "libosdp"
 #define GIT_BRANCH                     "platformio"
 #define GIT_REV                        ""
