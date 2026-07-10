@@ -748,6 +748,17 @@ int osdp_phy_check_packet(struct osdp_pd *pd)
 
 #ifndef OPT_OSDP_RX_ZERO_COPY
 	{
+		/*
+		 * Guard the unsigned subtraction below: if we ever hold more
+		 * bytes than the header declared, the wrap-around would ask for
+		 * a huge (negative when cast to int) count and wedge the framer.
+		 * Treat it as a malformed frame so the link resets and recovers.
+		 */
+		if (pd->packet_buf_len > pd->packet_len) {
+			LOG_ERR("Buffered %lu bytes exceeds packet length %lu",
+				pd->packet_buf_len, pd->packet_len);
+			return OSDP_ERR_PKT_FMT;
+		}
 		/* Traditional: collect remaining packet bytes from ring buffer */
 		ret = osdp_rb_pop_buf(pd->rx_rb,
 				      pd->packet_buf + pd->packet_buf_len,

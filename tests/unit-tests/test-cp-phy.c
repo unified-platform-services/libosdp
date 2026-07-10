@@ -298,6 +298,51 @@ int test_phy_decode_packet_fragmented_header(struct osdp *ctx)
 	return 0;
 }
 
+/*
+ * Defense-in-depth for issue #322: even if a future change lets the framer
+ * buffer more bytes than the packet's declared length, osdp_phy_check_packet()
+ * must not underflow the unsigned (packet_len - packet_buf_len) and wedge. It
+ * must report a format error so the link resets and recovers.
+ */
+int test_phy_check_packet_overfilled_buffer_recovers(struct osdp *ctx)
+{
+	int err, n;
+	struct osdp_pd *p = GET_CURRENT_PD(ctx);
+	reset_pd_packet_state(p);
+
+	printf(SUB_1 "Testing phy_check_packet guards an over-filled buffer (issue #322) -- ");
+
+	/* A valid 7-byte ACK plus one stray trailing byte in packet_buf. */
+	uint8_t packet[8];
+	n = 0;
+	packet[n++] = 0x53;
+	packet[n++] = 0xe5;
+	packet[n++] = 7;
+	packet[n++] = 0;
+	packet[n++] = 0x01;
+	packet[n++] = REPLY_ACK;
+	packet[n] = test_osdp_compute_checksum(packet, n);
+	n++;
+	packet[n++] = 0xff; /* stray byte of the following frame */
+	memcpy(p->packet_buf, packet, n);
+
+	/* Simulate the invariant violation: more buffered than the header declares. */
+	p->packet_len = 7;
+	p->packet_buf_len = 8;
+
+	err = osdp_phy_check_packet(p);
+	if (err == OSDP_ERR_PKT_WAIT) {
+		printf("framer wedged: buffered > packet length not guarded!\n");
+		return -1;
+	}
+	if (err != OSDP_ERR_PKT_FMT) {
+		printf("unexpected err %d!\n", err);
+		return -1;
+	}
+	printf("success!\n");
+	return 0;
+}
+
 static int test_phy_parse_hardcoded_plain_checksum_ack(struct osdp *ctx)
 {
 	uint8_t *buf;
@@ -1562,6 +1607,7 @@ void run_cp_phy_tests(struct test *t)
 	DO_TEST(t, test_phy_packet_multiple_commands);
 	DO_TEST(t, test_phy_decode_packet_ack);
 	DO_TEST(t, test_phy_decode_packet_fragmented_header);
+	DO_TEST(t, test_phy_check_packet_overfilled_buffer_recovers);
 	DO_TEST(t, test_phy_decode_packet_nak);
 	DO_TEST(t, test_phy_decode_packet_busy);
 	DO_TEST(t, test_phy_decode_packet_ignore_leading_mark_bytes);
