@@ -959,6 +959,21 @@ int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd)
 	return test_setup_devices_ext(t, cp, pd, 0, 0);
 }
 
+bool test_wait_for_online(osdp_t *cp_ctx, int pd_idx, int timeout_sec)
+{
+	uint8_t status = 0;
+	int rc = 0;
+
+	while (rc++ < timeout_sec) {
+		osdp_get_status_mask(cp_ctx, &status);
+		if (status & (1 << pd_idx)) {
+			return true;
+		}
+		usleep(1000 * 1000);
+	}
+	return false;
+}
+
 void test_start(struct test *t, int log_level)
 {
 	memset(t, 0, sizeof(*t));
