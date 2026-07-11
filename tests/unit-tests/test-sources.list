@@ -20,4 +20,5 @@ test-async-fuzz.c
 test-codec-fuzz.c
 test-sc.c
 test-sc-sia-vectors.c
+test-trs.c
 test-pd-zc.c
