@@ -29,7 +29,7 @@ struct test_data {
 struct test_data sender_data;
 struct test_data receiver_data;
 
-static int test_fops_open(void *arg, int file_id, int *size)
+static int test_fops_open(void *arg, int file_id, uint32_t *size)
 {
 	struct test_data *t = arg;
 
@@ -57,7 +57,7 @@ static int test_fops_open(void *arg, int file_id, int *size)
 	return 0;
 }
 
-static int test_fops_read(void *arg, void *buf, int size, int offset)
+static int test_fops_read(void *arg, void *buf, uint32_t size, uint32_t offset)
 {
 	struct test_data *t = arg;
 	ssize_t ret;
@@ -84,7 +84,7 @@ static int test_fops_read(void *arg, void *buf, int size, int offset)
 	return (int)ret;
 }
 
-static int test_fops_write(void *arg, const void *buf, int size, int offset)
+static int test_fops_write(void *arg, const void *buf, uint32_t size, uint32_t offset)
 {
 	ssize_t ret;
 	struct test_data *t = arg;

@@ -149,7 +149,17 @@ int osdp_file_cmd_tx_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	 */
 	buf_available = max_len - FILE_TRANSFER_HEADER_SIZE - 16;
 
-	f->length = f->ops.read(f->ops.arg, data, buf_available, f->offset);
+	/* The header check above does not account for the encryption
+	 * headroom, so the subtraction can still go negative. size is
+	 * unsigned in the read handler; a negative count must not reach it. */
+	if (buf_available <= 0) {
+		LOG_ERR("TX_Build: insufficient space; need:%d have:%d",
+			FILE_TRANSFER_HEADER_SIZE + 16, max_len);
+		goto reply_abort;
+	}
+
+	f->length = f->ops.read(f->ops.arg, data, (uint32_t)buf_available,
+				f->offset);
 	if (f->length < 0) {
 		LOG_ERR("TX_Build: user read failed! rc:%d len:%d off:%" PRIu32,
 			f->length, buf_available, f->offset);
@@ -310,7 +320,7 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 
 		/* new file write request */
-		int size = (int)xfer.size;
+		uint32_t size = xfer.size;
 		if (f->ops.open(f->ops.arg, xfer.type, &size) < 0) {
 			LOG_ERR("TX_Decode: Open failed! fd:%d", xfer.type);
 			return -1;
@@ -470,7 +480,7 @@ int osdp_file_tx_get_command(struct osdp_pd *pd)
  */
 int osdp_file_tx_command(struct osdp_pd *pd, int file_id, uint32_t flags)
 {
-	int size = 0;
+	uint32_t size = 0;
 	struct osdp_file *f = TO_FILE(pd);
 
 	if (f == NULL) {
@@ -501,12 +511,12 @@ int osdp_file_tx_command(struct osdp_pd *pd, int file_id, uint32_t flags)
 		return -1;
 	}
 
-	if (size <= 0) {
-		LOG_ERR("TX_init: Invalid file size %d", size);
+	if (size == 0) {
+		LOG_ERR("TX_init: Invalid file size %" PRIu32, size);
 		return -1;
 	}
 
-	LOG_INF("TX_init: Starting file transfer of size: %d", size);
+	LOG_INF("TX_init: Starting file transfer of size: %" PRIu32, size);
 
 	file_state_reset(f);
 	f->flags = flags;
@@ -562,7 +572,7 @@ int osdp_file_register_ops(osdp_t *ctx, int pd_idx,
 }
 
 int osdp_get_file_tx_status(const osdp_t *ctx, int pd_idx,
-			    int *size, int *offset)
+			    uint32_t *size, uint32_t *offset)
 {
 	input_check(ctx, pd_idx);
 	struct osdp_file *f = TO_FILE(osdp_to_pd(ctx, pd_idx));

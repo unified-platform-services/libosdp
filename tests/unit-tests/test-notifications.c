@@ -96,7 +96,7 @@ static int cp_event_cb(void *arg, int pd, struct osdp_event *ev)
 	return 0;
 }
 
-static int notif_fops_open(void *arg, int file_id, int *size)
+static int notif_fops_open(void *arg, int file_id, uint32_t *size)
 {
 	struct { bool is_cp; int fd; } *t = arg;
 
@@ -111,7 +111,7 @@ static int notif_fops_open(void *arg, int file_id, int *size)
 	return 0;
 }
 
-static int notif_fops_read(void *arg, void *buf, int size, int offset)
+static int notif_fops_read(void *arg, void *buf, uint32_t size, uint32_t offset)
 {
 	struct { bool is_cp; int fd; } *t = arg;
 
@@ -119,7 +119,7 @@ static int notif_fops_read(void *arg, void *buf, int size, int offset)
 	return (int)pread(t->fd, buf, (size_t)size, (size_t)offset);
 }
 
-static int notif_fops_write(void *arg, const void *buf, int size, int offset)
+static int notif_fops_write(void *arg, const void *buf, uint32_t size, uint32_t offset)
 {
 	struct { bool is_cp; int fd; } *t = arg;
 

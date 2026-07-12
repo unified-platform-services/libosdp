@@ -8,7 +8,7 @@
 
 #define TAG "pyosdp_base"
 
-int pyosdp_fops_open(void *arg, int file_id, int *size)
+int pyosdp_fops_open(void *arg, int file_id, uint32_t *size)
 {
 	int rc, ret;
 	pyosdp_base_t *self = arg;
@@ -23,9 +23,16 @@ int pyosdp_fops_open(void *arg, int file_id, int *size)
 
 	rc = pyosdp_parse_int(result, &ret);
 	if (rc >= 0) {
-		self->file_id = file_id;
-		*size = ret;
-		rc = 0;
+		if (ret < 0) {
+			/* size is unsigned on the wire; a negative size from
+			 * the callback must be rejected here, before it is
+			 * widened into one that looks enormous. */
+			rc = -1;
+		} else {
+			self->file_id = file_id;
+			*size = (uint32_t)ret;
+			rc = 0;
+		}
 	}
 
 	Py_XDECREF(result);
@@ -33,7 +40,7 @@ int pyosdp_fops_open(void *arg, int file_id, int *size)
 	return rc;
 }
 
-int pyosdp_fops_read(void *arg, void *buf, int size, int offset)
+int pyosdp_fops_read(void *arg, void *buf, uint32_t size, uint32_t offset)
 {
 	int rc, len = -1;
 	uint8_t *rec_bytes;
@@ -49,8 +56,8 @@ int pyosdp_fops_read(void *arg, void *buf, int size, int offset)
 
 	rc = pyosdp_parse_bytes(bytes, (uint8_t **)&rec_bytes, &len, false);
 	if (rc == 0) {
-		if (len <= size)
-			memcpy(buf, rec_bytes, len);
+		if (len >= 0 && (uint32_t)len <= size)
+			memcpy(buf, rec_bytes, (size_t)len);
 		else
 			len = -1;
 	}
@@ -60,7 +67,7 @@ int pyosdp_fops_read(void *arg, void *buf, int size, int offset)
 	return len;
 }
 
-int pyosdp_fops_write(void *arg, const void *buf, int size, int offset)
+int pyosdp_fops_write(void *arg, const void *buf, uint32_t size, uint32_t offset)
 {
 	int written = 0;
 	pyosdp_base_t *self = arg;
@@ -107,7 +114,8 @@ int  pyosdp_fops_close(void *arg)
 	"@return dictionary of keys 'size' and 'offset' if file TX is in progress.\n"
 static PyObject *pyosdp_get_file_tx_status(pyosdp_base_t *self, PyObject *args)
 {
-	int pd_idx, size, offset;
+	int pd_idx;
+	uint32_t size, offset;
 	osdp_t *ctx;
 	PyObject *dict;
 	pyosdp_cp_t *cp = (pyosdp_cp_t *)self;

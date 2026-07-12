@@ -1571,7 +1571,7 @@ int osdp_get_metrics(osdp_t *ctx, int pd_idx, struct osdp_metrics *out);
  * @retval 0 on success
  * @retval -1 on errors
  */
-typedef int (*osdp_file_open_fn_t)(void *arg, int file_id, int *size);
+typedef int (*osdp_file_open_fn_t)(void *arg, int file_id, uint32_t *size);
 
 /**
  * @brief Read a chunk of file data into buffer
@@ -1590,7 +1590,8 @@ typedef int (*osdp_file_open_fn_t)(void *arg, int file_id, int *size);
  * @note LibOSDP will guarantee that size and offset params are always
  * positive and size is always greater than or equal to offset.
  */
-typedef int (*osdp_file_read_fn_t)(void *arg, void *buf, int size, int offset);
+typedef int (*osdp_file_read_fn_t)(void *arg, void *buf, uint32_t size,
+				   uint32_t offset);
 
 /**
  * @brief Write a chunk of file data from buffer to disk.
@@ -1610,7 +1611,7 @@ typedef int (*osdp_file_read_fn_t)(void *arg, void *buf, int size, int offset);
  * positive and size is always greater than or equal to offset.
  */
 typedef int (*osdp_file_write_fn_t)(void *arg, const void *buf,
-				   int size, int offset);
+				   uint32_t size, uint32_t offset);
 
 /**
  * @brief Close file that corresponds to a given file descriptor
@@ -1667,7 +1668,8 @@ int osdp_file_register_ops(osdp_t *ctx, int pd,
  * @retval 0 on success. -1 on errors.
  */
 OSDP_EXPORT
-int osdp_get_file_tx_status(const osdp_t *ctx, int pd, int *size, int *offset);
+int osdp_get_file_tx_status(const osdp_t *ctx, int pd, uint32_t *size,
+			    uint32_t *offset);
 
 #ifdef __cplusplus
 }

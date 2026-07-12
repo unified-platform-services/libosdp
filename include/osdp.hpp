@@ -58,7 +58,7 @@ public:
 		return osdp_file_register_ops(_ctx, pd, ops);
 	}
 
-	int file_tx_get_status(int pd, int *size, int *offset)
+	int file_tx_get_status(int pd, uint32_t *size, uint32_t *offset)
 	{
 		return osdp_get_file_tx_status(_ctx, pd, size, offset);
 	}
