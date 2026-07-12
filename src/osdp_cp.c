@@ -1443,7 +1443,7 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	return cp_cmd_enqueue(pd, cmd);
 }
 
-static void cp_collect_init_flags(struct osdp_pd *pd, int flags)
+static void cp_collect_init_flags(struct osdp_pd *pd, uint32_t flags)
 {
 	if (flags & OSDP_FLAG_ENFORCE_SECURE) {
 		SET_FLAG(pd, PD_FLAG_ENFORCE_SECURE);
