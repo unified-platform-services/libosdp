@@ -513,7 +513,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		pd->address = buf[pos++];
 		pd->baud_rate = bread_u32_le(buf, &pos);
-		LOG_INF("COMSET responded with ID:%d Baud:%d",
+		LOG_INF("COMSET responded with ID:%d Baud:%" PRIu32,
 			pd->address, pd->baud_rate);
 		ret = OSDP_CP_ERR_NONE;
 		break;
@@ -1249,7 +1249,8 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		pd->wait_ms = OSDP_ONLINE_RETRY_WAIT_MAX_MS;
 		sc_deactivate(pd);
 		notify_sc_status(pd);
-		LOG_ERR("Going offline for %d seconds; Was in '%s' state",
+		LOG_ERR("Going offline for %" PRIu32
+			" seconds; Was in '%s' state",
 			pd->wait_ms / 1000, state_get_name(cur));
 		osdp_file_tx_abort(pd);
 		notify_pd_status(pd, false);

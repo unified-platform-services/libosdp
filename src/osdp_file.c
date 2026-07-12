@@ -151,7 +151,7 @@ int osdp_file_cmd_tx_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 
 	f->length = f->ops.read(f->ops.arg, data, buf_available, f->offset);
 	if (f->length < 0) {
-		LOG_ERR("TX_Build: user read failed! rc:%d len:%d off:%d",
+		LOG_ERR("TX_Build: user read failed! rc:%d len:%d off:%" PRIu32,
 			f->length, buf_available, f->offset);
 		goto reply_abort;
 	}
@@ -236,7 +236,8 @@ int osdp_file_cmd_stat_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 
 	if (stat.status < 0) {
 		LOG_ERR("Stat_Decode: File transfer error; "
-			"status:%d offset:%d", stat.status, f->offset);
+			"status:%d offset:%" PRIu32,
+			stat.status, f->offset);
 		file_transition_done(pd,
 				     file_outcome_from_wire_status(stat.status));
 		return -1;
@@ -315,7 +316,8 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 			return -1;
 		}
 
-		LOG_INF("TX_Decode: Starting file transfer of size: %d", xfer.size);
+		LOG_INF("TX_Decode: Starting file transfer of size: %" PRIu32,
+			xfer.size);
 		file_state_reset(f);
 		f->file_id = xfer.type;
 		f->size = xfer.size;
@@ -332,7 +334,8 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 	 * callback entirely and leave offset unchanged. stat_build will
 	 * reply ACK without ERR_INVALID once it sees the flag. */
 	if (xfer.length == 0) {
-		LOG_DBG("TX_Decode: keep-alive ping at off:%d", xfer.offset);
+		LOG_DBG("TX_Decode: keep-alive ping at off:%" PRIu32,
+			xfer.offset);
 		f->keep_alive_pending = true;
 		f->length = 0;
 		return 0;
@@ -342,14 +345,15 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 	 * before handing them to the write handler, so a peer cannot make it
 	 * write outside the file it announced. */
 	if ((uint64_t)xfer.offset + xfer.length > f->size) {
-		LOG_ERR("TX_Decode: chunk off:%d len:%d exceeds size:%d",
+		LOG_ERR("TX_Decode: chunk off:%" PRIu32
+			" len:%d exceeds size:%" PRIu32,
 			xfer.offset, xfer.length, f->size);
 		return -1;
 	}
 
 	f->length = f->ops.write(f->ops.arg, data, xfer.length, xfer.offset);
 	if (f->length != xfer.length) {
-		LOG_ERR("TX_Decode: user write failed! rc:%d len:%d off:%d",
+		LOG_ERR("TX_Decode: user write failed! rc:%d len:%d off:%" PRIu32,
 			f->length, xfer.length, xfer.offset);
 		f->errors++;
 		return -1;
@@ -392,7 +396,8 @@ int osdp_file_cmd_stat_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	} else {
 		stat.status = OSDP_FILE_TX_STATUS_ERR_INVALID;
 	}
-	LOG_DBG("length: %d offset: %d size: %d", f->length, f->offset, f->size);
+	LOG_DBG("length: %d offset: %" PRIu32 " size: %" PRIu32, f->length,
+		f->offset, f->size);
 	f->length = 0;
 
 	/*

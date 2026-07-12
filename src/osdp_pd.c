@@ -1291,8 +1291,8 @@ static void osdp_pd_update(struct osdp_pd *pd)
 			comset_done_cmd.comset.baud_rate = pd->comset_pending.baud_rate;
 			do_command_callback(pd, &comset_done_cmd);
 			pd->address = (int)pd->comset_pending.address;
-			pd->baud_rate = (int)pd->comset_pending.baud_rate;
-			LOG_INF("COMSET Succeeded! New PD-Addr: %d; Baud: %d",
+			pd->baud_rate = pd->comset_pending.baud_rate;
+			LOG_INF("COMSET Succeeded! New PD-Addr: %d; Baud: %" PRIu32,
 				pd->address, pd->baud_rate);
 		}
 		osdp_phy_progress_sequence(pd);

@@ -392,7 +392,7 @@ typedef struct {
 	/**
 	 * Can be one of 9600/19200/38400/57600/115200/230400
 	 */
-	int baud_rate;
+	uint32_t baud_rate;
 	/**
 	 * 7 bit PD address. the rest of the bits are ignored. The special
 	 * address 0x7F is used for broadcast. So there can be 2^7-1 devices on
