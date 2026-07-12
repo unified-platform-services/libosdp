@@ -428,7 +428,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		t = OSDP_PD_CAP_RECEIVE_BUFFERSIZE;
 		if (pd->cap[t].function_code == t) {
 			pd->peer_rx_size = pd->cap[t].compliance_level;
-			pd->peer_rx_size |= pd->cap[t].num_items << 8;
+			pd->peer_rx_size |= (uint32_t)pd->cap[t].num_items << 8;
 		}
 
 		/* post-capabilities hooks */

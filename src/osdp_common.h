@@ -594,9 +594,9 @@ void osdp_sc_teardown(struct osdp_pd *pd);
 
 static inline uint16_t bread_u16_le(const uint8_t *buf, int *pos)
 {
-    uint16_t v = buf[(*pos)++];
-    v |= (uint16_t)buf[(*pos)++] << 8;
-    return v;
+    uint32_t v = buf[(*pos)++];
+    v |= (uint32_t)buf[(*pos)++] << 8;
+    return (uint16_t)v;
 }
 
 static inline uint32_t bread_u24_le(const uint8_t *buf, int *pos)
@@ -648,9 +648,9 @@ static inline void bwrite_u32_le(uint32_t val, uint8_t *buf, int *len)
 
 static inline uint16_t bread_u16_be(const uint8_t *buf, int *pos)
 {
-    uint16_t v = (uint16_t)buf[(*pos)++] << 8;
+    uint32_t v = (uint32_t)buf[(*pos)++] << 8;
     v |= buf[(*pos)++];
-    return v;
+    return (uint16_t)v;
 }
 
 static inline uint32_t bread_u24_be(const uint8_t *buf, int *pos)

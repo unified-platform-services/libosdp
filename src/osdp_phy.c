@@ -431,7 +431,7 @@ static int phy_validate_header(struct osdp_pd *pd, uint8_t *buf,
 		return OSDP_ERR_PKT_FMT;
 	}
 
-	pkt_len = (pkt->len_msb << 8) | pkt->len_lsb;
+	pkt_len = ((uint32_t)pkt->len_msb << 8) | pkt->len_lsb;
 	if (pkt_len > max_len ||
 	    pkt_len < sizeof(struct osdp_packet_header) + 1) {
 		return OSDP_ERR_PKT_FMT;
@@ -574,7 +574,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 	/* validate CRC/checksum */
 	if (pkt->control & PKT_CONTROL_CRC) {
 		pkt_len -= 2; /* consume CRC */
-		cur = (buf[pkt_len + 1] << 8) | buf[pkt_len];
+		cur = ((uint32_t)buf[pkt_len + 1] << 8) | buf[pkt_len];
 		comp = osdp_compute_crc16(buf, pkt_len);
 		if (comp != cur) {
 			LOG_ERR("Invalid crc 0x%04x/0x%04x", comp, cur);
