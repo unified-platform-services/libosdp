@@ -555,7 +555,14 @@ void osdp_phy_progress_sequence(struct osdp_pd *pd);
 void osdp_phy_release_packet(struct osdp_pd *pd);
 
 /* --- from osdp_common.c --- */
+#ifdef UTILS_UNKNOWN_TARGET
+/* Strong declaration: a target utils cannot identify must supply the tick
+ * source itself, and a missing one must be a link error. A __weak undefined
+ * reference would quietly resolve to NULL and be called. */
+tick_t osdp_millis_now(void);
+#else
 __weak tick_t osdp_millis_now(void);
+#endif
 tick_t osdp_millis_since(tick_t last);
 uint16_t osdp_compute_crc16(const uint8_t *buf, size_t len);
 

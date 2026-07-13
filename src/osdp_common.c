@@ -141,10 +141,20 @@ uint16_t osdp_compute_crc16(const uint8_t *buf, size_t len)
 }
 OSDP_TEST_ALIAS(osdp_compute_crc16);
 
+/*
+ * millis_now() is real on every platform utils can identify (Arduino maps it
+ * to micros(), Zephyr to k_uptime_get()). On a target it cannot identify it
+ * bottoms out in a gettimeofday() stub that always reports zero, which would
+ * freeze every timeout and stall the state machine silently. Leave the symbol
+ * undefined there instead, so an application that forgets to supply a tick
+ * source fails to link rather than hanging at runtime.
+ */
+#ifndef UTILS_UNKNOWN_TARGET
 __weak tick_t osdp_millis_now(void)
 {
 	return millis_now();
 }
+#endif
 
 tick_t osdp_millis_since(tick_t last)
 {
