@@ -323,6 +323,87 @@ static int pyosdp_make_struct_cmd_mfg(struct osdp_cmd *p, PyObject *dict)
 	return 0;
 }
 
+static int pyosdp_make_dict_cmd_bioread(PyObject *obj, struct osdp_cmd *cmd)
+{
+	if (pyosdp_dict_add_int(obj, "reader", cmd->bioread.reader))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "type", cmd->bioread.type))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "format", cmd->bioread.format))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "quality", cmd->bioread.quality))
+		return -1;
+	return 0;
+}
+
+static int pyosdp_make_struct_cmd_bioread(struct osdp_cmd *p, PyObject *dict)
+{
+	struct osdp_cmd_bioread *cmd = &p->bioread;
+	int reader, type, format, quality;
+
+	if (pyosdp_dict_get_int(dict, "reader", &reader))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "type", &type))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "format", &format))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "quality", &quality))
+		return -1;
+
+	cmd->reader = (uint8_t)reader;
+	cmd->type = (uint8_t)type;
+	cmd->format = (uint8_t)format;
+	cmd->quality = (uint8_t)quality;
+	return 0;
+}
+
+static int pyosdp_make_dict_cmd_biomatch(PyObject *obj, struct osdp_cmd *cmd)
+{
+	if (pyosdp_dict_add_int(obj, "reader", cmd->biomatch.reader))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "type", cmd->biomatch.type))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "format", cmd->biomatch.format))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "quality", cmd->biomatch.quality))
+		return -1;
+	if (pyosdp_dict_add_bytes(obj, "data", cmd->biomatch.data,
+				  cmd->biomatch.length))
+		return -1;
+	return 0;
+}
+
+static int pyosdp_make_struct_cmd_biomatch(struct osdp_cmd *p, PyObject *dict)
+{
+	int i, data_length;
+	struct osdp_cmd_biomatch *cmd = &p->biomatch;
+	uint8_t *data_bytes;
+	int reader, type, format, quality;
+
+	if (pyosdp_dict_get_int(dict, "reader", &reader))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "type", &type))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "format", &format))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "quality", &quality))
+		return -1;
+	if (pyosdp_dict_get_bytes(dict, "data", &data_bytes, &data_length))
+		return -1;
+
+	if (data_length > OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN)
+		return -1;
+
+	cmd->reader = (uint8_t)reader;
+	cmd->type = (uint8_t)type;
+	cmd->format = (uint8_t)format;
+	cmd->quality = (uint8_t)quality;
+	cmd->length = (uint16_t)data_length;
+	for (i = 0; i < cmd->length; i++)
+		cmd->data[i] = data_bytes[i];
+	return 0;
+}
+
 static int pyosdp_make_dict_cmd_file_tx(PyObject *obj, struct osdp_cmd *cmd)
 {
 	if (pyosdp_dict_add_int(obj, "flags", cmd->file_tx.flags))
@@ -559,6 +640,84 @@ static int pyosdp_make_struct_event_mfgstat(struct osdp_event *p, PyObject *dict
 	return 0;
 }
 
+static int pyosdp_make_dict_event_bioreadr(PyObject *obj, struct osdp_event *event)
+{
+	if (pyosdp_dict_add_int(obj, "reader", event->bioreadr.reader))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "status", event->bioreadr.status))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "type", event->bioreadr.type))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "quality", event->bioreadr.quality))
+		return -1;
+	if (pyosdp_dict_add_bytes(obj, "data", event->bioreadr.data,
+				  event->bioreadr.length))
+		return -1;
+	return 0;
+}
+
+static int pyosdp_make_struct_event_bioreadr(struct osdp_event *p, PyObject *dict)
+{
+	int i, data_length;
+	struct osdp_event_bioreadr *ev = &p->bioreadr;
+	uint8_t *data_bytes;
+	int reader, status, type, quality;
+
+	if (pyosdp_dict_get_int(dict, "reader", &reader))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "status", &status))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "type", &type))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "quality", &quality))
+		return -1;
+	/* A failed scan carries no template */
+	if (pyosdp_dict_get_bytes_allow_empty(dict, "data", &data_bytes,
+					      &data_length))
+		return -1;
+
+	if (data_length > OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN)
+		return -1;
+
+	ev->reader = (uint8_t)reader;
+	ev->status = (uint8_t)status;
+	ev->type = (uint8_t)type;
+	ev->quality = (uint8_t)quality;
+	ev->length = (uint16_t)data_length;
+	for (i = 0; i < ev->length; i++)
+		ev->data[i] = data_bytes[i];
+	return 0;
+}
+
+static int pyosdp_make_dict_event_biomatchr(PyObject *obj, struct osdp_event *event)
+{
+	if (pyosdp_dict_add_int(obj, "reader", event->biomatchr.reader))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "status", event->biomatchr.status))
+		return -1;
+	if (pyosdp_dict_add_int(obj, "score", event->biomatchr.score))
+		return -1;
+	return 0;
+}
+
+static int pyosdp_make_struct_event_biomatchr(struct osdp_event *p, PyObject *dict)
+{
+	struct osdp_event_biomatchr *ev = &p->biomatchr;
+	int reader, status, score;
+
+	if (pyosdp_dict_get_int(dict, "reader", &reader))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "status", &status))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "score", &score))
+		return -1;
+
+	ev->reader = (uint8_t)reader;
+	ev->status = (uint8_t)status;
+	ev->score = (uint8_t)score;
+	return 0;
+}
+
 static int pyosdp_make_dict_event_status(PyObject *obj, struct osdp_event *event)
 {
 	if (pyosdp_dict_add_int(obj, "type", event->status.type))
@@ -656,6 +815,14 @@ static struct {
 		.dict_to_struct = pyosdp_make_struct_cmd_mfg,
 		.struct_to_dict = pyosdp_make_dict_cmd_mfg,
 	},
+	[OSDP_CMD_BIOREAD] = {
+		.dict_to_struct = pyosdp_make_struct_cmd_bioread,
+		.struct_to_dict = pyosdp_make_dict_cmd_bioread,
+	},
+	[OSDP_CMD_BIOMATCH] = {
+		.dict_to_struct = pyosdp_make_struct_cmd_biomatch,
+		.struct_to_dict = pyosdp_make_dict_cmd_biomatch,
+	},
 	[OSDP_CMD_FILE_TX] = {
 		.dict_to_struct = pyosdp_make_struct_cmd_file_tx,
 		.struct_to_dict = pyosdp_make_dict_cmd_file_tx,
@@ -693,6 +860,14 @@ static struct {
 	[OSDP_EVENT_MFGERRR] = {
 		.struct_to_dict = pyosdp_make_dict_event_mfgstat,
 		.dict_to_struct = pyosdp_make_struct_event_mfgstat,
+	},
+	[OSDP_EVENT_BIOREADR] = {
+		.struct_to_dict = pyosdp_make_dict_event_bioreadr,
+		.dict_to_struct = pyosdp_make_struct_event_bioreadr,
+	},
+	[OSDP_EVENT_BIOMATCHR] = {
+		.struct_to_dict = pyosdp_make_dict_event_biomatchr,
+		.dict_to_struct = pyosdp_make_struct_event_biomatchr,
 	},
 	[OSDP_EVENT_STATUS] = {
 		.struct_to_dict = pyosdp_make_dict_event_status,

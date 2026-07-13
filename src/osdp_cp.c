@@ -28,6 +28,8 @@
 #define CMD_CHLNG_LEN                  9
 #define CMD_SCRYPT_LEN                 17
 #define CMD_MFG_LEN                    4   /* variable length command */
+#define CMD_BIOREAD_LEN                5
+#define CMD_BIOMATCH_LEN               7   /* variable length command */
 
 #define REPLY_ACK_DATA_LEN             0
 #define REPLY_PDID_DATA_LEN            12
@@ -42,6 +44,8 @@
 #define REPLY_RAW_DATA_LEN             4   /* variable length command */
 #define REPLY_BUSY_DATA_LEN            0
 #define REPLY_MFGREP_LEN               3   /* variable length command */
+#define REPLY_BIOREADR_DATA_LEN        6   /* variable length command */
+#define REPLY_BIOMATCHR_DATA_LEN       3
 
 enum osdp_cp_error_e {
 	OSDP_CP_ERR_NONE = 0,
@@ -269,6 +273,36 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *active_cm
 		bwrite_u24_le(cmd->mfg.vendor_code, buf, &len);
 		memcpy(buf + len, cmd->mfg.data, cmd->mfg.length);
 		len += cmd->mfg.length;
+		break;
+	case CMD_BIOREAD:
+		if (!cmd) {
+			return OSDP_CP_ERR_GENERIC;
+		}
+		assert_buf_len(CMD_BIOREAD_LEN, max_len);
+		buf[len++] = pd->cmd_id;
+		buf[len++] = cmd->bioread.reader;
+		buf[len++] = cmd->bioread.type;
+		buf[len++] = cmd->bioread.format;
+		buf[len++] = cmd->bioread.quality;
+		break;
+	case CMD_BIOMATCH:
+		if (!cmd) {
+			return OSDP_CP_ERR_GENERIC;
+		}
+		if (cmd->biomatch.length > OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN) {
+			LOG_ERR("Invalid BIOMATCH template length (%d)",
+				cmd->biomatch.length);
+			return OSDP_CP_ERR_GENERIC;
+		}
+		assert_buf_len(CMD_BIOMATCH_LEN + cmd->biomatch.length, max_len);
+		buf[len++] = pd->cmd_id;
+		buf[len++] = cmd->biomatch.reader;
+		buf[len++] = cmd->biomatch.type;
+		buf[len++] = cmd->biomatch.format;
+		buf[len++] = cmd->biomatch.quality;
+		bwrite_u16_le(cmd->biomatch.length, buf, &len);
+		memcpy(buf + len, cmd->biomatch.data, cmd->biomatch.length);
+		len += cmd->biomatch.length;
 		break;
 	case CMD_ACURXSIZE:
 		buf[len++] = pd->cmd_id;
@@ -603,6 +637,37 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		cp_dispatch_event(pd, &event);
 		ret = OSDP_CP_ERR_NONE;
 		break;
+	case REPLY_BIOREADR:
+		if (len < REPLY_BIOREADR_DATA_LEN) {
+			break;
+		}
+		event.type = OSDP_EVENT_BIOREADR;
+		event.bioreadr.reader = buf[pos++];
+		event.bioreadr.status = buf[pos++];
+		event.bioreadr.type = buf[pos++];
+		event.bioreadr.quality = buf[pos++];
+		event.bioreadr.length = bread_u16_le(buf, &pos);
+		if (event.bioreadr.length != len - REPLY_BIOREADR_DATA_LEN ||
+		    event.bioreadr.length > OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN) {
+			LOG_ERR("BIOREADR template length error (%d)",
+				event.bioreadr.length);
+			break;
+		}
+		memcpy(event.bioreadr.data, buf + pos, event.bioreadr.length);
+		cp_dispatch_event(pd, &event);
+		ret = OSDP_CP_ERR_NONE;
+		break;
+	case REPLY_BIOMATCHR:
+		if (len != REPLY_BIOMATCHR_DATA_LEN) {
+			break;
+		}
+		event.type = OSDP_EVENT_BIOMATCHR;
+		event.biomatchr.reader = buf[pos++];
+		event.biomatchr.status = buf[pos++];
+		event.biomatchr.score = buf[pos++];
+		cp_dispatch_event(pd, &event);
+		ret = OSDP_CP_ERR_NONE;
+		break;
 	case REPLY_FTSTAT:
 		ret = osdp_file_cmd_stat_decode(pd, buf + pos, len);
 		break;
@@ -757,6 +822,8 @@ static int cp_translate_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	case OSDP_CMD_TEXT:   return CMD_TEXT;
 	case OSDP_CMD_COMSET: return CMD_COMSET;
 	case OSDP_CMD_MFG:    return CMD_MFG;
+	case OSDP_CMD_BIOREAD:  return CMD_BIOREAD;
+	case OSDP_CMD_BIOMATCH: return CMD_BIOMATCH;
 	case OSDP_CMD_STATUS:
 		switch (cmd->status.type) {
 		case OSDP_STATUS_REPORT_INPUT:  return CMD_ISTAT;
@@ -1091,6 +1158,8 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		    pd->reply_id == REPLY_MFGREP ||
 		    pd->reply_id == REPLY_MFGSTATR ||
 		    pd->reply_id == REPLY_MFGERRR ||
+		    pd->reply_id == REPLY_BIOREADR ||
+		    pd->reply_id == REPLY_BIOMATCHR ||
 		    pd->reply_id == REPLY_RAW ||
 		    pd->reply_id == REPLY_KEYPAD) {
 			return true;
@@ -1109,6 +1178,14 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		return pd->reply_id == REPLY_ACK ||
 		       pd->reply_id == REPLY_MFGREP ||
 		       pd->reply_id == REPLY_MFGSTATR;
+	case CMD_BIOREAD:
+		/* ACK when the app defers the scan; the reply then rides out on
+		 * a later poll. */
+		return pd->reply_id == REPLY_ACK ||
+		       pd->reply_id == REPLY_BIOREADR;
+	case CMD_BIOMATCH:
+		return pd->reply_id == REPLY_ACK ||
+		       pd->reply_id == REPLY_BIOMATCHR;
 	case CMD_LSTAT:        return pd->reply_id == REPLY_LSTATR;
 	case CMD_ISTAT:        return pd->reply_id == REPLY_ISTATR;
 	case CMD_OSTAT:        return pd->reply_id == REPLY_OSTATR;
@@ -1308,6 +1385,26 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	pd->state = next;
 }
 
+/**
+ * Some commands can be legitimately refused by the PD application: a vendor
+ * command it doesn't implement, a body part it cannot scan. Such a refusal is a
+ * failure of the command, not a fault of the link, so report it to the app but
+ * keep the PD online.
+ */
+static bool cp_cmd_failure_is_soft(struct osdp_pd *pd)
+{
+	switch (pd->cmd_id) {
+	case CMD_MFG:
+		return pd->reply_id == REPLY_NAK ||
+		       pd->reply_id == REPLY_MFGERRR;
+	case CMD_BIOREAD:
+	case CMD_BIOMATCH:
+		return pd->reply_id == REPLY_NAK;
+	default:
+		return false;
+	}
+}
+
 static void notify_command_status(struct osdp_pd *pd, int status)
 {
 	int app_cmd;
@@ -1343,6 +1440,17 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 			return;
 		}
 		app_cmd = OSDP_CMD_MFG;
+		break;
+	case CMD_BIOREAD:
+	case CMD_BIOMATCH:
+		if (pd->reply_id == REPLY_BIOREADR ||
+		    pd->reply_id == REPLY_BIOMATCHR) {
+			/* The dedicated event carries the scan result; skip the
+			 * redundant notification. */
+			return;
+		}
+		app_cmd = (pd->cmd_id == CMD_BIOREAD) ? OSDP_CMD_BIOREAD
+						      : OSDP_CMD_BIOMATCH;
 		break;
 	default:
 		return;
@@ -1388,15 +1496,8 @@ static int state_update(struct osdp_pd *pd)
 				status ? OSDP_COMPLETION_OK : OSDP_COMPLETION_FAILED);
 		pd->active_cmd = NULL;
 		if (!status) {
-			/* A CMD_MFG NAK or MFGERRR means the vendor command
-			 * failed; that is a soft failure, so keep PD online. */
-			if (pd->cmd_id == CMD_MFG &&
-				(pd->reply_id == REPLY_NAK ||
-				 pd->reply_id == REPLY_MFGERRR)) {
-				err = OSDP_CP_ERR_NONE;
-			} else {
-				err = OSDP_CP_ERR_GENERIC;
-			}
+			err = cp_cmd_failure_is_soft(pd) ? OSDP_CP_ERR_NONE
+							 : OSDP_CP_ERR_GENERIC;
 		}
 		osdp_phy_state_reset(pd, false);
 		break;

@@ -797,6 +797,7 @@ int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 		{ OSDP_PD_CAP_OUTPUT_CONTROL, 1, 4 },
 		{ OSDP_PD_CAP_READER_TEXT_OUTPUT, 1, 1 },
 		{ OSDP_PD_CAP_CONTACT_STATUS_MONITORING, 1, 8 },
+		{ OSDP_PD_CAP_BIOMETRICS, 1, 1 },
 		{ -1, -1, -1 }
 	};
 
@@ -1018,6 +1019,7 @@ int main(int argc, char *argv[])
 		{ "file_tx", run_file_tx_suite },
 		{ "commands", run_command_tests },
 		{ "events", run_event_tests },
+		{ "bio", run_bio_tests },
 		{ "hotplug", run_hotplug_tests },
 		{ "notifications", run_notification_tests },
 		{ "async_fuzz", run_async_fuzz_tests },

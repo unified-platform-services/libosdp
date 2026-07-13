@@ -26,6 +26,7 @@ list(APPEND OSDP_UNIT_TEST_SRC
 	test-file.c
 	test-commands.c
 	test-events.c
+	test-bio.c
 	test-hotplug.c
 	test-notifications.c
 	test-async-fuzz.c

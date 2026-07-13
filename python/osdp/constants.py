@@ -42,6 +42,8 @@ class Command:
     FileTransfer = osdp_sys.CMD_FILE_TX
     Status = osdp_sys.CMD_STATUS
     Notification = osdp_sys.CMD_NOTIFICATION
+    BioRead = osdp_sys.CMD_BIOREAD
+    BioMatch = osdp_sys.CMD_BIOMATCH
 
 class CommandLEDColor:
     Black = osdp_sys.LED_COLOR_NONE
@@ -83,6 +85,47 @@ class Event:
     ManufacturerError = osdp_sys.EVENT_MFGERRR
     Status = osdp_sys.EVENT_STATUS
     Notification = osdp_sys.EVENT_NOTIFICATION
+    BioRead = osdp_sys.EVENT_BIOREADR
+    BioMatch = osdp_sys.EVENT_BIOMATCHR
+
+class BioType:
+    NotSpecified = osdp_sys.BIO_TYPE_NOT_SPECIFIED
+    RightThumbPrint = osdp_sys.BIO_TYPE_RIGHT_THUMB_PRINT
+    RightIndexFingerPrint = osdp_sys.BIO_TYPE_RIGHT_INDEX_FINGER_PRINT
+    RightMiddleFingerPrint = osdp_sys.BIO_TYPE_RIGHT_MIDDLE_FINGER_PRINT
+    RightRingFingerPrint = osdp_sys.BIO_TYPE_RIGHT_RING_FINGER_PRINT
+    RightLittleFingerPrint = osdp_sys.BIO_TYPE_RIGHT_LITTLE_FINGER_PRINT
+    LeftThumbPrint = osdp_sys.BIO_TYPE_LEFT_THUMB_PRINT
+    LeftIndexFingerPrint = osdp_sys.BIO_TYPE_LEFT_INDEX_FINGER_PRINT
+    LeftMiddleFingerPrint = osdp_sys.BIO_TYPE_LEFT_MIDDLE_FINGER_PRINT
+    LeftRingFingerPrint = osdp_sys.BIO_TYPE_LEFT_RING_FINGER_PRINT
+    LeftLittleFingerPrint = osdp_sys.BIO_TYPE_LEFT_LITTLE_FINGER_PRINT
+    RightIrisScan = osdp_sys.BIO_TYPE_RIGHT_IRIS_SCAN
+    RightRetinaScan = osdp_sys.BIO_TYPE_RIGHT_RETINA_SCAN
+    LeftIrisScan = osdp_sys.BIO_TYPE_LEFT_IRIS_SCAN
+    LeftRetinaScan = osdp_sys.BIO_TYPE_LEFT_RETINA_SCAN
+    FullFaceImage = osdp_sys.BIO_TYPE_FULL_FACE_IMAGE
+    RightHandGeometry = osdp_sys.BIO_TYPE_RIGHT_HAND_GEOMETRY
+    LeftHandGeometry = osdp_sys.BIO_TYPE_LEFT_HAND_GEOMETRY
+
+class BioFormat:
+    NotSpecified = osdp_sys.BIO_FMT_NOT_SPECIFIED
+    RawPGM = osdp_sys.BIO_FMT_RAW_PGM
+    AnsiIncits378 = osdp_sys.BIO_FMT_ANSI_INCITS_378
+
+class BioStatus:
+    Success = osdp_sys.BIO_STATUS_SUCCESS
+    Timeout = osdp_sys.BIO_STATUS_TIMEOUT
+    UnknownError = osdp_sys.BIO_STATUS_UNKNOWN_ERROR
+
+class Nak:
+    """NAK codes a PD command handler may return, negated.
+
+    e.g. `return -Nak.BioType, None` to reject an unsupported biometric type.
+    """
+    BioType = osdp_sys.PD_NAK_BIO_TYPE
+    BioFormat = osdp_sys.PD_NAK_BIO_FMT
+    Record = osdp_sys.PD_NAK_RECORD
 
 class CardFormat:
     Unspecified = osdp_sys.CARD_FMT_RAW_UNSPECIFIED

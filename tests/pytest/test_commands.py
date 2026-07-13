@@ -28,6 +28,7 @@ pd_cap = PDCapabilities([
     (Capability.LEDControl, 1, 1),
     (Capability.AudibleControl, 1, 1),
     (Capability.TextOutput, 1, 1),
+    (Capability.Biometrics, 1, 1),
 ])
 
 pd_info_list = [
@@ -286,6 +287,118 @@ def test_command_mfg_inline_reply(reply_event):
         assert cp.is_online(secure_pd_addr)
     finally:
         secure_pd.set_command_handler(original_command_handler)
+
+BIO_TEMPLATE = bytes([0xB1, 0x0C, 0x0D, 0xA7, 0xA0])
+
+@pytest.mark.parametrize("answer_inline", [False, True])
+def test_command_bioread(answer_inline):
+    """BIOREAD: the PD scans and returns a template. The app may answer from
+    within its callback (inline) or later (deferred, riding out on a poll)."""
+    reply = {
+        'event': Event.BioRead,
+        'reader': 0,
+        'status': BioStatus.Success,
+        'type': BioType.RightIndexFingerPrint,
+        'quality': 0xC0,
+        'data': BIO_TEMPLATE,
+    }
+
+    def cmd_handler(command):
+        assert command['command'] == Command.BioRead
+        assert command['type'] == BioType.RightIndexFingerPrint
+        assert command['format'] == BioFormat.AnsiIncits378
+        if answer_inline:
+            secure_pd.submit_event(reply)
+        return 0, None
+
+    assert cp.is_online(secure_pd_addr)
+    original = getattr(secure_pd, 'user_command_handler', None)
+    try:
+        secure_pd.set_command_handler(cmd_handler)
+
+        test_cmd = {
+            'command': Command.BioRead,
+            'reader': 0,
+            'type': BioType.RightIndexFingerPrint,
+            'format': BioFormat.AnsiIncits378,
+            'quality': 0x80,
+        }
+        assert cp.submit_command(secure_pd_addr, test_cmd)
+        assert_command_received(secure_pd, test_cmd)
+
+        if not answer_inline:
+            secure_pd.submit_event(reply)
+
+        wait_for_non_notification_event(cp, secure_pd_addr, reply)
+    finally:
+        secure_pd.set_command_handler(original)
+
+@pytest.mark.parametrize("answer_inline", [False, True])
+def test_command_biomatch(answer_inline):
+    """BIOMATCH: the CP sends a template, the PD scans and returns a score."""
+    reply = {
+        'event': Event.BioMatch,
+        'reader': 0,
+        'status': BioStatus.Success,
+        'score': 0xFF,
+    }
+
+    def cmd_handler(command):
+        assert command['command'] == Command.BioMatch
+        assert command['data'] == BIO_TEMPLATE
+        if answer_inline:
+            secure_pd.submit_event(reply)
+        return 0, None
+
+    assert cp.is_online(secure_pd_addr)
+    original = getattr(secure_pd, 'user_command_handler', None)
+    try:
+        secure_pd.set_command_handler(cmd_handler)
+
+        test_cmd = {
+            'command': Command.BioMatch,
+            'reader': 0,
+            'type': BioType.RightIndexFingerPrint,
+            'format': BioFormat.AnsiIncits378,
+            'quality': 0x80,
+            'data': BIO_TEMPLATE,
+        }
+        assert cp.submit_command(secure_pd_addr, test_cmd)
+        assert_command_received(secure_pd, test_cmd)
+
+        if not answer_inline:
+            secure_pd.submit_event(reply)
+
+        wait_for_non_notification_event(cp, secure_pd_addr, reply)
+    finally:
+        secure_pd.set_command_handler(original)
+
+def test_command_bioread_nak_unsupported_type():
+    """A PD that cannot scan the requested body part NAKs with BIO_TYPE. The
+    NAK is a command failure but must not take the PD offline."""
+    def cmd_handler(command):
+        assert command['command'] == Command.BioRead
+        return -Nak.BioType, None
+
+    assert cp.is_online(secure_pd_addr)
+    original = getattr(secure_pd, 'user_command_handler', None)
+    try:
+        secure_pd.set_command_handler(cmd_handler)
+
+        test_cmd = {
+            'command': Command.BioRead,
+            'reader': 0,
+            'type': BioType.LeftRetinaScan,
+            'format': BioFormat.AnsiIncits378,
+            'quality': 0x80,
+        }
+        assert cp.submit_command(secure_pd_addr, test_cmd)
+        assert_command_received(secure_pd, test_cmd)
+
+        cp_check_command_status(Command.BioRead, expected_outcome=False)
+        assert cp.is_online(secure_pd_addr)
+    finally:
+        secure_pd.set_command_handler(original)
 
 def test_command_mfg_nack_soft_fail():
     def cmd_handler(command):

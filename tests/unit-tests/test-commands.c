@@ -37,6 +37,11 @@ struct test_command_ctx {
 	int mfg_inline_reply;
 	int last_mfg_event_type;
 
+	/* When set, the PD app answers a biometric command from within its
+	 * callback; otherwise it defers and the reply rides out on a poll. */
+	bool bio_answer_inline;
+	int last_bio_event_type;
+
 	/* Command-outcome notification capture (OSDP_NOTIFICATION_COMMAND) */
 	bool notif_cmd_seen;
 	int notif_cmd_arg0;
@@ -63,6 +68,16 @@ int test_commands_event_callback(void *arg, int pd, struct osdp_event *ev)
 		memcpy(ctx->last_event_data, ev, sizeof(struct osdp_event));
 	}
 
+	if (ev->type == OSDP_EVENT_BIOREADR ||
+	    ev->type == OSDP_EVENT_BIOMATCHR) {
+		ctx->last_bio_event_type = ev->type;
+		if (ctx->last_event_data) {
+			free(ctx->last_event_data);
+		}
+		ctx->last_event_data = malloc(sizeof(struct osdp_event));
+		memcpy(ctx->last_event_data, ev, sizeof(struct osdp_event));
+	}
+
 	if (ev->type == OSDP_EVENT_NOTIFICATION &&
 	    ev->notif.type == OSDP_NOTIFICATION_COMMAND) {
 		ctx->notif_cmd_seen = true;
@@ -73,12 +88,48 @@ int test_commands_event_callback(void *arg, int pd, struct osdp_event *ev)
 	return 0;
 }
 
+/* Stands in for a scanned fingerprint template */
+static const uint8_t bio_template[] = { 0xB1, 0x0C, 0x0D, 0xA7, 0xA0 };
+
+/* Build the PD's answer to a biometric command */
+static void bio_make_reply(struct osdp_event *ev, const struct osdp_cmd *cmd)
+{
+	memset(ev, 0, sizeof(*ev));
+
+	if (cmd->id == OSDP_CMD_BIOREAD) {
+		ev->type = OSDP_EVENT_BIOREADR;
+		ev->bioreadr.reader = cmd->bioread.reader;
+		ev->bioreadr.status = OSDP_BIO_STATUS_SUCCESS;
+		ev->bioreadr.type = cmd->bioread.type;
+		ev->bioreadr.quality = 0xC0;
+		ev->bioreadr.length = sizeof(bio_template);
+		memcpy(ev->bioreadr.data, bio_template, sizeof(bio_template));
+	} else {
+		ev->type = OSDP_EVENT_BIOMATCHR;
+		ev->biomatchr.reader = cmd->biomatch.reader;
+		ev->biomatchr.status = OSDP_BIO_STATUS_SUCCESS;
+		ev->biomatchr.score = 0xFF;
+	}
+}
+
 int test_commands_command_callback(void *arg, struct osdp_cmd *cmd)
 {
 	struct test_command_ctx *ctx = arg;
 
 	ctx->cmd_seen = true;
 	ctx->last_cmd_id = cmd->id;
+
+	if (cmd->id == OSDP_CMD_BIOREAD || cmd->id == OSDP_CMD_BIOMATCH) {
+		if (ctx->bio_answer_inline) {
+			struct osdp_event ev;
+
+			bio_make_reply(&ev, cmd);
+			if (osdp_pd_submit_event(ctx->pd_ctx, &ev)) {
+				printf(SUB_2 "Failed to submit inline bio reply\n");
+			}
+		}
+		return 0;
+	}
 
 	/* Capture manufacturer command payload for async event test */
 	if (cmd->id == OSDP_CMD_MFG) {
@@ -208,6 +259,8 @@ static void reset_test_state()
 	g_test_ctx.mfg_nak_requested = false;
 	g_test_ctx.mfg_inline_reply = 0;
 	g_test_ctx.last_mfg_event_type = 0;
+	g_test_ctx.bio_answer_inline = false;
+	g_test_ctx.last_bio_event_type = 0;
 	g_test_ctx.mfg_vendor_code = 0;
 	g_test_ctx.mfg_data_len = 0;
 	memset(g_test_ctx.mfg_data, 0, sizeof(g_test_ctx.mfg_data));
@@ -258,6 +311,126 @@ static bool wait_for_mfg_event(int expected_event_type, int timeout_sec)
 		rc++;
 	}
 	return false;
+}
+
+static bool wait_for_bio_event(int expected_event_type, int timeout_sec)
+{
+	int rc = 0;
+	while (rc < timeout_sec) {
+		if (g_test_ctx.last_bio_event_type == expected_event_type) {
+			return true;
+		}
+		usleep(1000 * 1000);
+		rc++;
+	}
+	return false;
+}
+
+/*
+ * A biometric scan takes seconds in the real world, so the PD app normally
+ * defers: the command is ACK'd and the reply rides out on a later poll. It may
+ * also answer from within the callback, in which case the reply rides out on
+ * the command itself. Both paths must deliver the same event to the CP.
+ */
+static bool test_bio_command(int cmd_id, int event_type, const char *name,
+			     bool answer_inline)
+{
+	struct osdp_event *rx;
+	struct osdp_cmd cmd = { .id = cmd_id };
+
+	printf(SUB_2 "testing %s (%s reply)\n", name,
+	       answer_inline ? "inline" : "deferred");
+	reset_test_state();
+	g_test_ctx.bio_answer_inline = answer_inline;
+
+	if (cmd_id == OSDP_CMD_BIOREAD) {
+		cmd.bioread.reader = 0;
+		cmd.bioread.type = OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT;
+		cmd.bioread.format = OSDP_BIO_FMT_ANSI_INCITS_378;
+		cmd.bioread.quality = 0x80;
+	} else {
+		cmd.biomatch.reader = 0;
+		cmd.biomatch.type = OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT;
+		cmd.biomatch.format = OSDP_BIO_FMT_ANSI_INCITS_378;
+		cmd.biomatch.quality = 0x80;
+		cmd.biomatch.length = sizeof(bio_template);
+		memcpy(cmd.biomatch.data, bio_template, sizeof(bio_template));
+	}
+
+	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+		printf(SUB_2 "Failed to send %s\n", name);
+		return false;
+	}
+
+	if (!wait_for_command(cmd_id, 5)) {
+		printf(SUB_2 "%s not received by PD\n", name);
+		return false;
+	}
+
+	if (!answer_inline) {
+		/* The app answers after its callback returned; this rides out
+		 * as an unsolicited reply on the next poll. */
+		struct osdp_event ev;
+		struct osdp_cmd echo = { .id = cmd_id };
+
+		if (cmd_id == OSDP_CMD_BIOREAD) {
+			echo.bioread.reader = 0;
+			echo.bioread.type = OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT;
+		} else {
+			echo.biomatch.reader = 0;
+		}
+		bio_make_reply(&ev, &echo);
+		if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &ev)) {
+			printf(SUB_2 "Failed to submit deferred %s reply\n", name);
+			return false;
+		}
+	}
+
+	if (!wait_for_bio_event(event_type, 5)) {
+		printf(SUB_2 "%s reply not received by CP\n", name);
+		return false;
+	}
+
+	rx = (struct osdp_event *)g_test_ctx.last_event_data;
+	if (!rx) {
+		printf(SUB_2 "%s reply data not captured\n", name);
+		return false;
+	}
+	if (event_type == OSDP_EVENT_BIOREADR) {
+		if (rx->bioreadr.status != OSDP_BIO_STATUS_SUCCESS ||
+		    rx->bioreadr.type != OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT ||
+		    rx->bioreadr.quality != 0xC0 ||
+		    rx->bioreadr.length != sizeof(bio_template) ||
+		    memcmp(rx->bioreadr.data, bio_template,
+			   sizeof(bio_template)) != 0) {
+			printf(SUB_2 "BIOREADR data mismatch\n");
+			return false;
+		}
+	} else {
+		if (rx->biomatchr.status != OSDP_BIO_STATUS_SUCCESS ||
+		    rx->biomatchr.score != 0xFF) {
+			printf(SUB_2 "BIOMATCHR data mismatch\n");
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static bool test_bio_commands(void)
+{
+	bool result = true;
+
+	result &= test_bio_command(OSDP_CMD_BIOREAD, OSDP_EVENT_BIOREADR,
+				   "BIOREAD", false);
+	result &= test_bio_command(OSDP_CMD_BIOREAD, OSDP_EVENT_BIOREADR,
+				   "BIOREAD", true);
+	result &= test_bio_command(OSDP_CMD_BIOMATCH, OSDP_EVENT_BIOMATCHR,
+				   "BIOMATCH", false);
+	result &= test_bio_command(OSDP_CMD_BIOMATCH, OSDP_EVENT_BIOMATCHR,
+				   "BIOMATCH", true);
+
+	return result;
 }
 
 static bool cp_sees_pd_online(void)
@@ -798,6 +971,7 @@ void run_command_tests(struct test *t)
 	overall_result &= test_mfg_command_with_reply();
 	overall_result &= test_mfg_command_inline_replies();
 	overall_result &= test_mfg_command_nack_soft_fail();
+	overall_result &= test_bio_commands();
 	overall_result &= test_led_unsupported_capability_naks();
 
 	/* Teardown test environment */

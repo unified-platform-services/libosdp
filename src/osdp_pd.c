@@ -32,6 +32,8 @@
 #define CMD_ACURXSIZE_DATA_LEN         2
 #define CMD_KEEPACTIVE_DATA_LEN        2
 #define CMD_MFG_DATA_LEN               3 /* variable length command */
+#define CMD_BIOREAD_DATA_LEN           4
+#define CMD_BIOMATCH_DATA_LEN          6 /* variable length command */
 
 #define REPLY_ACK_LEN                  1
 #define REPLY_PDID_LEN                 13
@@ -47,6 +49,8 @@
 #define REPLY_RAW_LEN                  4
 #define REPLY_MFGREP_LEN               4 /* variable length command */
 #define REPLY_MFGSTAT_LEN              1 /* variable length command */
+#define REPLY_BIOREADR_LEN             7 /* variable length command */
+#define REPLY_BIOMATCHR_LEN            4
 
 enum osdp_pd_error_e {
 	OSDP_PD_ERR_NONE = 0,
@@ -129,11 +133,24 @@ static inline void pd_complete_event(struct osdp_pd *pd,
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 }
 
-static inline bool is_mfg_reply_event(const struct osdp_event *event)
+/**
+ * Commands whose reply carries application data are answered by the app with an
+ * event. Is this event the answer to the command we're currently handling?
+ */
+static bool event_is_reply_to(int cmd_id, const struct osdp_event *event)
 {
-	return event->type == OSDP_EVENT_MFGREP ||
-	       event->type == OSDP_EVENT_MFGSTATR ||
-	       event->type == OSDP_EVENT_MFGERRR;
+	switch (cmd_id) {
+	case CMD_MFG:
+		return event->type == OSDP_EVENT_MFGREP ||
+		       event->type == OSDP_EVENT_MFGSTATR ||
+		       event->type == OSDP_EVENT_MFGERRR;
+	case CMD_BIOREAD:
+		return event->type == OSDP_EVENT_BIOREADR;
+	case CMD_BIOMATCH:
+		return event->type == OSDP_EVENT_BIOMATCHR;
+	default:
+		return false;
+	}
 }
 
 static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event)
@@ -187,6 +204,12 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 	case OSDP_EVENT_MFGERRR:
 		reply_code = REPLY_MFGERRR;
 		break;
+	case OSDP_EVENT_BIOREADR:
+		reply_code = REPLY_BIOREADR;
+		break;
+	case OSDP_EVENT_BIOMATCHR:
+		reply_code = REPLY_BIOMATCHR;
+		break;
 	default:
 		LOG_ERR("Unknown event type %d", event->type);
 		BUG();
@@ -196,6 +219,26 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 		return REPLY_ACK;
 	}
 	return reply_code;
+}
+
+/**
+ * Consume a reply that the app submitted from within its command callback so it
+ * rides out as the reply to this command instead of a later poll response.
+ *
+ * Only the answer to the command in flight is consumed; an unrelated event at
+ * the queue head must ride out on a poll, not be eaten here.
+ */
+static bool pd_take_inline_reply(struct osdp_pd *pd)
+{
+	const struct osdp_event *event;
+
+	if (pd_event_peek(pd, &event) || !event_is_reply_to(pd->cmd_id, event)) {
+		return false;
+	}
+	pd_event_dequeue(pd, &event);
+	pd->active_event = event;
+	pd->reply_id = pd_translate_event(pd, event);
+	return true;
 }
 
 static bool validate_command(struct osdp_pd *pd, struct osdp_cmd *cmd)
@@ -233,6 +276,32 @@ static bool validate_command(struct osdp_pd *pd, struct osdp_cmd *cmd)
 	return result;
 }
 
+/**
+ * The app selects the NAK code by returning its negated value. Only the codes
+ * an app can know are honoured; the rest describe protocol faults that only
+ * LibOSDP can detect and are set by the phy/SC layers themselves.
+ */
+static enum osdp_pd_nak_code_e pd_nak_code_from_callback(struct osdp_pd *pd,
+							 int ret)
+{
+	int code = -ret;
+
+	switch (code) {
+	case OSDP_PD_NAK_BIO_TYPE:
+	case OSDP_PD_NAK_BIO_FMT:
+	case OSDP_PD_NAK_RECORD:
+		return (enum osdp_pd_nak_code_e)code;
+	}
+
+	/* A plain -1 is the idiomatic "reject this command"; don't nag about it
+	 * even though it collides with OSDP_PD_NAK_MSG_CHK. */
+	if (code > OSDP_PD_NAK_MSG_CHK && code < OSDP_PD_NAK_SENTINEL) {
+		LOG_WRN("App returned invalid NAK code %d replying with "
+			"RECORD(%d)", code, OSDP_PD_NAK_RECORD);
+	}
+	return OSDP_PD_NAK_RECORD;
+}
+
 static bool do_command_callback(struct osdp_pd *pd, struct osdp_cmd *cmd)
 {
 	int ret = -1;
@@ -242,7 +311,7 @@ static bool do_command_callback(struct osdp_pd *pd, struct osdp_cmd *cmd)
 	}
 	if (ret != 0) {
 		pd->reply_id = REPLY_NAK;
-		pd->nak_code = OSDP_PD_NAK_RECORD;
+		pd->nak_code = pd_nak_code_from_callback(pd, ret);
 		return false;
 	}
 	osdp_metrics_report(pd, OSDP_METRIC_COMMAND);
@@ -289,6 +358,13 @@ static int pd_cmd_cap_ok(struct osdp_pd *pd, struct osdp_cmd *cmd)
 		return 1;
 	case CMD_TEXT:
 		cap = &pd->cap[OSDP_PD_CAP_READER_TEXT_OUTPUT];
+		if (cap->num_items == 0 || cap->compliance_level == 0) {
+			break;
+		}
+		return 1;
+	case CMD_BIOREAD:
+	case CMD_BIOMATCH:
+		cap = &pd->cap[OSDP_PD_CAP_BIOMETRICS];
 		if (cap->num_items == 0 || cap->compliance_level == 0) {
 			break;
 		}
@@ -696,9 +772,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		pd->reply_id = REPLY_COM;
 		ret = OSDP_PD_ERR_NONE;
 		break;
-	case CMD_MFG: {
-		const struct osdp_event *mfg_event;
-
+	case CMD_MFG:
 		if (len < CMD_MFG_DATA_LEN) {
 			break;
 		}
@@ -713,31 +787,72 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			cmd.mfg.data[i] = buf[pos++];
 		}
 
-		if (pd->command_callback) {
-			ret = pd->command_callback(pd->command_callback_arg, &cmd);
-			if (ret < 0) {
-				pd->nak_code = OSDP_PD_NAK_RECORD;
-				ret = OSDP_PD_ERR_REPLY;
-				break;
-			}
+		if (!do_command_callback(pd, &cmd)) {
+			ret = OSDP_PD_ERR_REPLY;
+			break;
 		}
-		/* Only consume a manufacturer reply that the app submitted from
-		 * within the callback; an unrelated event at the queue head must
-		 * ride out on a poll, not be eaten here. */
-		if (pd_event_peek(pd, &mfg_event) == 0 &&
-		    is_mfg_reply_event(mfg_event)) {
-			/* app answered synchronously: reply now */
-			pd_event_dequeue(pd, &mfg_event);
-			pd->active_event = mfg_event;
-			pd->reply_id = pd_translate_event(pd, mfg_event);
-		} else {
-			/* app deferred: ACK. The manufacturer reply rides out on
-			 * a later poll once the app submits it. */
+		/* App deferred: ACK. The reply rides out on a later poll once
+		 * the app submits it. */
+		if (!pd_take_inline_reply(pd)) {
 			pd->reply_id = REPLY_ACK;
 		}
 		ret = OSDP_PD_ERR_NONE;
 		break;
-	}
+	case CMD_BIOREAD:
+		if (len != CMD_BIOREAD_DATA_LEN) {
+			break;
+		}
+		if (!pd_cmd_cap_ok(pd, NULL)) {
+			ret = OSDP_PD_ERR_REPLY;
+			break;
+		}
+		cmd.id = OSDP_CMD_BIOREAD;
+		cmd.bioread.reader = buf[pos++];
+		cmd.bioread.type = buf[pos++];
+		cmd.bioread.format = buf[pos++];
+		cmd.bioread.quality = buf[pos++];
+
+		if (!do_command_callback(pd, &cmd)) {
+			ret = OSDP_PD_ERR_REPLY;
+			break;
+		}
+		if (!pd_take_inline_reply(pd)) {
+			pd->reply_id = REPLY_ACK;
+		}
+		ret = OSDP_PD_ERR_NONE;
+		break;
+	case CMD_BIOMATCH:
+		if (len < CMD_BIOMATCH_DATA_LEN) {
+			break;
+		}
+		if (!pd_cmd_cap_ok(pd, NULL)) {
+			ret = OSDP_PD_ERR_REPLY;
+			break;
+		}
+		cmd.id = OSDP_CMD_BIOMATCH;
+		cmd.biomatch.reader = buf[pos++];
+		cmd.biomatch.type = buf[pos++];
+		cmd.biomatch.format = buf[pos++];
+		cmd.biomatch.quality = buf[pos++];
+		cmd.biomatch.length = bread_u16_le(buf, &pos);
+		if (cmd.biomatch.length != len - CMD_BIOMATCH_DATA_LEN ||
+		    cmd.biomatch.length > OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN) {
+			LOG_ERR("BIOMATCH template length error (%d)",
+				cmd.biomatch.length);
+			pd->nak_code = OSDP_PD_NAK_CMD_LEN;
+			break;
+		}
+		memcpy(cmd.biomatch.data, buf + pos, cmd.biomatch.length);
+
+		if (!do_command_callback(pd, &cmd)) {
+			ret = OSDP_PD_ERR_REPLY;
+			break;
+		}
+		if (!pd_take_inline_reply(pd)) {
+			pd->reply_id = REPLY_ACK;
+		}
+		ret = OSDP_PD_ERR_NONE;
+		break;
 	case CMD_ACURXSIZE:
 		if (len < CMD_ACURXSIZE_DATA_LEN) {
 			break;
@@ -1057,6 +1172,38 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = pd->reply_id;
 		memcpy(buf + len, mfgstat->data, mfgstat->length);
 		len += mfgstat->length;
+		ret = OSDP_PD_ERR_NONE;
+		break;
+	case REPLY_BIOREADR:
+		if (!event || event->type != OSDP_EVENT_BIOREADR) {
+			break;
+		}
+		if (event->bioreadr.length > OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN) {
+			LOG_ERR("BIOREADR template too long (%d)",
+				event->bioreadr.length);
+			break;
+		}
+		assert_buf_len(REPLY_BIOREADR_LEN + event->bioreadr.length,
+			       max_len);
+		buf[len++] = pd->reply_id;
+		buf[len++] = event->bioreadr.reader;
+		buf[len++] = event->bioreadr.status;
+		buf[len++] = event->bioreadr.type;
+		buf[len++] = event->bioreadr.quality;
+		bwrite_u16_le(event->bioreadr.length, buf, &len);
+		memcpy(buf + len, event->bioreadr.data, event->bioreadr.length);
+		len += event->bioreadr.length;
+		ret = OSDP_PD_ERR_NONE;
+		break;
+	case REPLY_BIOMATCHR:
+		if (!event || event->type != OSDP_EVENT_BIOMATCHR) {
+			break;
+		}
+		assert_buf_len(REPLY_BIOMATCHR_LEN, max_len);
+		buf[len++] = pd->reply_id;
+		buf[len++] = event->biomatchr.reader;
+		buf[len++] = event->biomatchr.status;
+		buf[len++] = event->biomatchr.score;
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_FTSTAT:

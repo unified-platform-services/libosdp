@@ -493,6 +493,127 @@ struct osdp_status_report {
 #define OSDP_CMD_MFG_MAX_DATALEN       64
 
 /**
+ * @brief Max biometric template that fits in a single OSDP packet.
+ *
+ * @note The OSDP spec allows biometric templates to be split across multiple
+ * packets (see "Multi-Part Messages"); LibOSDP does not implement multi-part
+ * messages, so a template must fit within one packet.
+ */
+#define OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN 128
+
+/**
+ * @brief Biometric type; the body part to scan. See OSDP spec Table 24.
+ */
+enum osdp_biometric_type_e {
+	OSDP_BIO_TYPE_NOT_SPECIFIED,             /**< 0x00 Default */
+	OSDP_BIO_TYPE_RIGHT_THUMB_PRINT,         /**< 0x01 */
+	OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT,  /**< 0x02 */
+	OSDP_BIO_TYPE_RIGHT_MIDDLE_FINGER_PRINT, /**< 0x03 */
+	OSDP_BIO_TYPE_RIGHT_RING_FINGER_PRINT,   /**< 0x04 */
+	OSDP_BIO_TYPE_RIGHT_LITTLE_FINGER_PRINT, /**< 0x05 */
+	OSDP_BIO_TYPE_LEFT_THUMB_PRINT,          /**< 0x06 */
+	OSDP_BIO_TYPE_LEFT_INDEX_FINGER_PRINT,   /**< 0x07 */
+	OSDP_BIO_TYPE_LEFT_MIDDLE_FINGER_PRINT,  /**< 0x08 */
+	OSDP_BIO_TYPE_LEFT_RING_FINGER_PRINT,    /**< 0x09 */
+	OSDP_BIO_TYPE_LEFT_LITTLE_FINGER_PRINT,  /**< 0x0A */
+	OSDP_BIO_TYPE_RIGHT_IRIS_SCAN,           /**< 0x0B */
+	OSDP_BIO_TYPE_RIGHT_RETINA_SCAN,         /**< 0x0C */
+	OSDP_BIO_TYPE_LEFT_IRIS_SCAN,            /**< 0x0D */
+	OSDP_BIO_TYPE_LEFT_RETINA_SCAN,          /**< 0x0E */
+	OSDP_BIO_TYPE_FULL_FACE_IMAGE,           /**< 0x0F */
+	OSDP_BIO_TYPE_RIGHT_HAND_GEOMETRY,       /**< 0x10 */
+	OSDP_BIO_TYPE_LEFT_HAND_GEOMETRY,        /**< 0x11 */
+	OSDP_BIO_TYPE_SENTINEL                   /**< Max biometric type value */
+};
+
+/**
+ * @brief Biometric data format. See OSDP spec Table 25.
+ */
+enum osdp_biometric_format_e {
+	/**
+	 * 0x00 Not specified; the PD scans using its default method and
+	 * reports the format it used.
+	 */
+	OSDP_BIO_FMT_NOT_SPECIFIED,
+	/**
+	 * 0x01 Raw fingerprint data as a PGM
+	 */
+	OSDP_BIO_FMT_RAW_PGM,
+	/**
+	 * 0x02 ANSI/INCITS 378 fingerprint template
+	 */
+	OSDP_BIO_FMT_ANSI_INCITS_378,
+	/**
+	 * Max biometric format value
+	 */
+	OSDP_BIO_FMT_SENTINEL
+};
+
+/**
+ * @brief Outcome of a biometric scan, as reported by the PD.
+ */
+enum osdp_biometric_status_e {
+	OSDP_BIO_STATUS_SUCCESS = 0x00,      /**< Rest of the fields are valid */
+	OSDP_BIO_STATUS_TIMEOUT = 0x01,      /**< The scan timed out */
+	OSDP_BIO_STATUS_UNKNOWN_ERROR = 0xFF /**< Unknown error */
+};
+
+/**
+ * @brief Command sent from CP to instruct the PD to perform a biometric scan
+ * and return the scan data in an `OSDP_EVENT_BIOREADR` event.
+ */
+struct osdp_cmd_bioread {
+	/**
+	 * 0 = First Reader, 1 = Second Reader, etc.
+	 */
+	uint8_t reader;
+	/**
+	 * Body part to scan. See @ref osdp_biometric_type_e
+	 */
+	uint8_t type;
+	/**
+	 * Format of the data to be returned. See @ref osdp_biometric_format_e
+	 */
+	uint8_t format;
+	/**
+	 * Normalised scan quality
+	 */
+	uint8_t quality;
+};
+
+/**
+ * @brief Command sent from CP to instruct the PD to perform a biometric scan
+ * and match it against @a data, returning the result in an
+ * `OSDP_EVENT_BIOMATCHR` event.
+ */
+struct osdp_cmd_biomatch {
+	/**
+	 * 0 = First Reader, 1 = Second Reader, etc.
+	 */
+	uint8_t reader;
+	/**
+	 * Body part to scan. See @ref osdp_biometric_type_e
+	 */
+	uint8_t type;
+	/**
+	 * Format of the attached template. See @ref osdp_biometric_format_e
+	 */
+	uint8_t format;
+	/**
+	 * Normalised threshold required for accepting the match
+	 */
+	uint8_t quality;
+	/**
+	 * Length of the template in @a data
+	 */
+	uint16_t length;
+	/**
+	 * Template to match the scan against
+	 */
+	uint8_t data[OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN];
+};
+
+/**
  * @brief Command sent from CP to Control digital output of PD.
  */
 struct osdp_cmd_output {
@@ -831,6 +952,8 @@ enum osdp_cmd_e {
 	OSDP_CMD_STATUS,      /**< Status report command */
 	OSDP_CMD_COMSET_DONE, /**< Comset completed; Alias for OSDP_CMD_COMSET */
 	OSDP_CMD_NOTIFICATION,/**< LibOSDP notification (PD mode, synthesized) */
+	OSDP_CMD_BIOREAD,     /**< Scan and send biometric data command */
+	OSDP_CMD_BIOMATCH,    /**< Scan and match biometric template command */
 	OSDP_CMD_SENTINEL     /**< Max command value */
 };
 
@@ -875,6 +998,8 @@ struct osdp_cmd {
 		struct osdp_cmd_file_tx file_tx;  /**< File transfer command structure */
 		struct osdp_status_report status; /**< Status report command structure */
 		struct osdp_notification notif;   /**< LibOSDP notification (PD mode) */
+		struct osdp_cmd_bioread bioread;  /**< Biometric read command structure */
+		struct osdp_cmd_biomatch biomatch; /**< Biometric match command structure */
 	};
 };
 
@@ -886,6 +1011,12 @@ struct osdp_cmd {
 #define OSDP_EVENT_KEYPRESS_MAX_DATALEN   64
 #define OSDP_EVENT_MFGREP_MAX_DATALEN     128
 #define OSDP_EVENT_MFGSTAT_MAX_DATALEN    128
+
+/**
+ * @brief Max biometric template that fits in a single OSDP packet. See the
+ * note on @ref OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN.
+ */
+#define OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN 128
 
 /**
  * @brief Various card formats that a PD can support. This is sent to CP
@@ -995,6 +1126,62 @@ struct osdp_event_mfgstat {
 };
 
 /**
+ * @brief OSDP Event Scan and Send Biometric Data
+ *
+ * Sent by the PD in response to an `OSDP_CMD_BIOREAD` command.
+ */
+struct osdp_event_bioreadr {
+	/**
+	 * 0 = First Reader, 1 = Second Reader, etc.
+	 */
+	uint8_t reader;
+	/**
+	 * Outcome of the scan. See @ref osdp_biometric_status_e. The remaining
+	 * fields are valid only when this is `OSDP_BIO_STATUS_SUCCESS`.
+	 */
+	uint8_t status;
+	/**
+	 * Body part that was scanned. See @ref osdp_biometric_type_e
+	 *
+	 * @note The OSDP spec carries no format field in this reply.
+	 */
+	uint8_t type;
+	/**
+	 * Scan quality; 0x00 is worst, 0xFF is best
+	 */
+	uint8_t quality;
+	/**
+	 * Length of the template in @a data
+	 */
+	uint16_t length;
+	/**
+	 * The scanned image or template
+	 */
+	uint8_t data[OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN];
+};
+
+/**
+ * @brief OSDP Event Scan and Match Biometric Template
+ *
+ * Sent by the PD in response to an `OSDP_CMD_BIOMATCH` command.
+ */
+struct osdp_event_biomatchr {
+	/**
+	 * 0 = First Reader, 1 = Second Reader, etc.
+	 */
+	uint8_t reader;
+	/**
+	 * Outcome of the scan. See @ref osdp_biometric_status_e. @a score is
+	 * valid only when this is `OSDP_BIO_STATUS_SUCCESS`.
+	 */
+	uint8_t status;
+	/**
+	 * Result of the biometric match; 0x00 is no match, 0xFF is best match
+	 */
+	uint8_t score;
+};
+
+/**
  * @brief OSDP PD Events
  */
 enum osdp_event_type {
@@ -1005,6 +1192,8 @@ enum osdp_event_type {
 	OSDP_EVENT_NOTIFICATION,  /**< LibOSDP notification event */
 	OSDP_EVENT_MFGSTATR,      /**< Manufacturer specific status reply event */
 	OSDP_EVENT_MFGERRR,       /**< Manufacturer specific error reply event */
+	OSDP_EVENT_BIOREADR,      /**< Scan and send biometric data event */
+	OSDP_EVENT_BIOMATCHR,     /**< Scan and match biometric template event */
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 
@@ -1022,6 +1211,8 @@ struct osdp_event {
 		struct osdp_event_mfgrep mfgrep;     /**< Manufacturer specific response event struture */
 		struct osdp_event_mfgstat mfgstatr;  /**< Manufacturer specific status reply event structure */
 		struct osdp_event_mfgstat mfgerrr;   /**< Manufacturer specific error reply event structure */
+		struct osdp_event_bioreadr bioreadr; /**< Biometric read reply event structure */
+		struct osdp_event_biomatchr biomatchr; /**< Biometric match reply event structure */
 		struct osdp_status_report status;    /**< Status report event structure */
 		struct osdp_notification notif;      /**< LibOSDP notification (CP mode) */
 	};
@@ -1040,10 +1231,20 @@ struct osdp_event {
  * @retval -ve if LibOSDP must send an `osdp_NAK` response.
  * @retval +ve is reserved.
  *
- * @note For `OSDP_CMD_MFG`, callback return values follow normal ACK/NAK
- * handling (`-ve` => `osdp_NAK`, `0`/`+ve` => `osdp_ACK`). To send
- * manufacturer data back to CP, apps must submit `OSDP_EVENT_MFGREP`
- * asynchronously via `osdp_pd_submit_event()`.
+ * @note To select the NAK code, return the negated code; only the codes an
+ * application can know are honoured:
+ *   - `-OSDP_PD_NAK_BIO_TYPE` - the requested biometric type is not supported
+ *   - `-OSDP_PD_NAK_BIO_FMT` - the requested biometric format is not supported
+ *   - `-OSDP_PD_NAK_RECORD` - the command record could not be processed
+ * Any other -ve value (such as a plain `-1`) sends `OSDP_PD_NAK_RECORD`. The
+ * remaining NAK codes describe protocol faults that only LibOSDP can detect;
+ * returning one of them logs a warning and sends `OSDP_PD_NAK_RECORD`.
+ *
+ * @note For commands whose reply carries application data - `OSDP_CMD_MFG`,
+ * `OSDP_CMD_BIOREAD` and `OSDP_CMD_BIOMATCH` - the app submits the reply as an
+ * event via `osdp_pd_submit_event()`. Submitting it from within this callback
+ * sends it as the reply to the command itself; submitting it later sends it as
+ * a poll response and this command is `osdp_ACK`-ed.
  */
 typedef int (*pd_command_callback_t)(void *arg, struct osdp_cmd *cmd);
 

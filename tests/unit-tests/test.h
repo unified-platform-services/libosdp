@@ -137,6 +137,7 @@ void run_file_tx_intermittent_tests(struct test *t);
 void run_file_tx_permanent_busy_tests(struct test *t);
 void run_command_tests(struct test *t);
 void run_event_tests(struct test *t);
+void run_bio_tests(struct test *t);
 void run_hotplug_tests(struct test *t);
 void run_notification_tests(struct test *t);
 void run_async_fuzz_tests(struct test *t);
