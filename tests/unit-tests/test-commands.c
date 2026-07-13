@@ -32,6 +32,11 @@ struct test_command_ctx {
 	uint8_t mfg_data[64];
 	int mfg_data_len;
 
+	/* Event type the PD app must submit from within its CMD_MFG callback
+	 * so that it rides out as the inline reply; 0 to defer to a poll. */
+	int mfg_inline_reply;
+	int last_mfg_event_type;
+
 	/* Command-outcome notification capture (OSDP_NOTIFICATION_COMMAND) */
 	bool notif_cmd_seen;
 	int notif_cmd_arg0;
@@ -48,7 +53,12 @@ int test_commands_event_callback(void *arg, int pd, struct osdp_event *ev)
 	ctx->event_seen = true;
 	ctx->last_event_type = ev->type;
 
-	if (ev->type == OSDP_EVENT_MFGREP) {
+	if (ev->type == OSDP_EVENT_MFGREP ||
+	    ev->type == OSDP_EVENT_MFGSTATR ||
+	    ev->type == OSDP_EVENT_MFGERRR) {
+		/* Tracked separately from last_event_type: a failed command also
+		 * raises a notification event, which would clobber it. */
+		ctx->last_mfg_event_type = ev->type;
 		ctx->last_event_data = malloc(sizeof(struct osdp_event));
 		memcpy(ctx->last_event_data, ev, sizeof(struct osdp_event));
 	}
@@ -78,6 +88,29 @@ int test_commands_command_callback(void *arg, struct osdp_cmd *cmd)
 		ctx->mfg_vendor_code = cmd->mfg.vendor_code;
 		ctx->mfg_data_len = cmd->mfg.length;
 		memcpy(ctx->mfg_data, cmd->mfg.data, cmd->mfg.length);
+
+		/* Answer synchronously: this must ride out as the reply to the
+		 * MFG command itself, not as a later poll response. */
+		if (ctx->mfg_inline_reply) {
+			struct osdp_event ev = { .type = ctx->mfg_inline_reply };
+
+			if (ctx->mfg_inline_reply == OSDP_EVENT_MFGREP) {
+				ev.mfgrep.vendor_code = cmd->mfg.vendor_code;
+				ev.mfgrep.length = cmd->mfg.length;
+				memcpy(ev.mfgrep.data, cmd->mfg.data,
+				       cmd->mfg.length);
+			} else {
+				struct osdp_event_mfgstat *ms =
+					(ctx->mfg_inline_reply == OSDP_EVENT_MFGSTATR) ?
+					&ev.mfgstatr : &ev.mfgerrr;
+
+				ms->length = cmd->mfg.length;
+				memcpy(ms->data, cmd->mfg.data, cmd->mfg.length);
+			}
+			if (osdp_pd_submit_event(ctx->pd_ctx, &ev)) {
+				printf(SUB_2 "Failed to submit inline MFG reply\n");
+			}
+		}
 		return 0;
 	}
 
@@ -173,6 +206,8 @@ static void reset_test_state()
 	g_test_ctx.event_seen = false;
 	g_test_ctx.last_event_type = 0;
 	g_test_ctx.mfg_nak_requested = false;
+	g_test_ctx.mfg_inline_reply = 0;
+	g_test_ctx.last_mfg_event_type = 0;
 	g_test_ctx.mfg_vendor_code = 0;
 	g_test_ctx.mfg_data_len = 0;
 	memset(g_test_ctx.mfg_data, 0, sizeof(g_test_ctx.mfg_data));
@@ -204,6 +239,19 @@ static bool wait_for_event(int expected_event_type, int timeout_sec)
 	int rc = 0;
 	while (rc < timeout_sec) {
 		if (g_test_ctx.event_seen && g_test_ctx.last_event_type == expected_event_type) {
+			return true;
+		}
+		usleep(1000 * 1000);
+		rc++;
+	}
+	return false;
+}
+
+static bool wait_for_mfg_event(int expected_event_type, int timeout_sec)
+{
+	int rc = 0;
+	while (rc < timeout_sec) {
+		if (g_test_ctx.last_mfg_event_type == expected_event_type) {
 			return true;
 		}
 		usleep(1000 * 1000);
@@ -540,6 +588,111 @@ static bool wait_for_cmd_notification(int expected_cmd, int expected_arg1,
 }
 
 /*
+ * The PD app submits its manufacturer reply from within the CMD_MFG callback,
+ * so it must ride out as the reply to that command rather than as an ACK
+ * followed by a poll response.
+ *
+ * The command notification is what tells the two apart: an inline MFGREP or
+ * MFGSTATR suppresses it (the dedicated event carries the payload), whereas a
+ * deferred reply ACKs the command and reports success. An inline MFGERRR
+ * reports the command as failed while keeping the PD online.
+ */
+static bool test_mfg_command_inline_reply(int event_type, const char *name,
+					  bool expect_failure)
+{
+	uint8_t test_data[] = {0xC0, 0xFF, 0xEE};
+	struct osdp_event *rx;
+	bool result = false;
+
+	printf(SUB_2 "testing inline %s reply to manufacturer command\n", name);
+	reset_test_state();
+	g_test_ctx.mfg_inline_reply = event_type;
+
+	if (osdp_cp_modify_flag(g_test_ctx.cp_ctx, 0,
+				OSDP_FLAG_ENABLE_NOTIFICATION, true)) {
+		printf(SUB_2 "Failed to enable notifications\n");
+		return false;
+	}
+
+	struct osdp_cmd cmd = {
+		.id = OSDP_CMD_MFG,
+		.mfg = {
+			.vendor_code = 0x00030201,
+			.length = sizeof(test_data),
+		},
+	};
+	memcpy(cmd.mfg.data, test_data, sizeof(test_data));
+
+	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+		printf(SUB_2 "Failed to send mfg command\n");
+		goto out;
+	}
+
+	if (!wait_for_mfg_event(event_type, 5)) {
+		printf(SUB_2 "%s event not received by CP\n", name);
+		goto out;
+	}
+
+	if (expect_failure) {
+		if (!wait_for_cmd_notification(OSDP_CMD_MFG, -1, 5)) {
+			printf(SUB_2 "%s did not fail the mfg command\n", name);
+			goto out;
+		}
+		/* An error reply is a soft failure; PD remains online. */
+		usleep(200 * 1000);
+		if (!cp_sees_pd_online()) {
+			printf(SUB_2 "PD went offline after inline %s\n", name);
+			goto out;
+		}
+	} else if (g_test_ctx.notif_cmd_seen) {
+		printf(SUB_2 "%s was ACK'd and deferred, not sent inline\n",
+		       name);
+		goto out;
+	}
+
+	rx = (struct osdp_event *)g_test_ctx.last_event_data;
+	if (!rx) {
+		printf(SUB_2 "%s event data not captured\n", name);
+		goto out;
+	}
+	if (event_type == OSDP_EVENT_MFGREP) {
+		if (rx->mfgrep.vendor_code != 0x00030201 ||
+		    rx->mfgrep.length != (int)sizeof(test_data) ||
+		    memcmp(rx->mfgrep.data, test_data, sizeof(test_data)) != 0) {
+			printf(SUB_2 "%s event data mismatch\n", name);
+			goto out;
+		}
+	} else {
+		struct osdp_event_mfgstat *ms =
+			(event_type == OSDP_EVENT_MFGSTATR) ? &rx->mfgstatr :
+							      &rx->mfgerrr;
+
+		if (ms->length != (int)sizeof(test_data) ||
+		    memcmp(ms->data, test_data, sizeof(test_data)) != 0) {
+			printf(SUB_2 "%s event data mismatch\n", name);
+			goto out;
+		}
+	}
+
+	result = true;
+out:
+	osdp_cp_modify_flag(g_test_ctx.cp_ctx, 0,
+			    OSDP_FLAG_ENABLE_NOTIFICATION, false);
+	return result;
+}
+
+static bool test_mfg_command_inline_replies()
+{
+	bool result = true;
+
+	result &= test_mfg_command_inline_reply(OSDP_EVENT_MFGREP, "MFGREP", false);
+	result &= test_mfg_command_inline_reply(OSDP_EVENT_MFGSTATR, "MFGSTATR", false);
+	result &= test_mfg_command_inline_reply(OSDP_EVENT_MFGERRR, "MFGERRR", true);
+
+	return result;
+}
+
+/*
  * Regression test for https://github.com/osdp-dev/libosdp/issues/262:
  * the PD used to unconditionally ACK multi-record commands (OUT/LED/BUZ)
  * even when pd_cmd_cap_ok() had set REPLY_NAK. The fix preserves the NAK
@@ -643,6 +796,7 @@ void run_command_tests(struct test *t)
 	overall_result &= test_keyset_command();
 	overall_result &= test_mfg_command_simple();
 	overall_result &= test_mfg_command_with_reply();
+	overall_result &= test_mfg_command_inline_replies();
 	overall_result &= test_mfg_command_nack_soft_fail();
 	overall_result &= test_led_unsupported_capability_naks();
 

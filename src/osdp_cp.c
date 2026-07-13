@@ -1103,8 +1103,12 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 	case CMD_FILETRANSFER: return pd->reply_id == REPLY_FTSTAT;
 	case CMD_COMSET:       return pd->reply_id == REPLY_COM;
 	case CMD_MFG:
+		/* REPLY_MFGERRR is a valid reply, but it reports that the
+		 * vendor command failed; see the soft-failure handling in
+		 * state_update(). */
 		return pd->reply_id == REPLY_ACK ||
-		       pd->reply_id == REPLY_MFGREP;
+		       pd->reply_id == REPLY_MFGREP ||
+		       pd->reply_id == REPLY_MFGSTATR;
 	case CMD_LSTAT:        return pd->reply_id == REPLY_LSTATR;
 	case CMD_ISTAT:        return pd->reply_id == REPLY_ISTATR;
 	case CMD_OSTAT:        return pd->reply_id == REPLY_OSTATR;
@@ -1326,11 +1330,15 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 	case CMD_RSTAT:  app_cmd = OSDP_CMD_STATUS; break;
 	case CMD_KEYSET: app_cmd = OSDP_CMD_KEYSET; break;
 	case CMD_MFG:
-		if (pd->reply_id == REPLY_MFGREP) {
+		if (pd->reply_id == REPLY_MFGREP ||
+		    pd->reply_id == REPLY_MFGSTATR) {
 			/**
 			* if we received a manufacturer-specific reply, there is
-			* a dedicated event (OSDP_EVENT_MFGREP) for it. So we
-			* can skip sending a notification event.
+			* a dedicated event (OSDP_EVENT_MFGREP/OSDP_EVENT_MFGSTATR)
+			* for it. So we can skip sending a notification event.
+			*
+			* REPLY_MFGERRR also has a dedicated event, but it reports
+			* a failed command, so the notification is still sent.
 			*/
 			return;
 		}
@@ -1380,9 +1388,11 @@ static int state_update(struct osdp_pd *pd)
 				status ? OSDP_COMPLETION_OK : OSDP_COMPLETION_FAILED);
 		pd->active_cmd = NULL;
 		if (!status) {
-			/* CMD_MFG NAK is a soft failure; keep PD online. */
+			/* A CMD_MFG NAK or MFGERRR means the vendor command
+			 * failed; that is a soft failure, so keep PD online. */
 			if (pd->cmd_id == CMD_MFG &&
-				pd->reply_id == REPLY_NAK) {
+				(pd->reply_id == REPLY_NAK ||
+				 pd->reply_id == REPLY_MFGERRR)) {
 				err = OSDP_CP_ERR_NONE;
 			} else {
 				err = OSDP_CP_ERR_GENERIC;

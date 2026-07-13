@@ -203,7 +203,9 @@ class ControlPanel():
         if self.thread:
             raise RuntimeError("Thread already running!")
         self.event = threading.Event()
-        self.lock = threading.Lock()
+        # Reentrant: the event handler runs inside ctx.refresh() with this lock
+        # held, and may call submit_command() to respond to an event.
+        self.lock = threading.RLock()
         args=(self.event, self.lock, self.ctx)
         self.thread = threading.Thread(name='cp', target=self.refresh, args=args)
         self.thread.start()

@@ -114,7 +114,9 @@ class PeripheralDevice():
         if self.thread:
             raise RuntimeError("Thread already running!")
         self.event = threading.Event()
-        self.lock = threading.Lock()
+        # Reentrant: the command handler runs inside ctx.refresh() with this
+        # lock held, and may call submit_event() to answer inline.
+        self.lock = threading.RLock()
         args = (self.event, self.lock, self.ctx,)
         self.thread = threading.Thread(name='pd', target=self.refresh, args=args)
         self.thread.start()

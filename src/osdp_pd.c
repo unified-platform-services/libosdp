@@ -108,6 +108,16 @@ static int pd_event_dequeue(struct osdp_pd *pd, const struct osdp_event **event)
 	return 0;
 }
 
+static int pd_event_peek(struct osdp_pd *pd, const struct osdp_event **event)
+{
+	queue_node_t *node;
+
+	if (queue_peek_first(&pd->event_queue, &node))
+		return -1;
+	*event = CONTAINER_OF(node, struct osdp_event, _node);
+	return 0;
+}
+
 static inline void pd_complete_event(struct osdp_pd *pd,
 				     const struct osdp_event *event,
 				     enum osdp_completion_status status)
@@ -117,6 +127,13 @@ static inline void pd_complete_event(struct osdp_pd *pd,
 	pd->event_completion_callback(pd->event_completion_callback_arg,
 				      event, status);
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
+}
+
+static inline bool is_mfg_reply_event(const struct osdp_event *event)
+{
+	return event->type == OSDP_EVENT_MFGREP ||
+	       event->type == OSDP_EVENT_MFGSTATR ||
+	       event->type == OSDP_EVENT_MFGERRR;
 }
 
 static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event)
@@ -679,7 +696,9 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		pd->reply_id = REPLY_COM;
 		ret = OSDP_PD_ERR_NONE;
 		break;
-	case CMD_MFG:
+	case CMD_MFG: {
+		const struct osdp_event *mfg_event;
+
 		if (len < CMD_MFG_DATA_LEN) {
 			break;
 		}
@@ -702,9 +721,23 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 				break;
 			}
 		}
-		pd->reply_id = REPLY_ACK;
+		/* Only consume a manufacturer reply that the app submitted from
+		 * within the callback; an unrelated event at the queue head must
+		 * ride out on a poll, not be eaten here. */
+		if (pd_event_peek(pd, &mfg_event) == 0 &&
+		    is_mfg_reply_event(mfg_event)) {
+			/* app answered synchronously: reply now */
+			pd_event_dequeue(pd, &mfg_event);
+			pd->active_event = mfg_event;
+			pd->reply_id = pd_translate_event(pd, mfg_event);
+		} else {
+			/* app deferred: ACK. The manufacturer reply rides out on
+			 * a later poll once the app submits it. */
+			pd->reply_id = REPLY_ACK;
+		}
 		ret = OSDP_PD_ERR_NONE;
 		break;
+	}
 	case CMD_ACURXSIZE:
 		if (len < CMD_ACURXSIZE_DATA_LEN) {
 			break;

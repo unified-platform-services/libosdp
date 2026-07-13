@@ -243,6 +243,50 @@ def test_command_mfg_with_reply():
         else:
             secure_pd.set_command_handler(None)
 
+@pytest.mark.parametrize("reply_event", [
+    Event.ManufacturerReply,
+    Event.ManufacturerStatus,
+    Event.ManufacturerError,
+])
+def test_command_mfg_inline_reply(reply_event):
+    """PD answers from within its command handler; the reply must ride out on
+    the MFG command itself rather than on a later poll."""
+    payload = bytes([0xC0, 0xFF, 0xEE])
+
+    def cmd_handler(command):
+        assert command['command'] == Command.Manufacturer
+        event = {'event': reply_event, 'data': payload}
+        if reply_event == Event.ManufacturerReply:
+            event['vendor_code'] = 0x00030201
+        secure_pd.submit_event(event)
+        return 0, None
+
+    assert cp.is_online(secure_pd_addr)
+
+    original_command_handler = getattr(secure_pd, 'user_command_handler', None)
+    try:
+        secure_pd.set_command_handler(cmd_handler)
+
+        test_cmd = {
+            'command': Command.Manufacturer,
+            'vendor_code': 0x00030201,
+            'data': payload,
+        }
+        assert cp.submit_command(secure_pd_addr, test_cmd)
+
+        # Also drains the PD's command queue so it does not leak to other tests
+        assert_command_received(secure_pd, test_cmd)
+
+        expected_event = {'event': reply_event, 'data': payload}
+        if reply_event == Event.ManufacturerReply:
+            expected_event['vendor_code'] = 0x00030201
+        wait_for_non_notification_event(cp, secure_pd_addr, expected_event)
+
+        # An error reply fails the command but must not take the PD offline
+        assert cp.is_online(secure_pd_addr)
+    finally:
+        secure_pd.set_command_handler(original_command_handler)
+
 def test_command_mfg_nack_soft_fail():
     def cmd_handler(command):
         assert command['command'] == Command.Manufacturer
