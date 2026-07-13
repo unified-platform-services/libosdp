@@ -525,6 +525,40 @@ static int pyosdp_make_struct_event_mfg_reply(struct osdp_event *p,
 	return 0;
 }
 
+static struct osdp_event_mfgstat *pyosdp_event_mfgstat(struct osdp_event *event)
+{
+	return (event->type == OSDP_EVENT_MFGSTATR) ? &event->mfgstatr
+						    : &event->mfgerrr;
+}
+
+static int pyosdp_make_dict_event_mfgstat(PyObject *obj, struct osdp_event *event)
+{
+	struct osdp_event_mfgstat *ev = pyosdp_event_mfgstat(event);
+
+	if (pyosdp_dict_add_bytes(obj, "data", ev->data, ev->length))
+		return -1;
+	return 0;
+}
+
+static int pyosdp_make_struct_event_mfgstat(struct osdp_event *p, PyObject *dict)
+{
+	int i, data_length;
+	struct osdp_event_mfgstat *ev = pyosdp_event_mfgstat(p);
+	uint8_t *data_bytes;
+
+	/* These replies may legitimately carry an empty payload */
+	if (pyosdp_dict_get_bytes_allow_empty(dict, "data", &data_bytes, &data_length))
+		return -1;
+
+	if (data_length > OSDP_EVENT_MFGSTAT_MAX_DATALEN)
+		return -1;
+
+	ev->length = data_length;
+	for (i = 0; i < ev->length; i++)
+		ev->data[i] = data_bytes[i];
+	return 0;
+}
+
 static int pyosdp_make_dict_event_status(PyObject *obj, struct osdp_event *event)
 {
 	if (pyosdp_dict_add_int(obj, "type", event->status.type))
@@ -651,6 +685,14 @@ static struct {
 	[OSDP_EVENT_MFGREP] = {
 		.struct_to_dict = pyosdp_make_dict_event_mfg_reply,
 		.dict_to_struct = pyosdp_make_struct_event_mfg_reply,
+	},
+	[OSDP_EVENT_MFGSTATR] = {
+		.struct_to_dict = pyosdp_make_dict_event_mfgstat,
+		.dict_to_struct = pyosdp_make_struct_event_mfgstat,
+	},
+	[OSDP_EVENT_MFGERRR] = {
+		.struct_to_dict = pyosdp_make_dict_event_mfgstat,
+		.dict_to_struct = pyosdp_make_struct_event_mfgstat,
 	},
 	[OSDP_EVENT_STATUS] = {
 		.struct_to_dict = pyosdp_make_dict_event_status,

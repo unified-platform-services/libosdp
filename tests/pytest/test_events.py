@@ -74,6 +74,31 @@ def test_event_mfg_reply():
     secure_pd.submit_event(event)
     check_event(event)
 
+def test_event_mfg_status():
+    event = {
+        'event': Event.ManufacturerStatus,
+        'data': bytes([0xDE, 0xAD, 0xBE, 0xEF]),
+    }
+    secure_pd.submit_event(event)
+    check_event(event)
+
+def test_event_mfg_error():
+    event = {
+        'event': Event.ManufacturerError,
+        'data': bytes([0xBA, 0xAD, 0xF0, 0x0D]),
+    }
+    secure_pd.submit_event(event)
+    check_event(event)
+
+def test_event_mfg_status_no_data():
+    # The spec places no lower bound on the payload of these replies
+    event = {
+        'event': Event.ManufacturerStatus,
+        'data': bytes([]),
+    }
+    secure_pd.submit_event(event)
+    check_event(event)
+
 def test_event_cardread_wiegand():
     event = {
         'event': Event.CardRead,

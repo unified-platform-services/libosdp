@@ -367,6 +367,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 {
 	int i, t, ret = OSDP_CP_ERR_GENERIC, pos = 0;
 	struct osdp_event event = {};
+	struct osdp_event_mfgstat *mfgstat;
 
 	pd->reply_id = buf[pos++];
 	len--; /* consume reply id from the head */
@@ -579,6 +580,26 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		memcpy(event.mfgrep.data, buf + pos, event.mfgrep.length);
+		cp_dispatch_event(pd, &event);
+		ret = OSDP_CP_ERR_NONE;
+		break;
+	case REPLY_MFGSTATR:
+	case REPLY_MFGERRR:
+		/* These replies carry no vendor code; the payload is entirely
+		 * vendor defined and may be empty.
+		 */
+		if (len > OSDP_EVENT_MFGSTAT_MAX_DATALEN) {
+			break;
+		}
+		if (pd->reply_id == REPLY_MFGSTATR) {
+			event.type = OSDP_EVENT_MFGSTATR;
+			mfgstat = &event.mfgstatr;
+		} else {
+			event.type = OSDP_EVENT_MFGERRR;
+			mfgstat = &event.mfgerrr;
+		}
+		mfgstat->length = len;
+		memcpy(mfgstat->data, buf + pos, mfgstat->length);
 		cp_dispatch_event(pd, &event);
 		ret = OSDP_CP_ERR_NONE;
 		break;
@@ -1068,6 +1089,8 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		    pd->reply_id == REPLY_OSTATR ||
 		    pd->reply_id == REPLY_RSTATR ||
 		    pd->reply_id == REPLY_MFGREP ||
+		    pd->reply_id == REPLY_MFGSTATR ||
+		    pd->reply_id == REPLY_MFGERRR ||
 		    pd->reply_id == REPLY_RAW ||
 		    pd->reply_id == REPLY_KEYPAD) {
 			return true;

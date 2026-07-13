@@ -339,6 +339,60 @@ static bool test_mfgrep_event()
 	return true;
 }
 
+static bool test_mfgstat_event(enum osdp_event_type type, const char *name,
+			       const uint8_t *data, uint8_t length)
+{
+	printf(SUB_2 "testing %s event with %d byte payload\n", name, length);
+	reset_test_state();
+
+	struct osdp_event event = { .type = type };
+	struct osdp_event_mfgstat *mfgstat =
+		(type == OSDP_EVENT_MFGSTATR) ? &event.mfgstatr : &event.mfgerrr;
+
+	mfgstat->length = length;
+	memcpy(mfgstat->data, data, length);
+
+	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event)) {
+		printf(SUB_2 "Failed to submit %s event\n", name);
+		return false;
+	}
+
+	if (!wait_for_event(type, 5)) {
+		printf(SUB_2 "%s event not received\n", name);
+		return false;
+	}
+
+	/* Verify event data */
+	if (g_test_ctx.last_event_data) {
+		struct osdp_event *ev = (struct osdp_event *)g_test_ctx.last_event_data;
+		struct osdp_event_mfgstat *rx = (type == OSDP_EVENT_MFGSTATR) ?
+						&ev->mfgstatr : &ev->mfgerrr;
+		if (rx->length != length ||
+		    memcmp(rx->data, data, length) != 0) {
+			printf(SUB_2 "%s event data mismatch\n", name);
+			return false;
+		}
+	}
+
+	return true;
+}
+
+static bool test_mfgstat_events()
+{
+	uint8_t data[] = {0xDE, 0xAD, 0xBE, 0xEF};
+	bool result = true;
+
+	result &= test_mfgstat_event(OSDP_EVENT_MFGSTATR, "MFGSTATR",
+				     data, sizeof(data));
+	result &= test_mfgstat_event(OSDP_EVENT_MFGERRR, "MFGERRR",
+				     data, sizeof(data));
+
+	/* The spec places no lower bound on the payload of these replies */
+	result &= test_mfgstat_event(OSDP_EVENT_MFGSTATR, "MFGSTATR", data, 0);
+
+	return result;
+}
+
 void run_event_tests(struct test *t)
 {
 	bool overall_result = true;
@@ -360,6 +414,7 @@ void run_event_tests(struct test *t)
 	overall_result &= test_input_status_event();
 	overall_result &= test_output_status_event();
 	overall_result &= test_mfgrep_event();
+	overall_result &= test_mfgstat_events();
 
 	/* Teardown test environment */
 	teardown_test_environment();

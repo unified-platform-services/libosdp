@@ -46,6 +46,7 @@
 #define REPLY_KEYPAD_LEN               2
 #define REPLY_RAW_LEN                  4
 #define REPLY_MFGREP_LEN               4 /* variable length command */
+#define REPLY_MFGSTAT_LEN              1 /* variable length command */
 
 enum osdp_pd_error_e {
 	OSDP_PD_ERR_NONE = 0,
@@ -162,6 +163,12 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 		break;
 	case OSDP_EVENT_MFGREP:
 		reply_code = REPLY_MFGREP;
+		break;
+	case OSDP_EVENT_MFGSTATR:
+		reply_code = REPLY_MFGSTATR;
+		break;
+	case OSDP_EVENT_MFGERRR:
+		reply_code = REPLY_MFGERRR;
 		break;
 	default:
 		LOG_ERR("Unknown event type %d", event->type);
@@ -851,6 +858,7 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	int ret = OSDP_PD_ERR_GENERIC;
 	int i, len = 0;
 	const struct osdp_event *event = pd->active_event;
+	const struct osdp_event_mfgstat *mfgstat;
 	int data_off = osdp_phy_packet_get_data_offset(pd, buf);
 	uint8_t *smb = osdp_phy_packet_get_smb(pd, buf);
 
@@ -1002,6 +1010,20 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		bwrite_u24_le(event->mfgrep.vendor_code, buf, &len);
 		memcpy(buf + len, event->mfgrep.data, event->mfgrep.length);
 		len += event->mfgrep.length;
+		ret = OSDP_PD_ERR_NONE;
+		break;
+	case REPLY_MFGSTATR:
+	case REPLY_MFGERRR:
+		if (!event || (event->type != OSDP_EVENT_MFGSTATR &&
+			       event->type != OSDP_EVENT_MFGERRR)) {
+			break;
+		}
+		mfgstat = (event->type == OSDP_EVENT_MFGSTATR) ?
+			  &event->mfgstatr : &event->mfgerrr;
+		assert_buf_len(REPLY_MFGSTAT_LEN + mfgstat->length, max_len);
+		buf[len++] = pd->reply_id;
+		memcpy(buf + len, mfgstat->data, mfgstat->length);
+		len += mfgstat->length;
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_FTSTAT:

@@ -885,6 +885,7 @@ struct osdp_cmd {
 #define OSDP_EVENT_CARDREAD_MAX_DATALEN   64
 #define OSDP_EVENT_KEYPRESS_MAX_DATALEN   64
 #define OSDP_EVENT_MFGREP_MAX_DATALEN     128
+#define OSDP_EVENT_MFGSTAT_MAX_DATALEN    128
 
 /**
  * @brief Various card formats that a PD can support. This is sent to CP
@@ -970,6 +971,30 @@ struct osdp_event_mfgrep {
 };
 
 /**
+ * @brief OSDP Event Manufacturer Specific Status/Error Reply
+ *
+ * Both replies have the same layout, so this structure backs the `mfgstatr`
+ * member of `OSDP_EVENT_MFGSTATR` and the `mfgerrr` member of
+ * `OSDP_EVENT_MFGERRR`; the event type distinguishes a status condition from
+ * an error condition.
+ *
+ * @note Unlike `osdp_MFGREP`, the OSDP spec (v2.2 sections 7.23 and 7.24)
+ * defines no vendor code for these replies; @a data is entirely vendor
+ * defined. Use the vendor code that the PD reported in `osdp_PDID` to
+ * determine how to interpret it.
+ */
+struct osdp_event_mfgstat {
+	/**
+	 * Length of manufacturer data in bytes
+	 */
+	uint8_t length;
+	/**
+	 * Manufacturer data of `length` bytes
+	 */
+	uint8_t data[OSDP_EVENT_MFGSTAT_MAX_DATALEN];
+};
+
+/**
  * @brief OSDP PD Events
  */
 enum osdp_event_type {
@@ -978,6 +1003,8 @@ enum osdp_event_type {
 	OSDP_EVENT_MFGREP,        /**< Manufacturer specific reply event */
 	OSDP_EVENT_STATUS,        /**< Status event */
 	OSDP_EVENT_NOTIFICATION,  /**< LibOSDP notification event */
+	OSDP_EVENT_MFGSTATR,      /**< Manufacturer specific status reply event */
+	OSDP_EVENT_MFGERRR,       /**< Manufacturer specific error reply event */
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 
@@ -993,6 +1020,8 @@ struct osdp_event {
 		struct osdp_event_keypress keypress; /**< Keypress event structure */
 		struct osdp_event_cardread cardread; /**< Card read event structure */
 		struct osdp_event_mfgrep mfgrep;     /**< Manufacturer specific response event struture */
+		struct osdp_event_mfgstat mfgstatr;  /**< Manufacturer specific status reply event structure */
+		struct osdp_event_mfgstat mfgerrr;   /**< Manufacturer specific error reply event structure */
 		struct osdp_status_report status;    /**< Status report event structure */
 		struct osdp_notification notif;      /**< LibOSDP notification (CP mode) */
 	};

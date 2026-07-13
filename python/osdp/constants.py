@@ -79,6 +79,8 @@ class Event:
     CardRead = osdp_sys.EVENT_CARDREAD
     KeyPress = osdp_sys.EVENT_KEYPRESS
     ManufacturerReply = osdp_sys.EVENT_MFGREP
+    ManufacturerStatus = osdp_sys.EVENT_MFGSTATR
+    ManufacturerError = osdp_sys.EVENT_MFGERRR
     Status = osdp_sys.EVENT_STATUS
     Notification = osdp_sys.EVENT_NOTIFICATION
 
