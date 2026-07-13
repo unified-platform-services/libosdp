@@ -541,7 +541,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		event.cardread.format = buf[pos++];
 		event.cardread.length = bread_u16_le(buf, &pos);
 		event.cardread.direction = 0; /* un-specified */
-		t = (event.cardread.length + 7) / 8; /* len: bytes */
+		t = BITS_TO_BYTES(event.cardread.length);
 		if (t != (len - REPLY_RAW_DATA_LEN) ||
 		    t > OSDP_EVENT_CARDREAD_MAX_DATALEN) {
 			break;

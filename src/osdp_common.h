@@ -144,6 +144,13 @@ do {\
 #define BYTE_2(x) (uint8_t)(((x) >> 16) & 0xFF)
 #define BYTE_3(x) (uint8_t)(((x) >> 24) & 0xFF)
 
+/*
+ * Round a bit count up to whole bytes. Widened to uint32_t because the
+ * operand is a uint16_t wire value: it would otherwise promote to int, and
+ * 0xFFFF + 7 overflows an int that is only 16 bits wide on some targets.
+ */
+#define BITS_TO_BYTES(n) ((int)(((uint32_t)(n) + 7) / 8))
+
 /* casting helpers */
 #define TO_OSDP(ctx)  ((struct osdp *)ctx)
 

@@ -916,9 +916,9 @@ struct osdp_event_cardread {
 	 */
 	int direction;
 	/**
-	 * Length of card data in bits
+	 * Length of card data in bits. Carried as a 16-bit value on the wire.
 	 */
-	int length;
+	uint16_t length;
 	/**
 	 * Card data of @a length bytes or bits bits depending on @a format
 	 */

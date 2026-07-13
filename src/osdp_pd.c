@@ -962,7 +962,7 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		if (!event || event->type != OSDP_EVENT_CARDREAD) {
 			break;
 		}
-		len_bytes = (event->cardread.length + 7) / 8;
+		len_bytes = BITS_TO_BYTES(event->cardread.length);
 		assert_buf_len(REPLY_RAW_LEN + len_bytes, max_len);
 		buf[len++] = pd->reply_id;
 		buf[len++] = (uint8_t)event->cardread.reader_no;
