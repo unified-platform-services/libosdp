@@ -89,3 +89,30 @@ jobs:
         run: cmake -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug -DOPT_OSDP_LIB_ONLY=ON .
       - name: Build
         run: cmake --build build --parallel
+
+  # A bare-metal ARM toolchain models two things the x86-64 glibc build cannot:
+  # newlib types uint32_t as `unsigned long`, so a `%d`/`%u` applied to a
+  # uint32_t is a -Wformat error here while staying silent on the host; and it
+  # is the toolchain family our embedded targets actually use. Compile-only —
+  # there is nothing to link or run against.
+  bare_metal_arm:
+    name: Bare-metal ARM (type/format checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Install arm-none-eabi toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi
+      - name: Generate osdp_config.h
+        run: cmake -B build -DOPT_OSDP_LIB_ONLY=ON .
+      - name: Compile core for arm-none-eabi
+        run: |
+          for f in src/*.c; do
+            arm-none-eabi-gcc -c -o /dev/null "$f" \
+              -Iinclude -Isrc -Isrc/crypto -Iutils/include -Ibuild/include \
+              -std=c11 -Wall -Wextra -Wformat=2 -Werror \
+              -Wno-unused-parameter -Wno-format-nonliteral
+          done
