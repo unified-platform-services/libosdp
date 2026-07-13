@@ -48,6 +48,15 @@ void osdp_decrypt(uint8_t *key, uint8_t *iv, uint8_t *data, int len)
 	}
 }
 
+/*
+ * Secure Channel nonces (cp_random, and the PD challenge) are drawn from here,
+ * so the quality of rand_u32() is what backs them. utils resolves that per
+ * platform: a hardware TRNG where the target has one, and no definition at all
+ * on targets it cannot identify, so a missing entropy source is a link error
+ * rather than a fixed sequence. rand_u32() is the single seam -- cores that
+ * only offer a PRNG (Arduino AVR, SAMD) should override it with a real entropy
+ * source.
+ */
 void osdp_fill_random(uint8_t *buf, int len)
 {
 	int i;
