@@ -1151,6 +1151,18 @@ int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event);
  *
  * @retval 0 on success
  * @retval -1 on failure
+ *
+ * @note An accepted event is queued @b by @b reference; LibOSDP does not copy
+ * it. @a event must stay alive and unmodified from a successful submission until
+ * the library is done with it -- an event that lives on the stack of a function
+ * that returns (a command callback, say), or one reused for a second submission
+ * while the first is still queued, corrupts the queue. Ownership returns to the
+ * application when the event completion callback fires for that pointer (see
+ * osdp_pd_set_event_completion_callback()); every accepted event is reported
+ * exactly once, including those dropped by osdp_pd_flush_events()
+ * (@c OSDP_COMPLETION_FLUSHED) and osdp_pd_teardown() (@c OSDP_COMPLETION_ABORTED).
+ * That callback is where a heap-allocated event should be freed. On a -1 return
+ * the event was never queued and is the application's to reuse at once.
  */
 OSDP_EXPORT
 int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event);
@@ -1249,6 +1261,18 @@ int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
  *
  * @note This method only adds the command on to a particular PD's command
  * queue. The command itself can fail due to various reasons.
+ *
+ * @note An accepted command is queued @b by @b reference; LibOSDP does not copy
+ * it. @a cmd must stay alive and unmodified from a successful submission until
+ * the library is done with it -- a command that lives on the stack of a function
+ * that returns, or one reused for a second submission while the first is still
+ * queued, corrupts the queue. Ownership returns to the application when the
+ * command completion callback fires for that pointer (see
+ * osdp_cp_set_command_completion_callback()); every accepted command is reported
+ * exactly once, including those dropped by osdp_cp_flush_commands()
+ * (@c OSDP_COMPLETION_FLUSHED) and osdp_cp_teardown() (@c OSDP_COMPLETION_ABORTED).
+ * That callback is where a heap-allocated command should be freed. On a -1
+ * return the command was never queued and is the application's to reuse at once.
  */
 OSDP_EXPORT
 int osdp_cp_submit_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
