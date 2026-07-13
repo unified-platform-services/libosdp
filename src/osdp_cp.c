@@ -418,7 +418,8 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		osdp_metrics_report(pd, OSDP_METRIC_NAK);
-		if (buf[pos] == OSDP_PD_NAK_MSG_CHK &&
+		pd->nak_code = buf[pos];
+		if (pd->nak_code == OSDP_PD_NAK_MSG_CHK &&
 		    ISSET_FLAG(pd, PD_FLAG_CP_USE_CRC)) {
 			LOG_INF("PD NAK'd CRC-16, falling back to checksum");
 			CLEAR_FLAG(pd, PD_FLAG_CP_USE_CRC);
@@ -426,7 +427,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		LOG_WRN("PD replied with NAK(%d) for CMD: %s(%02x)",
-			buf[pos], osdp_cmd_name(pd->cmd_id), pd->cmd_id);
+			pd->nak_code, osdp_cmd_name(pd->cmd_id), pd->cmd_id);
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_PDID:
@@ -1385,24 +1386,72 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	pd->state = next;
 }
 
+static bool cp_cmd_is_app_owned(int cmd_id)
+{
+	switch (cmd_id) {
+	case CMD_OUT:
+	case CMD_LED:
+	case CMD_BUZ:
+	case CMD_TEXT:
+	case CMD_ISTAT:
+	case CMD_OSTAT:
+	case CMD_LSTAT:
+	case CMD_RSTAT:
+	case CMD_COMSET:
+	case CMD_KEYSET:
+	case CMD_MFG:
+	case CMD_BIOREAD:
+	case CMD_BIOMATCH:
+	case CMD_FILETRANSFER:
+		return true;
+	default:
+		/* CMD_POLL, CMD_ID, CMD_CAP, CMD_CHLNG and CMD_SCRYPT are ours;
+		 * if the PD refuses them, the link is not usable. */
+		return false;
+	}
+}
+
+static bool cp_nak_code_is_app_level(uint8_t nak_code)
+{
+	switch (nak_code) {
+	case OSDP_PD_NAK_CMD_LEN:
+	case OSDP_PD_NAK_CMD_UNKNOWN:
+	case OSDP_PD_NAK_BIO_TYPE:
+	case OSDP_PD_NAK_BIO_FMT:
+	case OSDP_PD_NAK_RECORD:
+		return true;
+	default:
+		/* MSG_CHK, SEQ_NUM, SC_UNSUP and SC_COND describe the state of
+		 * the link rather than the command; they need the state machine
+		 * to reset the connection. */
+		return false;
+	}
+}
+
 /**
- * Some commands can be legitimately refused by the PD application: a vendor
- * command it doesn't implement, a body part it cannot scan. Such a refusal is a
- * failure of the command, not a fault of the link, so report it to the app but
- * keep the PD online.
+ * A command can fail without the link being at fault: the PD received the frame
+ * and declined to act on it. Such failures are reported to the app and the PD
+ * stays online. This can only happen for a command the app asked for, and only
+ * when the PD answered us; a timeout or a malformed reply is always a hard
+ * failure, as is an unexpected (if well formed) reply, which means the PD has
+ * lost track of the exchange.
  */
 static bool cp_cmd_failure_is_soft(struct osdp_pd *pd)
 {
-	switch (pd->cmd_id) {
-	case CMD_MFG:
-		return pd->reply_id == REPLY_NAK ||
-		       pd->reply_id == REPLY_MFGERRR;
-	case CMD_BIOREAD:
-	case CMD_BIOMATCH:
-		return pd->reply_id == REPLY_NAK;
-	default:
+	if (pd->state != OSDP_CP_STATE_ONLINE ||
+	    pd->phy_state != OSDP_CP_PHY_STATE_DONE ||
+	    !cp_cmd_is_app_owned(pd->cmd_id)) {
 		return false;
 	}
+
+	/* The vendor command failed, but the PD told us so in a reply of its
+	 * own instead of a NAK. */
+	if (pd->cmd_id == CMD_MFG && pd->reply_id == REPLY_MFGERRR) {
+		return true;
+	}
+
+	return pd->reply_id == REPLY_NAK &&
+	       cp_nak_code_is_app_level(pd->nak_code);
 }
 
 static void notify_command_status(struct osdp_pd *pd, int status)
@@ -1498,6 +1547,11 @@ static int state_update(struct osdp_pd *pd)
 		if (!status) {
 			err = cp_cmd_failure_is_soft(pd) ? OSDP_CP_ERR_NONE
 							 : OSDP_CP_ERR_GENERIC;
+			if (err == OSDP_CP_ERR_NONE &&
+			    pd->cmd_id == CMD_FILETRANSFER) {
+				/* Going offline used to do this for us. */
+				osdp_file_tx_abort(pd);
+			}
 		}
 		osdp_phy_state_reset(pd, false);
 		break;
@@ -2016,6 +2070,7 @@ bool osdp_cp_is_pd_enabled(const osdp_t *ctx, int pd_idx)
 OSDP_TEST_ALIAS(cp_cmd_enqueue);
 OSDP_TEST_ALIAS(cp_phy_state_update);
 OSDP_TEST_ALIAS(state_update);
+OSDP_TEST_ALIAS(cp_cmd_failure_is_soft);
 
 /* Export the CP frame codecs to out-of-module drivers (tests, embedders). */
 OSDP_TEST_ALIAS(cp_build_command);

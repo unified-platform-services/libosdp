@@ -494,3 +494,81 @@ def test_command_status():
             secure_pd.set_command_handler(original_command_handler)
         else:
             secure_pd.set_command_handler(None)
+
+soft_nak_commands = [
+    (Command.LED, {
+        'command': Command.LED,
+        'reader': 1,
+        'led_number': 0,
+        'control_code': 1,
+        'on_count': 10,
+        'off_count': 10,
+        'on_color': CommandLEDColor.Red,
+        'off_color': CommandLEDColor.Black,
+        'timer_count': 10,
+        'temporary': True
+    }),
+    (Command.Buzzer, {
+        'command': Command.Buzzer,
+        'reader': 0,
+        'control_code': 1,
+        'on_count': 10,
+        'off_count': 10,
+        'rep_count': 10
+    }),
+    (Command.Text, {
+        'command': Command.Text,
+        'reader': 0,
+        'control_code': 1,
+        'temp_time': 20,
+        'offset_row': 1,
+        'offset_col': 1,
+        'data': 'PYOSDP'
+    }),
+    (Command.Output, {
+        'command': Command.Output,
+        'output_no': 0,
+        'control_code': 1,
+        'timer_count': 0
+    }),
+]
+
+@pytest.mark.parametrize("cmd_id,test_cmd", soft_nak_commands,
+                         ids=lambda v: v.name if hasattr(v, 'name') else '')
+def test_command_nak_keeps_pd_online(cmd_id, test_cmd):
+    """A PD that declines a command is not a broken link. The app must be told
+    the command failed, but the PD has to stay online."""
+    declined = []
+
+    def cmd_handler(command):
+        declined.append(command['command'])
+        return -Nak.Record, None
+
+    assert cp.is_online(secure_pd_addr)
+    original = getattr(secure_pd, 'user_command_handler', None)
+    try:
+        secure_pd.set_command_handler(cmd_handler)
+
+        assert cp.submit_command(secure_pd_addr, test_cmd)
+
+        cp_check_command_status(cmd_id, expected_outcome=False)
+        assert declined == [cmd_id]
+        assert cp.is_online(secure_pd_addr)
+    finally:
+        secure_pd.set_command_handler(original)
+
+def test_command_unsupported_keeps_pd_online():
+    """This PD has no contact status monitoring capability, so LibOSDP itself
+    NAKs the input status request with CMD_UNKNOWN before the app sees it. An
+    unsupported command is still not a link failure."""
+    test_cmd = {
+        'command': Command.Status,
+        'type': StatusReportType.Input,
+        'report': bytes([]),
+    }
+
+    assert cp.is_online(secure_pd_addr)
+    assert cp.submit_command(secure_pd_addr, test_cmd)
+
+    cp_check_command_status(Command.Status, expected_outcome=False)
+    assert cp.is_online(secure_pd_addr)

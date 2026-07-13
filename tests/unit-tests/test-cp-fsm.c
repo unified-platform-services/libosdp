@@ -10,6 +10,7 @@
 #include "test.h"
 
 extern int test_state_update(struct osdp_pd *);
+extern bool test_cp_cmd_failure_is_soft(struct osdp_pd *);
 
 int test_fsm_resp = 0;
 #ifdef OPT_OSDP_RX_ZERO_COPY
@@ -161,6 +162,104 @@ void test_cp_fsm_teardown(struct test *t)
 	osdp_cp_teardown(t->mock_data);
 }
 
+/**
+ * A command failure is "soft" when the PD answered us and merely declined the
+ * command: the app is told, but the link stays up. Everything else -- a silent
+ * or garbled PD, a NAK that describes the link rather than the command, or a
+ * command LibOSDP itself depends on -- must still take the PD offline.
+ */
+struct soft_fail_case {
+	const char *name;
+	enum osdp_cp_state_e state;
+	enum osdp_cp_phy_state_e phy_state;
+	int cmd_id;
+	int reply_id;
+	uint8_t nak_code;
+	bool is_soft;
+};
+
+static const struct soft_fail_case soft_fail_cases[] = {
+	/* The PD declined an app command; it is still very much alive. */
+	{ "LED NAK'd with RECORD", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_DONE, CMD_LED, REPLY_NAK,
+	  OSDP_PD_NAK_RECORD, true },
+	{ "LED the PD does not implement", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_DONE, CMD_LED, REPLY_NAK,
+	  OSDP_PD_NAK_CMD_UNKNOWN, true },
+	{ "file transfer refused", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_DONE, CMD_FILETRANSFER, REPLY_NAK,
+	  OSDP_PD_NAK_RECORD, true },
+	{ "vendor command reported an error", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_DONE, CMD_MFG, REPLY_MFGERRR,
+	  OSDP_PD_NAK_NONE, true },
+	{ "app keyset NAK'd while online", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_DONE, CMD_KEYSET, REPLY_NAK,
+	  OSDP_PD_NAK_RECORD, true },
+
+	/* The NAK code describes the link, not the command. */
+	{ "NAK'd for want of secure channel", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_DONE, CMD_LED, REPLY_NAK,
+	  OSDP_PD_NAK_SC_COND, false },
+	{ "NAK'd with a bad check character", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_DONE, CMD_LED, REPLY_NAK,
+	  OSDP_PD_NAK_MSG_CHK, false },
+	{ "NAK'd with a sequence error", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_DONE, CMD_LED, REPLY_NAK,
+	  OSDP_PD_NAK_SEQ_NUM, false },
+
+	/* The PD never answered, or answered something else entirely. */
+	{ "no reply to an LED command", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_ERR, CMD_LED, REPLY_INVALID,
+	  OSDP_PD_NAK_NONE, false },
+	/* The phy rejected the frame; nak_code is whatever the last exchange
+	 * left behind and must not be read as the PD's answer to this one. */
+	{ "phy error carrying a stale NAK code", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_ERR, CMD_LED, REPLY_NAK,
+	  OSDP_PD_NAK_RECORD, false },
+	{ "LED answered with a status report", OSDP_CP_STATE_ONLINE,
+	  OSDP_CP_PHY_STATE_DONE, CMD_LED, REPLY_LSTATR,
+	  OSDP_PD_NAK_NONE, false },
+
+	/* Commands LibOSDP issues for itself; if these fail, the link is not
+	 * usable no matter what the PD says. */
+	{ "poll NAK'd", OSDP_CP_STATE_ONLINE, OSDP_CP_PHY_STATE_DONE,
+	  CMD_POLL, REPLY_NAK, OSDP_PD_NAK_RECORD, false },
+	{ "ID request NAK'd", OSDP_CP_STATE_INIT, OSDP_CP_PHY_STATE_DONE,
+	  CMD_ID, REPLY_NAK, OSDP_PD_NAK_RECORD, false },
+	{ "SCBK install NAK'd", OSDP_CP_STATE_SET_SCBK,
+	  OSDP_CP_PHY_STATE_DONE, CMD_KEYSET, REPLY_NAK,
+	  OSDP_PD_NAK_RECORD, false },
+};
+
+static void test_cp_soft_failure_matrix(struct test *t)
+{
+	bool result = true;
+	struct osdp_pd pd;
+
+	printf(SUB_1 "classifying command failures\n");
+
+	for (size_t i = 0; i < ARRAY_SIZEOF(soft_fail_cases); i++) {
+		const struct soft_fail_case *c = &soft_fail_cases[i];
+
+		memset(&pd, 0, sizeof(pd));
+		pd.state = c->state;
+		pd.phy_state = c->phy_state;
+		pd.cmd_id = c->cmd_id;
+		pd.reply_id = c->reply_id;
+		pd.nak_code = c->nak_code;
+
+		if (test_cp_cmd_failure_is_soft(&pd) != c->is_soft) {
+			printf(SUB_2 "%s: expected a %s failure\n", c->name,
+			       c->is_soft ? "soft" : "hard");
+			result = false;
+		}
+	}
+
+	printf(SUB_1 "command failure classification %s\n",
+	       result ? "succeeded" : "failed");
+	TEST_REPORT(t, result);
+}
+
 void run_cp_fsm_tests(struct test *t)
 {
 	int result = true;
@@ -168,6 +267,8 @@ void run_cp_fsm_tests(struct test *t)
 	struct osdp *ctx;
 
 	printf("\nStarting CP Phy state tests\n");
+
+	test_cp_soft_failure_matrix(t);
 
 	if (test_cp_fsm_setup(t))
 		return;
