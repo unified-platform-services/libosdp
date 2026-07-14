@@ -264,7 +264,7 @@ static PyObject *pyosdp_cp_submit_command(pyosdp_cp_t *self, PyObject *args)
 		free(pending);
 		pyosdp_add_error_context(PyExc_ValueError,
 			"Unable to convert command dict to OSDP command structure");
-		Py_RETURN_FALSE;
+		return NULL;
 	}
 
 	ret = osdp_cp_submit_command(self->ctx, pd, &pending->cmd);
