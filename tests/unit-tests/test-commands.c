@@ -516,6 +516,154 @@ static bool test_output_command()
 	return wait_for_command(OSDP_CMD_OUTPUT, 5);
 }
 
+/*
+ * OSDP v2.2 subclause 6.9 lets the PD answer osdp_OUT with an osdp_OSTATR
+ * carrying the new output state, or ACK it and send the osdp_OSTATR later on a
+ * poll. The PD app picks between the two by reporting the output status from
+ * within its command callback, or not.
+ *
+ * This is invisible end-to-end -- either way the CP ends up with the same
+ * status event, only on a different packet -- so these cases drive
+ * pd_decode_command() directly and read pd->reply_id, which is what actually
+ * goes on the wire. They own their devices and run no async runners, so the
+ * shared test environment must not be up while they run.
+ */
+
+/* Exported as a test_<fn> alias under UNIT_TESTING via OSDP_TEST_ALIAS. */
+extern int test_pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len);
+
+/* The PD's OSDP_PD_CAP_OUTPUT_CONTROL num_items; an osdp_OSTATR must report
+ * exactly this many outputs. Keep in sync with test_setup_devices(). */
+#define TEST_NUM_OUTPUTS 4
+
+enum out_submit_choice {
+	OUT_SUBMIT_NOTHING,
+	OUT_SUBMIT_OUTPUT_STATUS, /* the answer to osdp_OUT */
+	OUT_SUBMIT_INPUT_STATUS,  /* unrelated; must not be eaten by osdp_OUT */
+};
+
+/* The event queue links events by reference, so whatever the callback submits
+ * has to outlive it. */
+static struct osdp_event g_out_status;
+static struct osdp_event g_input_status;
+static enum out_submit_choice g_out_submit;
+static osdp_t *g_out_pd_ctx;
+static bool g_out_cmd_seen;
+
+static int test_out_command_callback(void *arg, struct osdp_cmd *cmd)
+{
+	ARG_UNUSED(arg);
+
+	if (cmd->id != OSDP_CMD_OUTPUT) {
+		return 0;
+	}
+	g_out_cmd_seen = true;
+
+	switch (g_out_submit) {
+	case OUT_SUBMIT_OUTPUT_STATUS:
+		osdp_pd_submit_event(g_out_pd_ctx, &g_out_status);
+		break;
+	case OUT_SUBMIT_INPUT_STATUS:
+		osdp_pd_submit_event(g_out_pd_ctx, &g_input_status);
+		break;
+	case OUT_SUBMIT_NOTHING:
+		break;
+	}
+	return 0;
+}
+
+static bool out_check_reply(struct osdp_pd *pd, int expected, const char *desc)
+{
+	if (pd->reply_id != expected) {
+		printf(SUB_2 "%s: expected %s(%02x), got %s(%02x)\n", desc,
+		       osdp_reply_name(expected), expected,
+		       osdp_reply_name(pd->reply_id), pd->reply_id);
+		return false;
+	}
+	printf(SUB_2 "%s\n", desc);
+	return true;
+}
+
+static void out_init_events(void)
+{
+	int i;
+
+	memset(&g_out_status, 0, sizeof(g_out_status));
+	g_out_status.type = OSDP_EVENT_STATUS;
+	g_out_status.status.type = OSDP_STATUS_REPORT_OUTPUT;
+	g_out_status.status.nr_entries = TEST_NUM_OUTPUTS;
+	for (i = 0; i < TEST_NUM_OUTPUTS; i++) {
+		g_out_status.status.report[i] = (i == 0) ? 1 : 0;
+	}
+
+	memset(&g_input_status, 0, sizeof(g_input_status));
+	g_input_status.type = OSDP_EVENT_STATUS;
+	g_input_status.status.type = OSDP_STATUS_REPORT_INPUT;
+	g_input_status.status.nr_entries = 8;
+}
+
+static bool test_output_reply_selection(struct test *t)
+{
+	/* osdp_OUT: output 0, control code 1 (permanent off), timer 0 */
+	uint8_t out_cmd[] = { 0x68, 0x00, 0x01, 0x00, 0x00 };
+	uint8_t poll_cmd[] = { 0x60 };
+	osdp_t *cp = NULL, *pd_ctx = NULL;
+	struct osdp_pd *pd;
+	bool result = true;
+
+	printf(SUB_2 "testing reply selection for osdp_OUT\n");
+
+	if (test_setup_devices(t, &cp, &pd_ctx)) {
+		printf(SUB_2 "Failed to setup devices for osdp_OUT tests\n");
+		return false;
+	}
+	out_init_events();
+	g_out_pd_ctx = pd_ctx;
+	pd = osdp_to_pd(pd_ctx, 0);
+	osdp_pd_set_command_callback(pd_ctx, test_out_command_callback, NULL);
+
+	/* An app that reports nothing gets the ACK-now-report-later behaviour */
+	g_out_submit = OUT_SUBMIT_NOTHING;
+	g_out_cmd_seen = false;
+	test_pd_decode_command(pd, out_cmd, sizeof(out_cmd));
+	if (!g_out_cmd_seen) {
+		printf(SUB_2 "osdp_OUT did not reach the app\n");
+		result = false;
+	}
+	result &= out_check_reply(pd, REPLY_ACK,
+				  "app reports nothing: osdp_OUT is ACK'd");
+
+	/* Reporting the status from the callback makes it the reply itself */
+	g_out_submit = OUT_SUBMIT_OUTPUT_STATUS;
+	test_pd_decode_command(pd, out_cmd, sizeof(out_cmd));
+	result &= out_check_reply(pd, REPLY_OSTATR,
+				  "app reports status: osdp_OUT is answered"
+				  " inline with osdp_OSTATR");
+	if (pd->active_event != &g_out_status) {
+		printf(SUB_2 "the reported status is not the active event\n");
+		result = false;
+	}
+	pd->active_event = NULL;
+
+	/* Only the answer to osdp_OUT may ride out as its reply; an unrelated
+	 * event at the head of the queue must be left for a later poll. */
+	g_out_submit = OUT_SUBMIT_INPUT_STATUS;
+	test_pd_decode_command(pd, out_cmd, sizeof(out_cmd));
+	result &= out_check_reply(pd, REPLY_ACK,
+				  "an unrelated event is not consumed by"
+				  " osdp_OUT");
+
+	g_out_submit = OUT_SUBMIT_NOTHING;
+	test_pd_decode_command(pd, poll_cmd, sizeof(poll_cmd));
+	result &= out_check_reply(pd, REPLY_ISTATR,
+				  "it rides out on the following poll instead");
+	pd->active_event = NULL;
+
+	osdp_cp_teardown(cp);
+	osdp_pd_teardown(pd_ctx);
+	return result;
+}
+
 static bool test_text_command()
 {
 	printf(SUB_2 "testing text command\n");
@@ -948,6 +1096,10 @@ void run_command_tests(struct test *t)
 	bool overall_result = true;
 
 	printf("\nBegin Command Tests (pytest-style)\n");
+
+	/* Owns its devices and drives the PD codec directly; must run before
+	 * the shared environment brings up the async runners. */
+	overall_result &= test_output_reply_selection(t);
 
 	/* Setup test environment once */
 	if (setup_test_environment(t) != 0) {

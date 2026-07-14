@@ -92,6 +92,45 @@ def test_command_output():
     assert_command_received(secure_pd, test_cmd)
     cp_check_command_status(Command.Output)
 
+@pytest.mark.parametrize("answer_inline", [False, True])
+def test_command_output_ostatr(answer_inline):
+    """OSDP v2.2 6.9: the PD may answer osdp_OUT with an osdp_OSTATR reporting
+    the new output state, or ACK it and send the osdp_OSTATR later on a poll.
+    The app picks by submitting the status from within its callback, or not."""
+    reply = {
+        'event': Event.Status,
+        'type': StatusReportType.Output,
+        'report': bytes([1]),
+    }
+
+    def cmd_handler(command):
+        assert command['command'] == Command.Output
+        if answer_inline:
+            secure_pd.submit_event(reply)
+        return 0, None
+
+    assert cp.is_online(secure_pd_addr)
+    original = getattr(secure_pd, 'user_command_handler', None)
+    try:
+        secure_pd.set_command_handler(cmd_handler)
+
+        test_cmd = {
+            'command': Command.Output,
+            'output_no': 0,
+            'control_code': 1,
+            'timer_count': 0
+        }
+        assert cp.submit_command(secure_pd_addr, test_cmd)
+        assert_command_received(secure_pd, test_cmd)
+
+        if not answer_inline:
+            secure_pd.submit_event(reply)
+
+        wait_for_non_notification_event(cp, secure_pd_addr, reply)
+        assert cp.is_online(secure_pd_addr)
+    finally:
+        secure_pd.set_command_handler(original)
+
 def test_command_buzzer():
     test_cmd = {
         'command': Command.Buzzer,

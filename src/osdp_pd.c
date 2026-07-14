@@ -109,6 +109,11 @@ static bool event_is_reply_to(int cmd_id, const struct osdp_event *event)
 		return event->type == OSDP_EVENT_BIOREADR;
 	case CMD_BIOMATCH:
 		return event->type == OSDP_EVENT_BIOMATCHR;
+	case CMD_OUT:
+		/* The PD may answer osdp_OUT with the resulting output status
+		 * instead of an ACK. See OSDP v2.2 subclause 6.9. */
+		return event->type == OSDP_EVENT_STATUS &&
+		       event->status.type == OSDP_STATUS_REPORT_OUTPUT;
 	default:
 		return false;
 	}
@@ -653,7 +658,12 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			}
 		}
 		if (i == count) {
-			pd->reply_id = REPLY_ACK;
+			/* The app may report the resulting output status from
+			 * within its callback; if it didn't, ACK and let it
+			 * send an osdp_OSTATR later, on a poll. */
+			if (!pd_take_inline_reply(pd)) {
+				pd->reply_id = REPLY_ACK;
+			}
 			ret = OSDP_PD_ERR_NONE;
 		}
 		break;
