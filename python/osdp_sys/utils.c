@@ -96,9 +96,16 @@ int pyosdp_module_add_type(PyObject *module, const char *name,
 	return 0;
 }
 
+/*
+ * Accepts both signed values (such as osdp_notification::arg1 which is -1 on
+ * failure) and unsigned 32 bit values (such as OSDP_CMD_FILE_TX_FLAG_CANCEL
+ * which is 1 << 31). Both are stored into an int; callers cast to the width
+ * their struct field needs.
+ */
 int pyosdp_parse_int(PyObject *obj, int *res)
 {
 	PyObject *tmp;
+	long long val;
 
 	/* Check if obj is numeric */
 	if (PyNumber_Check(obj) != 1) {
@@ -107,8 +114,21 @@ int pyosdp_parse_int(PyObject *obj, int *res)
 	}
 
 	tmp = PyNumber_Long(obj);
-	*res = (int)PyLong_AsUnsignedLong(tmp);
+	if (tmp == NULL)
+		return -1;
+
+	val = PyLong_AsLongLong(tmp);
 	Py_DECREF(tmp);
+	if (val == -1 && PyErr_Occurred())
+		return -1;
+
+	if (val < INT32_MIN || val > UINT32_MAX) {
+		PyErr_Format(PyExc_OverflowError,
+			     "Value %lld does not fit in 32 bits", val);
+		return -1;
+	}
+
+	*res = (int)val;
 	return 0;
 }
 
