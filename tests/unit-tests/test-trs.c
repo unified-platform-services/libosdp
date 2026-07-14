@@ -690,6 +690,7 @@ static bool test_trs_wire_cmd_decode_actions(void)
 	struct osdp_pd pd;
 	struct osdp_cmd cmd;
 	uint8_t set_mode[] = { 0x00, 0x02, TRS_MODE_01, 0x00 };
+	uint8_t set_mode_no_cfg[] = { 0x00, 0x02, TRS_MODE_01 };
 	uint8_t read_mode[] = { 0x00, 0x01 };
 	uint8_t terminate[] = { 0x01, 0x02, 0x00 };
 	uint8_t send_apdu[] = { 0x01, 0x01, 0x00, 0x00, 0xA4 };
@@ -701,6 +702,13 @@ static bool test_trs_wire_cmd_decode_actions(void)
 	r = osdp_trs_cmd_decode(&pd, &cmd, set_mode, sizeof(set_mode));
 	if (r != OSDP_TRS_DECODE_ACK) {
 		printf(SUB_2 "mode-set must be ACK'd; got %d\n", r);
+		return false;
+	}
+	/* Table 36: the config byte is optional; in its absence 0x00 is used */
+	r = osdp_trs_cmd_decode(&pd, &cmd, set_mode_no_cfg,
+				sizeof(set_mode_no_cfg));
+	if (r != OSDP_TRS_DECODE_ACK || pd.trs.mode != TRS_MODE_01) {
+		printf(SUB_2 "config-less mode-set must be ACK'd; got %d\n", r);
 		return false;
 	}
 	r = osdp_trs_cmd_decode(&pd, &cmd, read_mode, sizeof(read_mode));

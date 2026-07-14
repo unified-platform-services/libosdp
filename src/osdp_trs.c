@@ -644,11 +644,12 @@ int osdp_trs_cmd_decode(struct osdp_pd *pd, struct osdp_cmd *cmd, uint8_t *buf,
 	/* mode-0 (handshake) commands are handled by the library itself */
 	if (mode == 0) {
 		if (mode_code == CMD_MODE_SET) {
-			if (len - pos < 2) {
+			/* The config byte is optional (Table 36: absent means
+			 * 0x00) and currently unused either way. */
+			if (len - pos < 1) {
 				return -1;
 			}
 			new_mode = buf[pos++];
-			/* config byte (buf[pos]) currently unused */
 			if (new_mode != TRS_MODE_00 && new_mode != TRS_MODE_01) {
 				LOG_ERR("TRS: unsupported mode %02x requested",
 					new_mode);
