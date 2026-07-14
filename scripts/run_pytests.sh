@@ -139,3 +139,9 @@ fi
 
 echo "[-] Running tests capturing all output.."
 pytest ${VERBOSE_LEVEL} --show-capture=all "${PYTEST_ARGS[@]}"
+
+# Kept out of addopts: that would try to collect doctests from conftest.py too.
+if [ ${#PYTEST_ARGS[@]} -eq 0 ]; then
+    echo "[-] Running the doctests in the osdp package.."
+    pytest ${VERBOSE_LEVEL} --doctest-modules --pyargs osdp
+fi
