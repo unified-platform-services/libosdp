@@ -6,945 +6,645 @@
 
 #include "module.h"
 
+/*
+ * Commands and events are described by a table of fields rather than by a pair
+ * of hand written translators each. A field says where it lives in the C struct
+ * and what it is called in the dict, and one engine walks the table in either
+ * direction. Adding a command means adding a table; the conversion, the bounds
+ * checks and the error paths come with it.
+ */
+
+enum pyosdp_field_kind {
+	FIELD_U8,
+	FIELD_U16,
+	FIELD_U32,
+	FIELD_INT,
+	FIELD_BYTES, /* a buffer, with its length held in another field */
+	FIELD_STR, /* UTF-8 into a buffer, with its length held likewise */
+	FIELD_SUBDICT, /* a nested struct, marshalled as a nested dict */
+};
+
+struct pyosdp_field {
+	const char *key;
+	enum pyosdp_field_kind kind;
+	size_t offset;
+
+	/* FIELD_BYTES and FIELD_STR */
+	size_t len_offset;
+	enum pyosdp_field_kind len_kind;
+	size_t max_len;
+	bool allow_empty;
+	bool optional;
+
+	/* FIELD_SUBDICT */
+	const struct pyosdp_field *fields;
+	size_t present_offset; /* nested block is absent when this byte is 0 */
+};
+
+#define INT_FIELD(st, member, int_kind)                                        \
+	{                                                                      \
+		.key = #member,                                                \
+		.kind = int_kind,                                              \
+		.offset = offsetof(st, member),                                \
+	}
+
+#define U8_FIELD(st, member)   INT_FIELD(st, member, FIELD_U8)
+#define U16_FIELD(st, member)  INT_FIELD(st, member, FIELD_U16)
+#define U32_FIELD(st, member)  INT_FIELD(st, member, FIELD_U32)
+#define INT_FIELD_(st, member) INT_FIELD(st, member, FIELD_INT)
+
+#define END_OF_FIELDS { .key = NULL }
+
+/* --- Field access --- */
+
+static int field_get_int(const void *base, size_t offset,
+			 enum pyosdp_field_kind kind)
+{
+	const void *p = (const uint8_t *)base + offset;
+
+	switch (kind) {
+	case FIELD_U8:
+		return *(const uint8_t *)p;
+	case FIELD_U16:
+		return *(const uint16_t *)p;
+	case FIELD_U32:
+		return (int)*(const uint32_t *)p;
+	case FIELD_INT:
+		return *(const int *)p;
+	default:
+		return -1;
+	}
+}
+
+static void field_set_int(void *base, size_t offset,
+			  enum pyosdp_field_kind kind, int val)
+{
+	void *p = (uint8_t *)base + offset;
+
+	switch (kind) {
+	case FIELD_U8:
+		*(uint8_t *)p = (uint8_t)val;
+		break;
+	case FIELD_U16:
+		*(uint16_t *)p = (uint16_t)val;
+		break;
+	case FIELD_U32:
+		*(uint32_t *)p = (uint32_t)val;
+		break;
+	case FIELD_INT:
+		*(int *)p = val;
+		break;
+	default:
+		break;
+	}
+}
+
+/* --- The engine --- */
+
+static int pyosdp_fields_to_dict(PyObject *obj, const void *base,
+				 const struct pyosdp_field *fields);
+
+static int field_to_dict(PyObject *obj, const void *base,
+			 const struct pyosdp_field *f)
+{
+	const uint8_t *data = (const uint8_t *)base + f->offset;
+	PyObject *child;
+	char str[64];
+	int len;
+
+	switch (f->kind) {
+	case FIELD_U8:
+	case FIELD_U16:
+	case FIELD_U32:
+	case FIELD_INT:
+		return pyosdp_dict_add_int(
+			obj, f->key, field_get_int(base, f->offset, f->kind));
+	case FIELD_BYTES:
+		len = field_get_int(base, f->len_offset, f->len_kind);
+		if (len < 0 || (size_t)len > f->max_len) {
+			PyErr_Format(PyExc_ValueError, "'%s' has a bad length",
+				     f->key);
+			return -1;
+		}
+		return pyosdp_dict_add_bytes(obj, f->key, data, len);
+	case FIELD_STR:
+		len = field_get_int(base, f->len_offset, f->len_kind);
+		if (len < 0 || (size_t)len > f->max_len ||
+		    (size_t)len >= sizeof(str)) {
+			PyErr_Format(PyExc_ValueError, "'%s' has a bad length",
+				     f->key);
+			return -1;
+		}
+		memcpy(str, data, len);
+		str[len] = '\0';
+		return pyosdp_dict_add_str(obj, f->key, str);
+	case FIELD_SUBDICT:
+		if (field_get_int(data, f->present_offset, FIELD_U8) == 0)
+			return 0; /* this block does nothing; leave it out */
+		child = PyDict_New();
+		if (child == NULL)
+			return -1;
+		if (pyosdp_fields_to_dict(child, data, f->fields) ||
+		    PyDict_SetItemString(obj, f->key, child)) {
+			Py_DECREF(child);
+			return -1;
+		}
+		Py_DECREF(child);
+		return 0;
+	}
+	return -1;
+}
+
+static int pyosdp_fields_to_dict(PyObject *obj, const void *base,
+				 const struct pyosdp_field *fields)
+{
+	const struct pyosdp_field *f;
+
+	for (f = fields; f->key != NULL; f++) {
+		if (field_to_dict(obj, base, f))
+			return -1;
+	}
+	return 0;
+}
+
+static int pyosdp_fields_to_struct(void *base, PyObject *dict,
+				   const struct pyosdp_field *fields);
+
+static int field_to_struct(void *base, PyObject *dict,
+			   const struct pyosdp_field *f)
+{
+	uint8_t *data = (uint8_t *)base + f->offset;
+	PyObject *item;
+	uint8_t *buf;
+	char *str;
+	size_t slen;
+	int val, len;
+
+	switch (f->kind) {
+	case FIELD_U8:
+	case FIELD_U16:
+	case FIELD_U32:
+	case FIELD_INT:
+		if (pyosdp_dict_get_int(dict, f->key, &val))
+			return -1;
+		field_set_int(base, f->offset, f->kind, val);
+		return 0;
+	case FIELD_BYTES:
+		item = PyDict_GetItemString(dict, f->key);
+		if (item == NULL) {
+			if (!f->optional) {
+				PyErr_Format(
+					PyExc_KeyError,
+					"Key: '%s' of type: bytes expected",
+					f->key);
+				return -1;
+			}
+			field_set_int(base, f->len_offset, f->len_kind, 0);
+			return 0;
+		}
+		if (pyosdp_parse_bytes(item, &buf, &len, f->allow_empty))
+			return -1;
+		if ((size_t)len > f->max_len) {
+			PyErr_Format(PyExc_ValueError,
+				     "'%s' is too long: %d bytes", f->key, len);
+			return -1;
+		}
+		memcpy(data, buf, len);
+		field_set_int(base, f->len_offset, f->len_kind, len);
+		return 0;
+	case FIELD_STR:
+		if (pyosdp_dict_get_str(dict, f->key, &str))
+			return -1;
+		slen = strlen(str);
+		if (slen > f->max_len) {
+			PyErr_Format(PyExc_ValueError,
+				     "'%s' is too long: %zu bytes", f->key,
+				     slen);
+			free(str);
+			return -1;
+		}
+		memcpy(data, str, slen);
+		free(str);
+		field_set_int(base, f->len_offset, f->len_kind, (int)slen);
+		return 0;
+	case FIELD_SUBDICT:
+		item = PyDict_GetItemString(dict, f->key);
+		if (item == NULL)
+			return 0; /* an absent block stays zeroed: no action */
+		if (!PyDict_Check(item)) {
+			PyErr_Format(PyExc_TypeError, "'%s' must be a dict",
+				     f->key);
+			return -1;
+		}
+		return pyosdp_fields_to_struct(data, item, f->fields);
+	}
+	return -1;
+}
+
+static int pyosdp_fields_to_struct(void *base, PyObject *dict,
+				   const struct pyosdp_field *fields)
+{
+	const struct pyosdp_field *f;
+
+	for (f = fields; f->key != NULL; f++) {
+		if (field_to_struct(base, dict, f))
+			return -1;
+	}
+	return 0;
+}
+
 /* ------------------------------- */
 /*            COMMANDS             */
 /* ------------------------------- */
 
-static int pyosdp_make_dict_cmd_output(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "control_code", cmd->output.control_code))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "output_no", cmd->output.output_no))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "timer_count", cmd->output.timer_count))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_output(struct osdp_cmd *p, PyObject *dict)
-{
-	struct osdp_cmd_output *cmd = &p->output;
-	int output_no, control_code, timer_count;
-
-	if (pyosdp_dict_get_int(dict, "output_no", &output_no))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "control_code", &control_code))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "timer_count", &timer_count))
-		return -1;
-
-	cmd->output_no = (uint8_t)output_no;
-	cmd->control_code = (uint8_t)control_code;
-	cmd->timer_count = (uint16_t)timer_count;
-	return 0;
-}
+static const struct pyosdp_field cmd_output_fields[] = {
+	U8_FIELD(struct osdp_cmd_output, output_no),
+	U8_FIELD(struct osdp_cmd_output, control_code),
+	U16_FIELD(struct osdp_cmd_output, timer_count),
+	END_OF_FIELDS,
+};
 
 /*
- * A LED command carries two independent parameter blocks; a control_code of
- * zero means "no action" for that block. Each block is marshalled as a nested
- * dict, present only when that block does something. timer_count is meaningful
- * only for the temporary block.
+ * A LED command carries two independent parameter blocks. A control code of
+ * zero means "do nothing" for that block, which is what an absent nested dict
+ * marshals to. Only the temporary block has a timer.
  */
-static int pyosdp_make_dict_cmd_led_params(PyObject **obj,
-					   struct osdp_cmd_led_params *p,
-					   bool temporary)
-{
-	PyObject *dict;
-
-	dict = PyDict_New();
-	if (dict == NULL)
-		return -1;
-
-	if (pyosdp_dict_add_int(dict, "control_code", p->control_code) ||
-	    pyosdp_dict_add_int(dict, "on_count", p->on_count) ||
-	    pyosdp_dict_add_int(dict, "off_count", p->off_count) ||
-	    pyosdp_dict_add_int(dict, "on_color", p->on_color) ||
-	    pyosdp_dict_add_int(dict, "off_color", p->off_color))
-		goto error;
-
-	if (temporary &&
-	    pyosdp_dict_add_int(dict, "timer_count", p->timer_count))
-		goto error;
-
-	*obj = dict;
-	return 0;
-error:
-	Py_DECREF(dict);
-	return -1;
-}
-
-static int pyosdp_dict_add_led_params(PyObject *obj, const char *key,
-				      struct osdp_cmd_led_params *p,
-				      bool temporary)
-{
-	int ret;
-	PyObject *dict;
-
-	if (pyosdp_make_dict_cmd_led_params(&dict, p, temporary))
-		return -1;
-
-	ret = PyDict_SetItemString(obj, key, dict);
-	Py_DECREF(dict);
-	return ret;
-}
-
-static int pyosdp_make_dict_cmd_led(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "led_number", cmd->led.led_number))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "reader", cmd->led.reader))
-		return -1;
-
-	if (cmd->led.temporary.control_code &&
-	    pyosdp_dict_add_led_params(obj, "temporary", &cmd->led.temporary,
-				       true))
-		return -1;
-
-	if (cmd->led.permanent.control_code &&
-	    pyosdp_dict_add_led_params(obj, "permanent", &cmd->led.permanent,
-				       false))
-		return -1;
-
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_led_params(struct osdp_cmd_led_params *params,
-					     PyObject *dict, bool temporary)
-{
-	int control_code, on_count, off_count, on_color, off_color, timer_count;
-
-	if (!PyDict_Check(dict)) {
-		PyErr_SetString(PyExc_TypeError, "LED params must be a dict");
-		return -1;
-	}
-
-	if (pyosdp_dict_get_int(dict, "control_code", &control_code))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "on_count", &on_count))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "off_count", &off_count))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "on_color", &on_color))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "off_color", &off_color))
-		return -1;
-
-	if (temporary) {
-		if (pyosdp_dict_get_int(dict, "timer_count", &timer_count))
-			return -1;
-		params->timer_count = (uint16_t)timer_count;
-	}
-
-	params->control_code = (uint8_t)control_code;
-	params->on_count = (uint8_t)on_count;
-	params->off_count = (uint8_t)off_count;
-	params->on_color = (uint8_t)on_color;
-	params->off_color = (uint8_t)off_color;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_led(struct osdp_cmd *p, PyObject *dict)
-{
-	int led_number, reader;
-	struct osdp_cmd_led *cmd = &p->led;
-	PyObject *params;
-
-	if (pyosdp_dict_get_int(dict, "led_number", &led_number))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "reader", &reader))
-		return -1;
-
-	cmd->led_number = (uint8_t)led_number;
-	cmd->reader = (uint8_t)reader;
-
-	/* An absent block leaves it zeroed, which the spec reads as no-action */
-	params = PyDict_GetItemString(dict, "temporary");
-	if (params != NULL &&
-	    pyosdp_make_struct_cmd_led_params(&cmd->temporary, params, true))
-		return -1;
-
-	params = PyDict_GetItemString(dict, "permanent");
-	if (params != NULL &&
-	    pyosdp_make_struct_cmd_led_params(&cmd->permanent, params, false))
-		return -1;
-
-	return 0;
-}
-
-static int pyosdp_make_dict_cmd_buzzer(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "control_code", cmd->buzzer.control_code))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "on_count", cmd->buzzer.on_count))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "off_count", cmd->buzzer.off_count))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "reader", cmd->buzzer.reader))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "rep_count", cmd->buzzer.rep_count))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_buzzer(struct osdp_cmd *p, PyObject *dict)
-{
-	struct osdp_cmd_buzzer *cmd = &p->buzzer;
-	int reader, on_count, off_count, rep_count, control_code;
-
-	if (pyosdp_dict_get_int(dict, "reader", &reader))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "on_count", &on_count))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "off_count", &off_count))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "rep_count", &rep_count))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "control_code", &control_code))
-		return -1;
-
-	cmd->reader = (uint8_t)reader;
-	cmd->on_count = (uint8_t)on_count;
-	cmd->off_count = (uint8_t)off_count;
-	cmd->rep_count = (uint8_t)rep_count;
-	cmd->control_code = (uint8_t)control_code;
-	return 0;
-}
-
-static int pyosdp_make_dict_cmd_text(PyObject *obj, struct osdp_cmd *cmd)
-{
-	char buf[64];
-
-	if (pyosdp_dict_add_int(obj, "control_code", cmd->text.control_code))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "temp_time", cmd->text.temp_time))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "offset_col", cmd->text.offset_col))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "offset_row", cmd->text.offset_row))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "reader", cmd->text.reader))
-		return -1;
-	if (cmd->text.length > (sizeof(buf) - 1))
-		return -1;
-	memcpy(buf, cmd->text.data, cmd->text.length);
-	buf[cmd->text.length] = '\0';
-	if (pyosdp_dict_add_str(obj, "data", buf))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_text(struct osdp_cmd *p, PyObject *dict)
-{
-	int ret = -1;
-	char *data = NULL;
-	struct osdp_cmd_text *cmd = &p->text;
-	int length, reader, control_code, offset_row, offset_col, temp_time;
-
-	if (pyosdp_dict_get_str(dict, "data", &data))
-		goto exit;
-
-	length = strlen(data);
-	if (length > OSDP_CMD_TEXT_MAX_LEN)
-		goto exit;
-
-	if (pyosdp_dict_get_int(dict, "reader", &reader))
-		goto exit;
-
-	if (pyosdp_dict_get_int(dict, "control_code", &control_code))
-		goto exit;
-
-	if (pyosdp_dict_get_int(dict, "offset_col", &offset_col))
-		goto exit;
-
-	if (pyosdp_dict_get_int(dict, "offset_row", &offset_row))
-		goto exit;
-
-	if (pyosdp_dict_get_int(dict, "temp_time", &temp_time))
-		goto exit;
-
-	cmd->reader = (uint8_t)reader;
-	cmd->control_code = (uint8_t)control_code;
-	cmd->length = (uint8_t)length;
-	cmd->offset_col = (uint8_t)offset_col;
-	cmd->offset_row = (uint8_t)offset_row;
-	cmd->temp_time = (uint8_t)temp_time;
-	memcpy(cmd->data, data, length);
-	ret = 0;
-exit:
-	free(data);
-	return ret;
-}
-
-static int pyosdp_make_dict_cmd_keyset(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "type", cmd->keyset.type))
-		return -1;
-	if (cmd->keyset.length > 16)
-		return -1;
-	if (pyosdp_dict_add_bytes(obj, "data", cmd->keyset.data, cmd->keyset.length))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_keyset(struct osdp_cmd *p, PyObject *dict)
-{
-	int type, len;
-	struct osdp_cmd_keyset *cmd = &p->keyset;
-	uint8_t *buf;
-
-	if (pyosdp_dict_get_int(dict, "type", &type))
-		return -1;
-
-	if (pyosdp_dict_get_bytes(dict, "data", &buf, &len))
-		return -1;
-
-	cmd->type = (uint8_t)type;
-	if (len > OSDP_CMD_KEYSET_KEY_MAX_LEN)
-		return -1;
-	cmd->length = len;
-	memcpy(cmd->data, buf, len);
-	return 0;
-}
-
-static int pyosdp_make_dict_cmd_comset(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "address", cmd->comset.address))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "baud_rate", cmd->comset.baud_rate))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_comset(struct osdp_cmd *p, PyObject *dict)
-{
-	struct osdp_cmd_comset *cmd = &p->comset;
-	int address, baud_rate;
-
-	if (pyosdp_dict_get_int(dict, "address", &address))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "baud_rate", &baud_rate))
-		return -1;
-
-	cmd->address = (uint8_t)address;
-	cmd->baud_rate = (uint32_t)baud_rate;
-	return 0;
-}
-
-static int pyosdp_make_dict_cmd_mfg(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "vendor_code", cmd->mfg.vendor_code))
-		return -1;
-	if (pyosdp_dict_add_bytes(obj, "data", cmd->mfg.data, cmd->mfg.length))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_mfg(struct osdp_cmd *p, PyObject *dict)
-{
-	int i, data_length;
-	struct osdp_cmd_mfg *cmd = &p->mfg;
-	uint8_t *data_bytes;
-	int vendor_code;
-
-	if (pyosdp_dict_get_int(dict, "vendor_code", &vendor_code))
-		return -1;
-
-	if (pyosdp_dict_get_bytes(dict, "data", &data_bytes, &data_length))
-		return -1;
-
-	cmd->vendor_code = (uint32_t)vendor_code;
-	cmd->length = data_length;
-	for (i = 0; i < cmd->length; i++)
-		cmd->data[i] = data_bytes[i];
-	return 0;
-}
-
-static int pyosdp_make_dict_cmd_bioread(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "reader", cmd->bioread.reader))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "type", cmd->bioread.type))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "format", cmd->bioread.format))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "quality", cmd->bioread.quality))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_bioread(struct osdp_cmd *p, PyObject *dict)
-{
-	struct osdp_cmd_bioread *cmd = &p->bioread;
-	int reader, type, format, quality;
-
-	if (pyosdp_dict_get_int(dict, "reader", &reader))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "type", &type))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "format", &format))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "quality", &quality))
-		return -1;
-
-	cmd->reader = (uint8_t)reader;
-	cmd->type = (uint8_t)type;
-	cmd->format = (uint8_t)format;
-	cmd->quality = (uint8_t)quality;
-	return 0;
-}
-
-static int pyosdp_make_dict_cmd_biomatch(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "reader", cmd->biomatch.reader))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "type", cmd->biomatch.type))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "format", cmd->biomatch.format))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "quality", cmd->biomatch.quality))
-		return -1;
-	if (pyosdp_dict_add_bytes(obj, "data", cmd->biomatch.data,
-				  cmd->biomatch.length))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_biomatch(struct osdp_cmd *p, PyObject *dict)
-{
-	int i, data_length;
-	struct osdp_cmd_biomatch *cmd = &p->biomatch;
-	uint8_t *data_bytes;
-	int reader, type, format, quality;
-
-	if (pyosdp_dict_get_int(dict, "reader", &reader))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "type", &type))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "format", &format))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "quality", &quality))
-		return -1;
-	if (pyosdp_dict_get_bytes(dict, "data", &data_bytes, &data_length))
-		return -1;
-
-	if (data_length > OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN)
-		return -1;
-
-	cmd->reader = (uint8_t)reader;
-	cmd->type = (uint8_t)type;
-	cmd->format = (uint8_t)format;
-	cmd->quality = (uint8_t)quality;
-	cmd->length = (uint16_t)data_length;
-	for (i = 0; i < cmd->length; i++)
-		cmd->data[i] = data_bytes[i];
-	return 0;
-}
-
-static int pyosdp_make_dict_cmd_file_tx(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "flags", cmd->file_tx.flags))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "id", cmd->file_tx.id))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_file_tx(struct osdp_cmd *p, PyObject *dict)
-{
-	int id, flags;
-	struct osdp_cmd_file_tx *cmd = &p->file_tx;
-
-	if (pyosdp_dict_get_int(dict, "id", &id))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "flags", &flags))
-		return -1;
-
-	cmd->id = id;
-	cmd->flags = flags;
-	return 0;
-}
-
-static int pyosdp_make_dict_cmd_status(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "type", cmd->status.type))
-		return -1;
-	if (pyosdp_dict_add_bytes(obj, "report", cmd->status.report,
-				  cmd->status.nr_entries))
-		return -1;
-	return 0;
-}
+static const struct pyosdp_field led_temporary_fields[] = {
+	U8_FIELD(struct osdp_cmd_led_params, control_code),
+	U8_FIELD(struct osdp_cmd_led_params, on_count),
+	U8_FIELD(struct osdp_cmd_led_params, off_count),
+	U8_FIELD(struct osdp_cmd_led_params, on_color),
+	U8_FIELD(struct osdp_cmd_led_params, off_color),
+	U16_FIELD(struct osdp_cmd_led_params, timer_count),
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field led_permanent_fields[] = {
+	U8_FIELD(struct osdp_cmd_led_params, control_code),
+	U8_FIELD(struct osdp_cmd_led_params, on_count),
+	U8_FIELD(struct osdp_cmd_led_params, off_count),
+	U8_FIELD(struct osdp_cmd_led_params, on_color),
+	U8_FIELD(struct osdp_cmd_led_params, off_color),
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field cmd_led_fields[] = {
+	U8_FIELD(struct osdp_cmd_led, reader),
+	U8_FIELD(struct osdp_cmd_led, led_number),
+	{
+		.key = "temporary",
+		.kind = FIELD_SUBDICT,
+		.offset = offsetof(struct osdp_cmd_led, temporary),
+		.fields = led_temporary_fields,
+		.present_offset =
+			offsetof(struct osdp_cmd_led_params, control_code),
+	},
+	{
+		.key = "permanent",
+		.kind = FIELD_SUBDICT,
+		.offset = offsetof(struct osdp_cmd_led, permanent),
+		.fields = led_permanent_fields,
+		.present_offset =
+			offsetof(struct osdp_cmd_led_params, control_code),
+	},
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field cmd_buzzer_fields[] = {
+	U8_FIELD(struct osdp_cmd_buzzer, reader),
+	U8_FIELD(struct osdp_cmd_buzzer, control_code),
+	U8_FIELD(struct osdp_cmd_buzzer, on_count),
+	U8_FIELD(struct osdp_cmd_buzzer, off_count),
+	U8_FIELD(struct osdp_cmd_buzzer, rep_count),
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field cmd_text_fields[] = {
+	U8_FIELD(struct osdp_cmd_text, reader),
+	U8_FIELD(struct osdp_cmd_text, control_code),
+	U8_FIELD(struct osdp_cmd_text, temp_time),
+	U8_FIELD(struct osdp_cmd_text, offset_row),
+	U8_FIELD(struct osdp_cmd_text, offset_col),
+	{
+		.key = "data",
+		.kind = FIELD_STR,
+		.offset = offsetof(struct osdp_cmd_text, data),
+		.len_offset = offsetof(struct osdp_cmd_text, length),
+		.len_kind = FIELD_U8,
+		.max_len = OSDP_CMD_TEXT_MAX_LEN,
+	},
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field cmd_keyset_fields[] = {
+	U8_FIELD(struct osdp_cmd_keyset, type),
+	{
+		.key = "data",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_cmd_keyset, data),
+		.len_offset = offsetof(struct osdp_cmd_keyset, length),
+		.len_kind = FIELD_U8,
+		.max_len = OSDP_CMD_KEYSET_KEY_MAX_LEN,
+	},
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field cmd_comset_fields[] = {
+	U8_FIELD(struct osdp_cmd_comset, address),
+	U32_FIELD(struct osdp_cmd_comset, baud_rate),
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field cmd_mfg_fields[] = {
+	U32_FIELD(struct osdp_cmd_mfg, vendor_code),
+	{
+		.key = "data",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_cmd_mfg, data),
+		.len_offset = offsetof(struct osdp_cmd_mfg, length),
+		.len_kind = FIELD_U8,
+		.max_len = OSDP_CMD_MFG_MAX_DATALEN,
+	},
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field cmd_bioread_fields[] = {
+	U8_FIELD(struct osdp_cmd_bioread, reader),
+	U8_FIELD(struct osdp_cmd_bioread, type),
+	U8_FIELD(struct osdp_cmd_bioread, format),
+	U8_FIELD(struct osdp_cmd_bioread, quality),
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field cmd_biomatch_fields[] = {
+	U8_FIELD(struct osdp_cmd_biomatch, reader),
+	U8_FIELD(struct osdp_cmd_biomatch, type),
+	U8_FIELD(struct osdp_cmd_biomatch, format),
+	U8_FIELD(struct osdp_cmd_biomatch, quality),
+	{
+		.key = "data",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_cmd_biomatch, data),
+		.len_offset = offsetof(struct osdp_cmd_biomatch, length),
+		.len_kind = FIELD_U16,
+		.max_len = OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN,
+	},
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field cmd_file_tx_fields[] = {
+	INT_FIELD_(struct osdp_cmd_file_tx, id),
+	U32_FIELD(struct osdp_cmd_file_tx, flags),
+	END_OF_FIELDS,
+};
 
 /*
- * The CP sends a status command as a query and carries no report; a PD answers
- * it by returning a status command with one report byte per entry. Hence an
- * absent (or empty) report key is valid and means zero entries.
+ * A CP sends a status command as a query and carries no report; a PD answers by
+ * returning one with an entry per input. Hence the report is optional and may
+ * legitimately be empty.
  */
-static int pyosdp_make_struct_cmd_status(struct osdp_cmd *p, PyObject *dict)
-{
-	int type, length = 0;
-	uint8_t *report = NULL;
-	PyObject *obj;
-	struct osdp_status_report *cmd = &p->status;
+static const struct pyosdp_field cmd_status_fields[] = {
+	INT_FIELD_(struct osdp_status_report, type),
+	{
+		.key = "report",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_status_report, report),
+		.len_offset = offsetof(struct osdp_status_report, nr_entries),
+		.len_kind = FIELD_INT,
+		.max_len = OSDP_STATUS_REPORT_MAX_LEN,
+		.allow_empty = true,
+		.optional = true,
+	},
+	END_OF_FIELDS,
+};
 
-	if (pyosdp_dict_get_int(dict, "type", &type))
-		return -1;
-
-	obj = PyDict_GetItemString(dict, "report");
-	if (obj != NULL) {
-		if (pyosdp_parse_bytes(obj, &report, &length, true))
-			return -1;
-		if (length > OSDP_STATUS_REPORT_MAX_LEN) {
-			PyErr_Format(PyExc_ValueError,
-				     "Status report has too many entries: %d",
-				     length);
-			return -1;
-		}
-		memcpy(cmd->report, report, length);
-	}
-
-	cmd->type = type;
-	cmd->nr_entries = length;
-	return 0;
-}
-
-static int pyosdp_make_dict_cmd_notif(PyObject *obj, struct osdp_cmd *cmd)
-{
-	if (pyosdp_dict_add_int(obj, "type", cmd->notif.type))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "arg0", cmd->notif.arg0))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "arg1", cmd->notif.arg1))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_cmd_notif(struct osdp_cmd *p, PyObject *dict)
-{
-	int type, arg0, arg1;
-	struct osdp_notification *cmd = &p->notif;
-
-	if (pyosdp_dict_get_int(dict, "type", &type))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "arg0", &arg0))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "arg1", &arg1))
-		return -1;
-
-	cmd->type = type;
-	cmd->arg0 = arg0;
-	cmd->arg1 = arg1;
-	return 0;
-}
+static const struct pyosdp_field notification_fields[] = {
+	INT_FIELD_(struct osdp_notification, type),
+	INT_FIELD_(struct osdp_notification, arg0),
+	INT_FIELD_(struct osdp_notification, arg1),
+	END_OF_FIELDS,
+};
 
 /* ------------------------------- */
 /*             EVENTS              */
 /* ------------------------------- */
 
-static int pyosdp_make_dict_event_cardread(PyObject *obj, struct osdp_event *event)
+/*
+ * Card data is a bit string for the raw formats, so its length is a bit count
+ * and the bytes that carry it are a whole number of bytes wide. Every other
+ * event says what it means in its field table; this one cannot.
+ */
+static int pyosdp_make_dict_event_cardread(PyObject *obj, const void *payload)
 {
-	int tmp;
+	const struct osdp_event_cardread *ev = payload;
+	int nr_bytes = ev->length;
 
-	if (pyosdp_dict_add_int(obj, "reader_no",
-				event->cardread.reader_no))
+	if (pyosdp_dict_add_int(obj, "reader_no", ev->reader_no) ||
+	    pyosdp_dict_add_int(obj, "format", ev->format) ||
+	    pyosdp_dict_add_int(obj, "direction", ev->direction))
 		return -1;
-	if (pyosdp_dict_add_int(obj, "format", event->cardread.format))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "direction",
-				event->cardread.direction))
-		return -1;
-	tmp = event->cardread.length;
-	if (event->cardread.format == OSDP_CARD_FMT_RAW_UNSPECIFIED ||
-		event->cardread.format == OSDP_CARD_FMT_RAW_WIEGAND) {
-		if (pyosdp_dict_add_int(obj, "length", tmp))
+
+	if (ev->format == OSDP_CARD_FMT_RAW_UNSPECIFIED ||
+	    ev->format == OSDP_CARD_FMT_RAW_WIEGAND) {
+		if (pyosdp_dict_add_int(obj, "length", ev->length))
 			return -1;
-		tmp = (tmp + 7) / 8; // bits to bytes
+		nr_bytes = (ev->length + 7) / 8;
 	}
-	if (pyosdp_dict_add_bytes(obj, "data", event->cardread.data, tmp))
+
+	if (nr_bytes < 0 || nr_bytes > OSDP_EVENT_CARDREAD_MAX_DATALEN) {
+		PyErr_SetString(PyExc_ValueError, "Card data has a bad length");
 		return -1;
-	return 0;
+	}
+
+	return pyosdp_dict_add_bytes(obj, "data", ev->data, nr_bytes);
 }
 
-static int pyosdp_make_struct_event_cardread(struct osdp_event *p,
-					     PyObject *dict)
+static int pyosdp_make_struct_event_cardread(void *payload, PyObject *dict)
 {
-	int i, data_length, reader_no, format, direction, len_bytes;
-	struct osdp_event_cardread *ev = &p->cardread;
-	uint8_t *data_bytes;
+	struct osdp_event_cardread *ev = payload;
+	int reader_no, format, direction, length, nr_bytes;
+	uint8_t *data;
 
-	if (pyosdp_dict_get_int(dict, "reader_no", &reader_no))
+	if (pyosdp_dict_get_int(dict, "reader_no", &reader_no) ||
+	    pyosdp_dict_get_int(dict, "format", &format) ||
+	    pyosdp_dict_get_int(dict, "direction", &direction) ||
+	    pyosdp_dict_get_bytes(dict, "data", &data, &nr_bytes))
 		return -1;
 
-	if (pyosdp_dict_get_int(dict, "format", &format))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "direction", &direction))
-		return -1;
-
-	if (pyosdp_dict_get_bytes(dict, "data", &data_bytes, &data_length))
-		return -1;
-
-	if (format == OSDP_CARD_FMT_RAW_WIEGAND ||
-	    format == OSDP_CARD_FMT_RAW_UNSPECIFIED) {
-		if (pyosdp_dict_get_int(dict, "length", &data_length))
+	length = nr_bytes;
+	if (format == OSDP_CARD_FMT_RAW_UNSPECIFIED ||
+	    format == OSDP_CARD_FMT_RAW_WIEGAND) {
+		if (pyosdp_dict_get_int(dict, "length", &length))
 			return -1;
-		len_bytes = (data_length + 7) / 8; // bits to bytes
-	} else {
-		len_bytes = data_length;
+		if (length < 0 || (length + 7) / 8 > nr_bytes) {
+			PyErr_Format(PyExc_ValueError,
+				     "Card of %d bits needs more than %d bytes",
+				     length, nr_bytes);
+			return -1;
+		}
+		nr_bytes = (length + 7) / 8;
 	}
 
-	if (len_bytes > OSDP_EVENT_CARDREAD_MAX_DATALEN) {
-		PyErr_Format(PyExc_ValueError, "Data bytes too long");
+	if (nr_bytes > OSDP_EVENT_CARDREAD_MAX_DATALEN) {
+		PyErr_SetString(PyExc_ValueError, "Card data is too long");
 		return -1;
 	}
 
-	ev->reader_no = (uint8_t)reader_no;
-	ev->format = (uint8_t)format;
-	ev->direction = (uint8_t)direction;
-	ev->length = data_length;
-	for (i = 0; i < len_bytes; i++)
-		ev->data[i] = data_bytes[i];
+	ev->reader_no = reader_no;
+	ev->format = format;
+	ev->direction = direction;
+	ev->length = (uint16_t)length;
+	memcpy(ev->data, data, nr_bytes);
 	return 0;
 }
 
-static int pyosdp_make_dict_event_keypress(PyObject *obj, struct osdp_event *event)
-{
-	if (pyosdp_dict_add_int(obj, "reader_no",
-				event->keypress.reader_no))
-		return -1;
-	if (pyosdp_dict_add_bytes(obj, "data", event->keypress.data,
-					event->keypress.length))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_event_keypress(struct osdp_event *p, PyObject *dict)
-{
-	int i, data_length, reader_no;
-	struct osdp_event_keypress *ev = &p->keypress;
-	uint8_t *data_bytes;
-
-	if (pyosdp_dict_get_int(dict, "reader_no", &reader_no))
-		return -1;
-
-	if (pyosdp_dict_get_bytes(dict, "data", &data_bytes, &data_length))
-		return -1;
-
-	ev->reader_no = (uint8_t)reader_no;
-	ev->length = data_length;
-	for (i = 0; i < ev->length; i++)
-		ev->data[i] = data_bytes[i];
-	return 0;
-}
-
-static int pyosdp_make_dict_event_mfg_reply(PyObject *obj, struct osdp_event *event)
-{
-	if (pyosdp_dict_add_int(obj, "vendor_code", event->mfgrep.vendor_code))
-		return -1;
-	if (pyosdp_dict_add_bytes(obj, "data", event->mfgrep.data, event->mfgrep.length))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_event_mfg_reply(struct osdp_event *p,
-					      PyObject *dict)
-{
-	int i, data_length, vendor_code, command;
-	struct osdp_event_mfgrep *ev = &p->mfgrep;
-	uint8_t *data_bytes;
-
-	if (pyosdp_dict_get_int(dict, "vendor_code", &vendor_code))
-		return -1;
-
-	if (pyosdp_dict_get_bytes(dict, "data", &data_bytes, &data_length))
-		return -1;
-
-	ev->vendor_code = (uint32_t)vendor_code;
-	ev->length = data_length;
-	for (i = 0; i < ev->length; i++)
-		ev->data[i] = data_bytes[i];
-	return 0;
-}
-
-static struct osdp_event_mfgstat *pyosdp_event_mfgstat(struct osdp_event *event)
-{
-	return (event->type == OSDP_EVENT_MFGSTATR) ? &event->mfgstatr
-						    : &event->mfgerrr;
-}
-
-static int pyosdp_make_dict_event_mfgstat(PyObject *obj, struct osdp_event *event)
-{
-	struct osdp_event_mfgstat *ev = pyosdp_event_mfgstat(event);
-
-	if (pyosdp_dict_add_bytes(obj, "data", ev->data, ev->length))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_event_mfgstat(struct osdp_event *p, PyObject *dict)
-{
-	int i, data_length;
-	struct osdp_event_mfgstat *ev = pyosdp_event_mfgstat(p);
-	uint8_t *data_bytes;
-
-	/* These replies may legitimately carry an empty payload */
-	if (pyosdp_dict_get_bytes_allow_empty(dict, "data", &data_bytes, &data_length))
-		return -1;
-
-	if (data_length > OSDP_EVENT_MFGSTAT_MAX_DATALEN)
-		return -1;
-
-	ev->length = data_length;
-	for (i = 0; i < ev->length; i++)
-		ev->data[i] = data_bytes[i];
-	return 0;
-}
-
-static int pyosdp_make_dict_event_bioreadr(PyObject *obj, struct osdp_event *event)
-{
-	if (pyosdp_dict_add_int(obj, "reader", event->bioreadr.reader))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "status", event->bioreadr.status))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "type", event->bioreadr.type))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "quality", event->bioreadr.quality))
-		return -1;
-	if (pyosdp_dict_add_bytes(obj, "data", event->bioreadr.data,
-				  event->bioreadr.length))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_event_bioreadr(struct osdp_event *p, PyObject *dict)
-{
-	int i, data_length;
-	struct osdp_event_bioreadr *ev = &p->bioreadr;
-	uint8_t *data_bytes;
-	int reader, status, type, quality;
-
-	if (pyosdp_dict_get_int(dict, "reader", &reader))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "status", &status))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "type", &type))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "quality", &quality))
-		return -1;
-	/* A failed scan carries no template */
-	if (pyosdp_dict_get_bytes_allow_empty(dict, "data", &data_bytes,
-					      &data_length))
-		return -1;
-
-	if (data_length > OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN)
-		return -1;
-
-	ev->reader = (uint8_t)reader;
-	ev->status = (uint8_t)status;
-	ev->type = (uint8_t)type;
-	ev->quality = (uint8_t)quality;
-	ev->length = (uint16_t)data_length;
-	for (i = 0; i < ev->length; i++)
-		ev->data[i] = data_bytes[i];
-	return 0;
-}
-
-static int pyosdp_make_dict_event_biomatchr(PyObject *obj, struct osdp_event *event)
-{
-	if (pyosdp_dict_add_int(obj, "reader", event->biomatchr.reader))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "status", event->biomatchr.status))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "score", event->biomatchr.score))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_event_biomatchr(struct osdp_event *p, PyObject *dict)
-{
-	struct osdp_event_biomatchr *ev = &p->biomatchr;
-	int reader, status, score;
-
-	if (pyosdp_dict_get_int(dict, "reader", &reader))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "status", &status))
-		return -1;
-	if (pyosdp_dict_get_int(dict, "score", &score))
-		return -1;
-
-	ev->reader = (uint8_t)reader;
-	ev->status = (uint8_t)status;
-	ev->score = (uint8_t)score;
-	return 0;
-}
-
-static int pyosdp_make_dict_event_status(PyObject *obj, struct osdp_event *event)
-{
-	if (pyosdp_dict_add_int(obj, "type", event->status.type))
-		return -1;
-	if (pyosdp_dict_add_bytes(obj, "report", event->status.report, event->status.nr_entries))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_event_status(struct osdp_event *p, PyObject *dict)
-{
-	int type, nr_entries;
-	uint8_t *report;
-	struct osdp_status_report *ev = &p->status;
-
-	if (pyosdp_dict_get_int(dict, "type", &type))
-		return -1;
-
-	if (pyosdp_dict_get_bytes(dict, "report", &report, &nr_entries))
-		return -1;
-
-	if (nr_entries > OSDP_STATUS_REPORT_MAX_LEN)
-		return -1;
-
-	ev->type = type;
-	ev->nr_entries = nr_entries;
-	memcpy(ev->report, report, nr_entries);
-	return 0;
-}
-
-static int pyosdp_make_dict_event_notif(PyObject *obj, struct osdp_event *event)
-{
-	if (pyosdp_dict_add_int(obj, "type", event->notif.type))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "arg0", event->notif.arg0))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "arg1", event->notif.arg1))
-		return -1;
-	return 0;
-}
-
-static int pyosdp_make_struct_event_notif(struct osdp_event *p, PyObject *dict)
-{
-	int type, arg0, arg1;
-	struct osdp_notification *ev = &p->notif;
-
-	if (pyosdp_dict_get_int(dict, "type", &type))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "arg0", &arg0))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "arg1", &arg1))
-		return -1;
-
-	ev->type = type;
-	ev->arg0 = arg0;
-	ev->arg1 = arg1;
-	return 0;
-}
-
-static struct {
-	int (*dict_to_struct)(struct osdp_cmd *, PyObject *);
-	int (*struct_to_dict)(PyObject *, struct osdp_cmd *);
-} command_translator[OSDP_CMD_SENTINEL] = {
-	[OSDP_CMD_OUTPUT] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_output,
-		.struct_to_dict = pyosdp_make_dict_cmd_output,
+static const struct pyosdp_field event_keypress_fields[] = {
+	INT_FIELD_(struct osdp_event_keypress, reader_no),
+	{
+		.key = "data",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_event_keypress, data),
+		.len_offset = offsetof(struct osdp_event_keypress, length),
+		.len_kind = FIELD_INT,
+		.max_len = OSDP_EVENT_KEYPRESS_MAX_DATALEN,
 	},
-	[OSDP_CMD_LED] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_led,
-		.struct_to_dict = pyosdp_make_dict_cmd_led,
-	},
-	[OSDP_CMD_BUZZER] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_buzzer,
-		.struct_to_dict = pyosdp_make_dict_cmd_buzzer,
-	},
-	[OSDP_CMD_TEXT] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_text,
-		.struct_to_dict = pyosdp_make_dict_cmd_text,
-	},
-	[OSDP_CMD_KEYSET] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_keyset,
-		.struct_to_dict = pyosdp_make_dict_cmd_keyset,
-	},
-	[OSDP_CMD_COMSET] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_comset,
-		.struct_to_dict = pyosdp_make_dict_cmd_comset,
-	},
-	[OSDP_CMD_COMSET_DONE] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_comset,
-		.struct_to_dict = pyosdp_make_dict_cmd_comset,
-	},
-	[OSDP_CMD_MFG] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_mfg,
-		.struct_to_dict = pyosdp_make_dict_cmd_mfg,
-	},
-	[OSDP_CMD_BIOREAD] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_bioread,
-		.struct_to_dict = pyosdp_make_dict_cmd_bioread,
-	},
-	[OSDP_CMD_BIOMATCH] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_biomatch,
-		.struct_to_dict = pyosdp_make_dict_cmd_biomatch,
-	},
-	[OSDP_CMD_FILE_TX] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_file_tx,
-		.struct_to_dict = pyosdp_make_dict_cmd_file_tx,
-	},
-	[OSDP_CMD_STATUS] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_status,
-		.struct_to_dict = pyosdp_make_dict_cmd_status,
-	},
-	[OSDP_CMD_NOTIFICATION] = {
-		.dict_to_struct = pyosdp_make_struct_cmd_notif,
-		.struct_to_dict = pyosdp_make_dict_cmd_notif,
-	},
+	END_OF_FIELDS,
 };
 
-static struct {
-	int (*struct_to_dict)(PyObject *, struct osdp_event *);
-	int (*dict_to_struct)(struct osdp_event *, PyObject *);
-} event_translator[OSDP_EVENT_SENTINEL] = {
+static const struct pyosdp_field event_mfgrep_fields[] = {
+	U32_FIELD(struct osdp_event_mfgrep, vendor_code),
+	{
+		.key = "data",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_event_mfgrep, data),
+		.len_offset = offsetof(struct osdp_event_mfgrep, length),
+		.len_kind = FIELD_U8,
+		.max_len = OSDP_EVENT_MFGREP_MAX_DATALEN,
+	},
+	END_OF_FIELDS,
+};
+
+/* Backs both MFGSTATR and MFGERRR; either may carry an empty payload */
+static const struct pyosdp_field event_mfgstat_fields[] = {
+	{
+		.key = "data",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_event_mfgstat, data),
+		.len_offset = offsetof(struct osdp_event_mfgstat, length),
+		.len_kind = FIELD_U8,
+		.max_len = OSDP_EVENT_MFGSTAT_MAX_DATALEN,
+		.allow_empty = true,
+	},
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field event_bioreadr_fields[] = {
+	U8_FIELD(struct osdp_event_bioreadr, reader),
+	U8_FIELD(struct osdp_event_bioreadr, status),
+	U8_FIELD(struct osdp_event_bioreadr, type),
+	U8_FIELD(struct osdp_event_bioreadr, quality),
+	{
+		/* A failed scan carries no template */
+		.key = "data",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_event_bioreadr, data),
+		.len_offset = offsetof(struct osdp_event_bioreadr, length),
+		.len_kind = FIELD_U16,
+		.max_len = OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN,
+		.allow_empty = true,
+	},
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field event_biomatchr_fields[] = {
+	U8_FIELD(struct osdp_event_biomatchr, reader),
+	U8_FIELD(struct osdp_event_biomatchr, status),
+	U8_FIELD(struct osdp_event_biomatchr, score),
+	END_OF_FIELDS,
+};
+
+static const struct pyosdp_field event_status_fields[] = {
+	INT_FIELD_(struct osdp_status_report, type),
+	{
+		.key = "report",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_status_report, report),
+		.len_offset = offsetof(struct osdp_status_report, nr_entries),
+		.len_kind = FIELD_INT,
+		.max_len = OSDP_STATUS_REPORT_MAX_LEN,
+	},
+	END_OF_FIELDS,
+};
+
+/* --- Translators --- */
+
+struct pyosdp_translator {
+	const struct pyosdp_field *fields;
+	/* Set only when a payload's meaning cannot be stated as a field table */
+	int (*to_dict)(PyObject *obj, const void *payload);
+	int (*to_struct)(void *payload, PyObject *dict);
+};
+
+static const struct pyosdp_translator command_translator[OSDP_CMD_SENTINEL] = {
+	[OSDP_CMD_OUTPUT] = { .fields = cmd_output_fields },
+	[OSDP_CMD_LED] = { .fields = cmd_led_fields },
+	[OSDP_CMD_BUZZER] = { .fields = cmd_buzzer_fields },
+	[OSDP_CMD_TEXT] = { .fields = cmd_text_fields },
+	[OSDP_CMD_KEYSET] = { .fields = cmd_keyset_fields },
+	[OSDP_CMD_COMSET] = { .fields = cmd_comset_fields },
+	[OSDP_CMD_COMSET_DONE] = { .fields = cmd_comset_fields },
+	[OSDP_CMD_MFG] = { .fields = cmd_mfg_fields },
+	[OSDP_CMD_BIOREAD] = { .fields = cmd_bioread_fields },
+	[OSDP_CMD_BIOMATCH] = { .fields = cmd_biomatch_fields },
+	[OSDP_CMD_FILE_TX] = { .fields = cmd_file_tx_fields },
+	[OSDP_CMD_STATUS] = { .fields = cmd_status_fields },
+	[OSDP_CMD_NOTIFICATION] = { .fields = notification_fields },
+};
+
+static const struct pyosdp_translator event_translator[OSDP_EVENT_SENTINEL] = {
 	[OSDP_EVENT_CARDREAD] = {
-		.struct_to_dict = pyosdp_make_dict_event_cardread,
-		.dict_to_struct = pyosdp_make_struct_event_cardread,
+		.to_dict = pyosdp_make_dict_event_cardread,
+		.to_struct = pyosdp_make_struct_event_cardread,
 	},
-	[OSDP_EVENT_KEYPRESS] = {
-		.struct_to_dict = pyosdp_make_dict_event_keypress,
-		.dict_to_struct = pyosdp_make_struct_event_keypress,
-	},
-	[OSDP_EVENT_MFGREP] = {
-		.struct_to_dict = pyosdp_make_dict_event_mfg_reply,
-		.dict_to_struct = pyosdp_make_struct_event_mfg_reply,
-	},
-	[OSDP_EVENT_MFGSTATR] = {
-		.struct_to_dict = pyosdp_make_dict_event_mfgstat,
-		.dict_to_struct = pyosdp_make_struct_event_mfgstat,
-	},
-	[OSDP_EVENT_MFGERRR] = {
-		.struct_to_dict = pyosdp_make_dict_event_mfgstat,
-		.dict_to_struct = pyosdp_make_struct_event_mfgstat,
-	},
-	[OSDP_EVENT_BIOREADR] = {
-		.struct_to_dict = pyosdp_make_dict_event_bioreadr,
-		.dict_to_struct = pyosdp_make_struct_event_bioreadr,
-	},
-	[OSDP_EVENT_BIOMATCHR] = {
-		.struct_to_dict = pyosdp_make_dict_event_biomatchr,
-		.dict_to_struct = pyosdp_make_struct_event_biomatchr,
-	},
-	[OSDP_EVENT_STATUS] = {
-		.struct_to_dict = pyosdp_make_dict_event_status,
-		.dict_to_struct = pyosdp_make_struct_event_status,
-	},
-	[OSDP_EVENT_NOTIFICATION] = {
-		.struct_to_dict = pyosdp_make_dict_event_notif,
-		.dict_to_struct = pyosdp_make_struct_event_notif,
-	},
+	[OSDP_EVENT_KEYPRESS] = { .fields = event_keypress_fields },
+	[OSDP_EVENT_MFGREP] = { .fields = event_mfgrep_fields },
+	[OSDP_EVENT_MFGSTATR] = { .fields = event_mfgstat_fields },
+	[OSDP_EVENT_MFGERRR] = { .fields = event_mfgstat_fields },
+	[OSDP_EVENT_BIOREADR] = { .fields = event_bioreadr_fields },
+	[OSDP_EVENT_BIOMATCHR] = { .fields = event_biomatchr_fields },
+	[OSDP_EVENT_STATUS] = { .fields = event_status_fields },
+	[OSDP_EVENT_NOTIFICATION] = { .fields = notification_fields },
 };
+
+static int translate_to_dict(const struct pyosdp_translator *t, PyObject *obj,
+			     const void *payload)
+{
+	if (t->fields)
+		return pyosdp_fields_to_dict(obj, payload, t->fields);
+	return t->to_dict(obj, payload);
+}
+
+static int translate_to_struct(const struct pyosdp_translator *t, void *payload,
+			       PyObject *dict)
+{
+	if (t->fields)
+		return pyosdp_fields_to_struct(payload, dict, t->fields);
+	return t->to_struct(payload, dict);
+}
+
+/*
+ * Every payload lives in the same anonymous union, so they all begin at the
+ * same address and one pointer serves whichever the id selects.
+ */
+static void *cmd_payload(struct osdp_cmd *cmd)
+{
+	return &cmd->led;
+}
+
+static void *event_payload(struct osdp_event *event)
+{
+	return &event->cardread;
+}
 
 /* --- Exposed Methods --- */
 
@@ -954,9 +654,12 @@ int pyosdp_make_struct_cmd(struct osdp_cmd *cmd, PyObject *dict)
 
 	if (pyosdp_dict_get_int(dict, "command", &cmd_id))
 		return -1;
-	if (cmd_id <= 0 || cmd_id >= OSDP_CMD_SENTINEL)
+	if (cmd_id <= 0 || cmd_id >= OSDP_CMD_SENTINEL) {
+		PyErr_Format(PyExc_ValueError, "Unknown command: %d", cmd_id);
 		return -1;
-	if (command_translator[cmd_id].dict_to_struct(cmd, dict))
+	}
+	if (translate_to_struct(&command_translator[cmd_id], cmd_payload(cmd),
+				dict))
 		return -1;
 
 	cmd->id = cmd_id;
@@ -967,19 +670,18 @@ int pyosdp_make_dict_cmd(PyObject **dict, struct osdp_cmd *cmd)
 {
 	PyObject *obj;
 
-	if (cmd->id <= 0 || cmd->id >= OSDP_CMD_SENTINEL)
+	if (cmd->id <= 0 || cmd->id >= OSDP_CMD_SENTINEL) {
+		PyErr_Format(PyExc_ValueError, "Unknown command: %d", cmd->id);
 		return -1;
+	}
 
 	obj = PyDict_New();
 	if (obj == NULL)
 		return -1;
 
-	if (pyosdp_dict_add_int(obj, "command", cmd->id)) {
-		Py_DECREF(obj);
-		return -1;
-	}
-
-	if (command_translator[cmd->id].struct_to_dict(obj, cmd)) {
+	if (pyosdp_dict_add_int(obj, "command", cmd->id) ||
+	    translate_to_dict(&command_translator[cmd->id], obj,
+			      cmd_payload(cmd))) {
 		Py_DECREF(obj);
 		return -1;
 	}
@@ -994,31 +696,35 @@ int pyosdp_make_struct_event(struct osdp_event *event, PyObject *dict)
 
 	if (pyosdp_dict_get_int(dict, "event", &event_type))
 		return -1;
-
-	if (event_type <= 0 || event_type >= OSDP_EVENT_SENTINEL)
+	if (event_type <= 0 || event_type >= OSDP_EVENT_SENTINEL) {
+		PyErr_Format(PyExc_ValueError, "Unknown event: %d", event_type);
+		return -1;
+	}
+	if (translate_to_struct(&event_translator[event_type],
+				event_payload(event), dict))
 		return -1;
 
 	event->type = event_type;
-	return event_translator[event_type].dict_to_struct(event, dict);
+	return 0;
 }
 
 int pyosdp_make_dict_event(PyObject **dict, struct osdp_event *event)
 {
 	PyObject *obj;
 
-	if (event->type < OSDP_EVENT_CARDREAD || event->type >= OSDP_EVENT_SENTINEL)
+	if (event->type <= 0 || event->type >= OSDP_EVENT_SENTINEL) {
+		PyErr_Format(PyExc_ValueError, "Unknown event: %d",
+			     event->type);
 		return -1;
+	}
 
 	obj = PyDict_New();
 	if (obj == NULL)
 		return -1;
 
-	if (pyosdp_dict_add_int(obj, "event", event->type)) {
-		Py_DECREF(obj);
-		return -1;
-	}
-
-	if (event_translator[event->type].struct_to_dict(obj, event)) {
+	if (pyosdp_dict_add_int(obj, "event", event->type) ||
+	    translate_to_dict(&event_translator[event->type], obj,
+			      event_payload(event))) {
 		Py_DECREF(obj);
 		return -1;
 	}
@@ -1030,6 +736,7 @@ int pyosdp_make_dict_event(PyObject **dict, struct osdp_event *event)
 PyObject *pyosdp_make_dict_pd_id(struct osdp_pd_id *pd_id)
 {
 	PyObject *obj = PyDict_New();
+
 	if (obj == NULL)
 		return NULL;
 
@@ -1037,7 +744,8 @@ PyObject *pyosdp_make_dict_pd_id(struct osdp_pd_id *pd_id)
 	    pyosdp_dict_add_int(obj, "model", pd_id->model) ||
 	    pyosdp_dict_add_int(obj, "vendor_code", pd_id->vendor_code) ||
 	    pyosdp_dict_add_int(obj, "serial_number", pd_id->serial_number) ||
-	    pyosdp_dict_add_int(obj, "firmware_version", pd_id->firmware_version)) {
+	    pyosdp_dict_add_int(obj, "firmware_version",
+				pd_id->firmware_version)) {
 		Py_DECREF(obj);
 		return NULL;
 	}
