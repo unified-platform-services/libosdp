@@ -12,17 +12,17 @@ usage() {
 	---
 }
 
-function setup_py_inc_version() {
+function pyproject_inc_version() {
 	dir=$1
 	inc=$2
 	perl -pi -se '
-	if (/^project_version = "(\d+)\.(\d+)\.(\d+)"$/) {
+	if (/^version = "(\d+)\.(\d+)\.(\d+)"$/) {
 		$maj=$1; $min=$2; $pat=$3;
 		if ($major) { $maj+=1; $min=0; $pat=0; }
 		if ($minor) { $min+=1; $pat=0; }
 		$pat+=1 if $patch;
-		$_="project_version = \"$maj.$min.$pat\"\n"
-	}' -- -$inc $dir/setup.py
+		$_="version = \"$maj.$min.$pat\"\n"
+	}' -- -$inc $dir/pyproject.toml
 }
 
 function cmake_inc_version() {
@@ -69,7 +69,7 @@ function generate_change_log() {
 
 function prepare_libosdp_release() {
 	cmake_inc_version "." $1
-	setup_py_inc_version "python" $1
+	pyproject_inc_version "python" $1
 	platformio_inc_version $1
 	generate_change_log >/dev/null
 }
@@ -89,7 +89,7 @@ function do_libosdp_release() {
 	git diff --cached --name-status | while read status file; do
 		if [[ "$file" != "$release_file" ]] && \
 		   [[ "$file" != "CMakeLists.txt" ]] && \
-		   [[ "$file" != "python/setup.py" ]] && \
+		   [[ "$file" != "python/pyproject.toml" ]] && \
 		   [[ "$file" != "library.json" ]] && \
 		   [[ "$file" != "platformio/osdp_config.h" ]]
 		then
@@ -108,7 +108,7 @@ function do_libosdp_release() {
 		echo "Release file needs to be updated manually"
 		exit 1
 	fi
-	git add "$release_file" CMakeLists.txt python/setup.py library.json platformio/osdp_config.h &&
+	git add "$release_file" CMakeLists.txt python/pyproject.toml library.json platformio/osdp_config.h &&
 	git commit -s -m "Release v$version" &&
 	git tag "v$version" -s -a -m "Release v$version"
 }

@@ -40,7 +40,7 @@ jobs:
           fi
 
           cmake_version="$(perl -ne 'print $1 if (/project\(libosdp VERSION (\d+\.\d+\.\d+)\)/)' CMakeLists.txt)"
-          py_version="$(perl -ne 'print $1 if (/^project_version = "(\d+\.\d+\.\d+)"/)' python/setup.py)"
+          py_version="$(perl -ne 'print $1 if (/^version = "(\d+\.\d+\.\d+)"/)' python/pyproject.toml)"
           platformio_version="$(perl -ne 'print $1 if (/^  "version": "(\d+\.\d+\.\d+)",$/)' library.json)"
           config_version="$(perl -ne 'print $1 if (/^#define PROJECT_VERSION\s+"(\d+\.\d+\.\d+)"/)' platformio/osdp_config.h)"
           release_file="CHANGELOG/RELEASE-${tag}.md"
