@@ -433,18 +433,42 @@ static int pyosdp_make_dict_cmd_status(PyObject *obj, struct osdp_cmd *cmd)
 {
 	if (pyosdp_dict_add_int(obj, "type", cmd->status.type))
 		return -1;
+	if (pyosdp_dict_add_bytes(obj, "report", cmd->status.report,
+				  cmd->status.nr_entries))
+		return -1;
 	return 0;
 }
 
+/*
+ * The CP sends a status command as a query and carries no report; a PD answers
+ * it by returning a status command with one report byte per entry. Hence an
+ * absent (or empty) report key is valid and means zero entries.
+ */
 static int pyosdp_make_struct_cmd_status(struct osdp_cmd *p, PyObject *dict)
 {
-	int type;
+	int type, length = 0;
+	uint8_t *report = NULL;
+	PyObject *obj;
 	struct osdp_status_report *cmd = &p->status;
 
 	if (pyosdp_dict_get_int(dict, "type", &type))
 		return -1;
 
+	obj = PyDict_GetItemString(dict, "report");
+	if (obj != NULL) {
+		if (pyosdp_parse_bytes(obj, &report, &length, true))
+			return -1;
+		if (length > OSDP_STATUS_REPORT_MAX_LEN) {
+			PyErr_Format(PyExc_ValueError,
+				     "Status report has too many entries: %d",
+				     length);
+			return -1;
+		}
+		memcpy(cmd->report, report, length);
+	}
+
 	cmd->type = type;
+	cmd->nr_entries = length;
 	return 0;
 }
 
