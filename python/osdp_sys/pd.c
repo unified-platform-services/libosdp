@@ -368,7 +368,9 @@ static int pyosdp_pd_tp_init(pyosdp_pd_t *self, PyObject *args, PyObject *kwargs
 	osdp_pd_info_t info = { 0 };
 	struct osdp_channel osdp_channel = { 0 };
 	static char *kwlist[] = { "", "capabilities", NULL };
-	PyObject *py_info, *py_pd_cap_list, *channel;
+	/* PyArg_ParseTupleAndKeywords leaves optional args untouched when the
+	 * caller omits them, so capabilities must start out NULL. */
+	PyObject *py_info, *py_pd_cap_list = NULL, *channel;
 	uint8_t *scbk = NULL;
 
 	/* call base class constructor */
