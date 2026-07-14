@@ -124,27 +124,45 @@ static PyObject *pyosdp_pd_flush_events(pyosdp_pd_t *self)
 	return Py_BuildValue("I", ret);
 }
 
+/*
+ * The handler returns a (status, reply) tuple. A status of zero with a reply
+ * dict makes that dict the inline reply to this command; a negative status is
+ * a NAK code. `reply` is borrowed from the tuple, so it must not be the same
+ * variable as the tuple itself.
+ */
 static int pd_command_cb(void *arg, struct osdp_cmd *cmd)
 {
 	int ret_val = -1;
 	pyosdp_pd_t *self = arg;
-	PyObject *dict, *arglist, *result;
+	PyObject *dict, *arglist, *result, *reply = NULL;
 
 	if (pyosdp_make_dict_cmd(&dict, cmd))
 		return -1;
 
 	arglist = Py_BuildValue("(O)", dict);
 	result = PyObject_CallObject(self->command_cb, arglist);
-	PyArg_ParseTuple(result, "IO", &ret_val, &result);
-
-	if (ret_val == 0 && result && PyDict_Check(result)) {
-		memset(cmd, 0, sizeof(struct osdp_cmd));
-		if (pyosdp_make_struct_cmd(cmd, result) < 0)
-			ret_val = -1;
+	if (result == NULL) {
+		PyErr_Print();
+		goto exit;
 	}
 
-	Py_XDECREF(dict);
+	if (!PyArg_ParseTuple(result, "iO", &ret_val, &reply)) {
+		PyErr_Print();
+		ret_val = -1;
+		goto exit;
+	}
+
+	if (ret_val == 0 && PyDict_Check(reply)) {
+		memset(cmd, 0, sizeof(struct osdp_cmd));
+		if (pyosdp_make_struct_cmd(cmd, reply) < 0) {
+			PyErr_Print();
+			ret_val = -1;
+		}
+	}
+
+exit:
 	Py_XDECREF(result);
+	Py_XDECREF(dict);
 	Py_DECREF(arglist);
 	return ret_val;
 }
