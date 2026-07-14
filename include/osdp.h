@@ -488,9 +488,27 @@ struct osdp_status_report {
 /*         OSDP Commands           */
 /* ------------------------------- */
 
+/**
+ * @brief Max text, in bytes, that a text command can carry to a PD's display.
+ */
+#ifndef OSDP_CMD_TEXT_MAX_LEN
 #define OSDP_CMD_TEXT_MAX_LEN          32
+#endif
+
+/**
+ * @brief Max key length, in bytes, that a keyset command can carry. Not
+ * overridable: it must stay large enough to hold the 16-byte SCBK that secure
+ * channel is built on.
+ */
 #define OSDP_CMD_KEYSET_KEY_MAX_LEN    32
+
+/**
+ * @brief Max vendor defined data, in bytes, that a manufacturer specific
+ * command can carry.
+ */
+#ifndef OSDP_CMD_MFG_MAX_DATALEN
 #define OSDP_CMD_MFG_MAX_DATALEN       64
+#endif
 
 /**
  * @brief Max biometric template that fits in a single OSDP packet.
@@ -499,7 +517,9 @@ struct osdp_status_report {
  * packets (see "Multi-Part Messages"); LibOSDP does not implement multi-part
  * messages, so a template must fit within one packet.
  */
+#ifndef OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN
 #define OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN 128
+#endif
 
 /**
  * @brief Biometric type; the body part to scan. See OSDP spec Table 24.
@@ -1007,16 +1027,49 @@ struct osdp_cmd {
 /*          OSDP Events            */
 /* ------------------------------- */
 
+/**
+ * @brief Max card data, in bytes, that a card read event can carry. Note that
+ * the event's length field is in bits or bytes depending on the card format,
+ * but this bound is always in bytes.
+ */
+#ifndef OSDP_EVENT_CARDREAD_MAX_DATALEN
 #define OSDP_EVENT_CARDREAD_MAX_DATALEN   64
-#define OSDP_EVENT_KEYPRESS_MAX_DATALEN   64
-#define OSDP_EVENT_MFGREP_MAX_DATALEN     128
-#define OSDP_EVENT_MFGSTAT_MAX_DATALEN    128
+#endif
 
 /**
- * @brief Max biometric template that fits in a single OSDP packet. See the
- * note on @ref OSDP_CMD_BIOMATCH_MAX_TEMPLATE_LEN.
+ * @brief Max keypress data, in bytes, that a keypad event can carry. One byte
+ * per key, so this bounds the number of keys a PD can report in one event.
  */
+#ifndef OSDP_EVENT_KEYPRESS_MAX_DATALEN
+#define OSDP_EVENT_KEYPRESS_MAX_DATALEN   64
+#endif
+
+/**
+ * @brief Max vendor defined data, in bytes, that a manufacturer specific
+ * reply can carry.
+ */
+#ifndef OSDP_EVENT_MFGREP_MAX_DATALEN
+#define OSDP_EVENT_MFGREP_MAX_DATALEN     128
+#endif
+
+/**
+ * @brief Max vendor defined data, in bytes, that a manufacturer specific
+ * status or error reply can carry.
+ */
+#ifndef OSDP_EVENT_MFGSTAT_MAX_DATALEN
+#define OSDP_EVENT_MFGSTAT_MAX_DATALEN    128
+#endif
+
+/**
+ * @brief Max biometric template that fits in a single OSDP packet.
+ *
+ * @note The OSDP spec allows biometric templates to be split across multiple
+ * packets (see "Multi-Part Messages"); LibOSDP does not implement multi-part
+ * messages, so a template must fit within one packet.
+ */
+#ifndef OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN
 #define OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN 128
+#endif
 
 /**
  * @brief Various card formats that a PD can support. This is sent to CP
