@@ -259,7 +259,7 @@ static int pyosdp_fields_to_struct(void *base, PyObject *dict,
 
 static const struct pyosdp_field cmd_output_fields[] = {
 	U8_FIELD(struct osdp_cmd_output, output_no),
-	U8_FIELD(struct osdp_cmd_output, control_code),
+	INT_FIELD_(struct osdp_cmd_output, control_code),
 	U16_FIELD(struct osdp_cmd_output, timer_count),
 	END_OF_FIELDS,
 };
@@ -312,7 +312,7 @@ static const struct pyosdp_field cmd_led_fields[] = {
 
 static const struct pyosdp_field cmd_buzzer_fields[] = {
 	U8_FIELD(struct osdp_cmd_buzzer, reader),
-	U8_FIELD(struct osdp_cmd_buzzer, control_code),
+	INT_FIELD_(struct osdp_cmd_buzzer, control_code),
 	U8_FIELD(struct osdp_cmd_buzzer, on_count),
 	U8_FIELD(struct osdp_cmd_buzzer, off_count),
 	U8_FIELD(struct osdp_cmd_buzzer, rep_count),
@@ -321,7 +321,7 @@ static const struct pyosdp_field cmd_buzzer_fields[] = {
 
 static const struct pyosdp_field cmd_text_fields[] = {
 	U8_FIELD(struct osdp_cmd_text, reader),
-	U8_FIELD(struct osdp_cmd_text, control_code),
+	INT_FIELD_(struct osdp_cmd_text, control_code),
 	U8_FIELD(struct osdp_cmd_text, temp_time),
 	U8_FIELD(struct osdp_cmd_text, offset_row),
 	U8_FIELD(struct osdp_cmd_text, offset_col),

@@ -25,6 +25,7 @@ into a packet.
 from dataclasses import dataclass
 from typing import ClassVar, TypeAlias
 
+from . import _sys
 from ._validate import UINT8_MAX, UINT16_MAX, UINT32_MAX, check_length, check_range
 from .enums import (
     BioStatus,
@@ -50,19 +51,19 @@ __all__ = [
     "Status",
 ]
 
-MAX_CARD_DATA_LEN = 64
+MAX_CARD_DATA_LEN = _sys.EVENT_CARDREAD_MAX_DATALEN
 """Longest card payload a CardRead can carry."""
 
-MAX_KEYPRESS_DATA_LEN = 64
+MAX_KEYPRESS_DATA_LEN = _sys.EVENT_KEYPRESS_MAX_DATALEN
 """Longest keypress payload a KeyPress can carry."""
 
-MAX_MFG_DATA_LEN = 128
+MAX_MFG_DATA_LEN = _sys.EVENT_MFGREP_MAX_DATALEN
 """Longest payload a manufacturer event can carry."""
 
-MAX_BIO_TEMPLATE_LEN = 128
+MAX_BIO_TEMPLATE_LEN = _sys.EVENT_BIOREADR_MAX_TEMPLATE_LEN
 """Longest biometric template a BioRead can carry."""
 
-MAX_STATUS_REPORT_LEN = 64
+MAX_STATUS_REPORT_LEN = _sys.STATUS_REPORT_MAX_LEN
 """Most entries a status report can carry."""
 
 _RAW_CARD_FORMATS = (CardFormat.Unspecified, CardFormat.Wiegand)

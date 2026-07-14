@@ -25,7 +25,6 @@ __all__ = [
     "CommandId",
     "CompletionStatus",
     "EventId",
-    "EventId",
     "FileTxFlag",
     "FileTxOutcome",
     "LEDColor",
@@ -152,82 +151,85 @@ class LEDColor(_WireEnum):
 class OutputControlCode(IntEnum):
     """What an `Output` command does to the output line.
 
-    @see osdp_cmd_output
+    @see osdp_cmd_output_control_code_e
     """
 
-    Nop = 0
+    Nop = _sys.CMD_OUTPUT_CC_NOP
     """Do nothing."""
 
-    PermanentOff = 1
+    PermanentOff = _sys.CMD_OUTPUT_CC_PERMANENT_OFF
     """Drive the output to its inactive state permanently."""
 
-    PermanentOn = 2
+    PermanentOn = _sys.CMD_OUTPUT_CC_PERMANENT_ON
     """Drive the output to its active state permanently."""
 
-    PermanentOffAllowTimed = 3
+    PermanentOffAllowTimed = _sys.CMD_OUTPUT_CC_PERMANENT_OFF_ALLOW_TIMED
     """Go permanently inactive, but let a running timer finish first."""
 
-    PermanentOnAllowTimed = 4
+    PermanentOnAllowTimed = _sys.CMD_OUTPUT_CC_PERMANENT_ON_ALLOW_TIMED
     """Go permanently active, but let a running timer finish first."""
 
-    TemporaryOn = 5
+    TemporaryOn = _sys.CMD_OUTPUT_CC_TEMPORARY_ON
     """Go active for `timer_count`, then revert."""
 
-    TemporaryOff = 6
+    TemporaryOff = _sys.CMD_OUTPUT_CC_TEMPORARY_OFF
     """Go inactive for `timer_count`, then revert."""
 
 
 class TemporaryLEDControlCode(IntEnum):
     """What the temporary block of an `LED` command does.
 
-    @see osdp_cmd_led_params
+    @see osdp_cmd_led_temporary_control_code_e
     """
 
-    Nop = 0
+    Nop = _sys.CMD_LED_TEMPORARY_CC_NOP
     """Do nothing; equivalent to omitting the temporary block."""
 
-    Cancel = 1
+    Cancel = _sys.CMD_LED_TEMPORARY_CC_CANCEL
     """Cancel any running temporary state and show the permanent state now."""
 
-    Set = 2
+    Set = _sys.CMD_LED_TEMPORARY_CC_SET
     """Apply the temporary state and start its timer."""
 
 
 class PermanentLEDControlCode(IntEnum):
     """What the permanent block of an `LED` command does.
 
-    @see osdp_cmd_led_params
+    @see osdp_cmd_led_permanent_control_code_e
     """
 
-    Nop = 0
+    Nop = _sys.CMD_LED_PERMANENT_CC_NOP
     """Do nothing; equivalent to omitting the permanent block."""
 
-    Set = 1
+    Set = _sys.CMD_LED_PERMANENT_CC_SET
     """Apply the permanent state."""
 
 
 class BuzzerControlCode(IntEnum):
-    """What a `Buzzer` command does. @see osdp_cmd_buzzer"""
+    """What a `Buzzer` command does. @see osdp_cmd_buzzer_control_code_e"""
 
-    NoTone = 0
+    NoTone = _sys.CMD_BUZZER_CC_NO_TONE
     """Do nothing."""
 
-    Off = 1
+    Off = _sys.CMD_BUZZER_CC_OFF
     """Silence the buzzer."""
 
-    DefaultTone = 2
+    DefaultTone = _sys.CMD_BUZZER_CC_DEFAULT_TONE
     """Sound the reader's default tone."""
 
 
 class TextControlCode(IntEnum):
-    """How a `Text` command displays its message. @see osdp_cmd_text"""
+    """How a `Text` command displays its message.
 
-    PermanentNoWrap = 1
-    PermanentWrap = 2
-    TemporaryNoWrap = 3
+    @see osdp_cmd_text_control_code_e
+    """
+
+    PermanentNoWrap = _sys.CMD_TEXT_CC_PERMANENT_NO_WRAP
+    PermanentWrap = _sys.CMD_TEXT_CC_PERMANENT_WRAP
+    TemporaryNoWrap = _sys.CMD_TEXT_CC_TEMPORARY_NO_WRAP
     """Display for `temp_time` seconds, then revert."""
 
-    TemporaryWrap = 4
+    TemporaryWrap = _sys.CMD_TEXT_CC_TEMPORARY_WRAP
     """Display for `temp_time` seconds, then revert."""
 
 
