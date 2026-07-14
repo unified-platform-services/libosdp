@@ -123,8 +123,10 @@ static PyObject *pyosdp_get_file_tx_status(pyosdp_base_t *self, PyObject *args)
 
 	ctx = self->is_cp ? cp->ctx : pd->ctx;
 
+	/* None means "no transfer running"; a bad argument is an error, and
+	 * returning None with the parse error set trips a SystemError. */
 	if (!PyArg_ParseTuple(args, "I", &pd_idx))
-		Py_RETURN_NONE;
+		return NULL;
 
 	if (osdp_get_file_tx_status(ctx, pd_idx, &size, &offset))
 		Py_RETURN_NONE;
@@ -162,8 +164,10 @@ static PyObject *pyosdp_get_metrics(pyosdp_base_t *self, PyObject *args)
 
 	ctx = self->is_cp ? cp->ctx : pd->ctx;
 
+	/* None means "no such PD"; a bad argument is an error, and returning
+	 * None with the parse error set trips a SystemError. */
 	if (!PyArg_ParseTuple(args, "I", &pd_idx))
-		Py_RETURN_NONE;
+		return NULL;
 
 	if (osdp_get_metrics(ctx, pd_idx, &metrics))
 		Py_RETURN_NONE;

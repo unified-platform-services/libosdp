@@ -374,8 +374,10 @@ static PyObject *pyosdp_cp_modify_flag(pyosdp_cp_t *self, PyObject *args, bool d
 {
 	int ret, pd, flags;
 
+	/* Returning False here would hand back a value with the parse error
+	 * still set, which CPython turns into a SystemError. Let it raise. */
 	if (!PyArg_ParseTuple(args, "II", &pd, &flags))
-		Py_RETURN_FALSE;
+		return NULL;
 
 	if (pd < 0 || pd >= self->num_pd) {
 		PyErr_SetString(PyExc_ValueError, "Invalid PD offset");
