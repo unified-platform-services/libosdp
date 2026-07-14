@@ -55,6 +55,23 @@ struct pyosdp_field {
 
 #define END_OF_FIELDS { .key = NULL }
 
+/*
+ * FIELD_INT reaches the member through an `int *`, so the enum-typed control
+ * codes marshal correctly only while an enum is int-sized. Under
+ * -fshort-enums (the AAPCS default on bare metal ARM) they shrink to a byte
+ * and the write runs past the member into whatever follows it. Say so at
+ * compile time rather than corrupting a struct at runtime.
+ */
+#define ASSERT_INT_SIZED(st, member)                                           \
+	_Static_assert(sizeof(((st *)0)->member) == sizeof(int),               \
+		       #st "::" #member " must be int-sized for FIELD_INT")
+
+ASSERT_INT_SIZED(struct osdp_cmd_output, control_code);
+ASSERT_INT_SIZED(struct osdp_cmd_buzzer, control_code);
+ASSERT_INT_SIZED(struct osdp_cmd_text, control_code);
+ASSERT_INT_SIZED(struct osdp_status_report, type);
+ASSERT_INT_SIZED(struct osdp_notification, type);
+
 /* --- Field access --- */
 
 static int field_get_int(const void *base, size_t offset,
