@@ -140,6 +140,12 @@ static int pd_command_cb(void *arg, struct osdp_cmd *cmd)
 		return -1;
 
 	arglist = Py_BuildValue("(O)", dict);
+	if (arglist == NULL) {
+		PyErr_Print();
+		Py_DECREF(dict);
+		return -1;
+	}
+
 	result = PyObject_CallObject(self->command_cb, arglist);
 	if (result == NULL) {
 		PyErr_Print();
