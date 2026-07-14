@@ -291,6 +291,46 @@ static inline __noreturn void die()
 #define REPLY_XRD	0xB1
 
 /**
+ * @brief Number of data bytes that follow the command/reply ID byte.
+ *
+ * The encoders (cp_build_command(), pd_build_reply()) write the ID byte and
+ * the decoders (pd_decode_command(), cp_decode_response()) consume it, both
+ * outside of their per-message switch. These lengths therefore describe the
+ * data block alone and are shared by both sides of the wire. For variable
+ * length messages, they cover only the fixed part that precedes the payload.
+ * Messages that carry no data at all are simply absent from this list.
+ */
+#define CMD_ID_DATA_LEN           1
+#define CMD_CAP_DATA_LEN          1
+#define CMD_OUT_DATA_LEN          4
+#define CMD_LED_DATA_LEN          14
+#define CMD_BUZ_DATA_LEN          5
+#define CMD_TEXT_DATA_LEN         6  /* variable length message */
+#define CMD_COMSET_DATA_LEN       5
+#define CMD_BIOREAD_DATA_LEN      4
+#define CMD_BIOMATCH_DATA_LEN     6  /* variable length message */
+#define CMD_KEYSET_DATA_LEN       18
+#define CMD_CHLNG_DATA_LEN        8
+#define CMD_SCRYPT_DATA_LEN       16
+#define CMD_ACURXSIZE_DATA_LEN    2
+#define CMD_KEEPACTIVE_DATA_LEN   2
+#define CMD_MFG_DATA_LEN          3  /* variable length message */
+
+#define REPLY_NAK_DATA_LEN        1
+#define REPLY_PDID_DATA_LEN       12
+#define REPLY_PDCAP_ENTITY_LEN    3  /* variable count of these entities */
+#define REPLY_LSTATR_DATA_LEN     2
+#define REPLY_RSTATR_DATA_LEN     1
+#define REPLY_COM_DATA_LEN        5
+#define REPLY_KEYPAD_DATA_LEN     2  /* variable length message */
+#define REPLY_RAW_DATA_LEN        4  /* variable length message */
+#define REPLY_MFGREP_DATA_LEN     3  /* variable length message */
+#define REPLY_BIOREADR_DATA_LEN   6  /* variable length message */
+#define REPLY_BIOMATCHR_DATA_LEN  3
+#define REPLY_CCRYPT_DATA_LEN     32
+#define REPLY_RMAC_I_DATA_LEN     16
+
+/**
  * @brief secure block types
  */
 #define SCS_11 0x11 /* CP -> PD -- CMD_CHLNG */

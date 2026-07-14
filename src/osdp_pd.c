@@ -13,45 +13,6 @@
 #include <stdlib.h>
 #endif
 
-#define CMD_POLL_DATA_LEN              0
-#define CMD_LSTAT_DATA_LEN             0
-#define CMD_ISTAT_DATA_LEN             0
-#define CMD_OSTAT_DATA_LEN             0
-#define CMD_RSTAT_DATA_LEN             0
-#define CMD_ID_DATA_LEN                1
-#define CMD_CAP_DATA_LEN               1
-#define CMD_OUT_DATA_LEN               4
-#define CMD_LED_DATA_LEN               14
-#define CMD_BUZ_DATA_LEN               5
-#define CMD_TEXT_DATA_LEN              6   /* variable length command */
-#define CMD_COMSET_DATA_LEN            5
-#define CMD_KEYSET_DATA_LEN            18
-#define CMD_CHLNG_DATA_LEN             8
-#define CMD_SCRYPT_DATA_LEN            16
-#define CMD_ABORT_DATA_LEN             0
-#define CMD_ACURXSIZE_DATA_LEN         2
-#define CMD_KEEPACTIVE_DATA_LEN        2
-#define CMD_MFG_DATA_LEN               3 /* variable length command */
-#define CMD_BIOREAD_DATA_LEN           4
-#define CMD_BIOMATCH_DATA_LEN          6 /* variable length command */
-
-#define REPLY_ACK_LEN                  1
-#define REPLY_PDID_LEN                 13
-#define REPLY_PDCAP_LEN                1   /* variable length command */
-#define REPLY_PDCAP_ENTITY_LEN         3
-#define REPLY_LSTATR_LEN               3
-#define REPLY_RSTATR_LEN               2
-#define REPLY_COM_LEN                  6
-#define REPLY_NAK_LEN                  2
-#define REPLY_CCRYPT_LEN               33
-#define REPLY_RMAC_I_LEN               17
-#define REPLY_KEYPAD_LEN               2
-#define REPLY_RAW_LEN                  4
-#define REPLY_MFGREP_LEN               4 /* variable length command */
-#define REPLY_MFGSTAT_LEN              1 /* variable length command */
-#define REPLY_BIOREADR_LEN             7 /* variable length command */
-#define REPLY_BIOMATCHR_LEN            4
-
 enum osdp_pd_error_e {
 	OSDP_PD_ERR_NONE = 0,
 	OSDP_PD_ERR_WAIT = -1,
@@ -219,6 +180,38 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 		return REPLY_ACK;
 	}
 	return reply_code;
+}
+
+/**
+ * The inverse of pd_translate_event(): the event type that must back a reply
+ * which carries application data. Returns -1 for replies built purely from PD
+ * state, which need no event at all.
+ */
+static int reply_backing_event_type(int reply_id)
+{
+	switch (reply_id) {
+	case REPLY_OSTATR:
+	case REPLY_ISTATR:
+	case REPLY_LSTATR:
+	case REPLY_RSTATR:
+		return OSDP_EVENT_STATUS;
+	case REPLY_KEYPAD:
+		return OSDP_EVENT_KEYPRESS;
+	case REPLY_RAW:
+		return OSDP_EVENT_CARDREAD;
+	case REPLY_MFGREP:
+		return OSDP_EVENT_MFGREP;
+	case REPLY_MFGSTATR:
+		return OSDP_EVENT_MFGSTATR;
+	case REPLY_MFGERRR:
+		return OSDP_EVENT_MFGERRR;
+	case REPLY_BIOREADR:
+		return OSDP_EVENT_BIOREADR;
+	case REPLY_BIOMATCHR:
+		return OSDP_EVENT_BIOMATCHR;
+	default:
+		return -1;
+	}
 }
 
 /**
@@ -390,7 +383,7 @@ static int pd_cmd_cap_ok(struct osdp_pd *pd, struct osdp_cmd *cmd)
 static int pd_prebuild_status_reply(struct osdp_pd *pd, int reply_id,
 				    const struct osdp_status_report *status)
 {
-	int i, len = 0, n, hdr_len, data_off, ret;
+	int len = 0, n, hdr_len, data_off, ret;
 	int packet_buf_size = get_tx_buf_size(pd);
 	uint8_t *pkt = osdp_tx_staging_buf(pd);
 	uint8_t *buf;
@@ -403,41 +396,43 @@ static int pd_prebuild_status_reply(struct osdp_pd *pd, int reply_id,
 	data_off = osdp_phy_packet_get_data_offset(pd, pkt);
 	buf = pkt + data_off;
 	max_len = packet_buf_size - data_off;
+	if (max_len <= 0) {
+		return -1;
+	}
+
+	buf[len++] = reply_id;
+	max_len -= 1;
 
 	switch (reply_id) {
 	case REPLY_OSTATR:
 		n = pd->cap[OSDP_PD_CAP_OUTPUT_CONTROL].num_items;
-		if (status->nr_entries != n || max_len < n + 1) {
+		if (status->nr_entries != n || max_len < n ||
+		    n > OSDP_STATUS_REPORT_MAX_LEN) {
 			return -1;
 		}
-		buf[len++] = REPLY_OSTATR;
-		for (i = 0; i < n; i++) {
-			buf[len++] = status->report[i];
-		}
+		memcpy(buf + len, status->report, n);
+		len += n;
 		break;
 	case REPLY_ISTATR:
 		n = pd->cap[OSDP_PD_CAP_CONTACT_STATUS_MONITORING].num_items;
-		if (status->nr_entries != n || max_len < n + 1) {
+		if (status->nr_entries != n || max_len < n ||
+		    n > OSDP_STATUS_REPORT_MAX_LEN) {
 			return -1;
 		}
-		buf[len++] = REPLY_ISTATR;
-		for (i = 0; i < n; i++) {
-			buf[len++] = status->report[i];
-		}
+		memcpy(buf + len, status->report, n);
+		len += n;
 		break;
 	case REPLY_LSTATR:
-		if (status->nr_entries < 2 || max_len < REPLY_LSTATR_LEN) {
+		if (status->nr_entries < 2 || max_len < REPLY_LSTATR_DATA_LEN) {
 			return -1;
 		}
-		buf[len++] = REPLY_LSTATR;
 		buf[len++] = status->report[0];
 		buf[len++] = status->report[1];
 		break;
 	case REPLY_RSTATR:
-		if (status->nr_entries < 1 || max_len < REPLY_RSTATR_LEN) {
+		if (status->nr_entries < 1 || max_len < REPLY_RSTATR_DATA_LEN) {
 			return -1;
 		}
-		buf[len++] = REPLY_RSTATR;
 		buf[len++] = status->report[0];
 		break;
 	default:
@@ -509,8 +504,12 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 
 	pd->reply_id = REPLY_NAK;
 	pd->nak_code = OSDP_PD_NAK_RECORD;
-	pd->cmd_id = cmd.id = buf[pos++];
-	len--;
+
+	/* Consume the command ID byte; buf, pos and len now all describe the
+	 * data block that follows it. */
+	pd->cmd_id = cmd.id = buf[0];
+	buf += 1;
+	len -= 1;
 
 	if (is_enforce_secure(pd) && !sc_is_active(pd)) {
 		/**
@@ -532,7 +531,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 	{
 		const struct osdp_event *queued_event;
 
-		if (len != CMD_POLL_DATA_LEN) {
+		if (len != 0) {
 			break;
 		}
 		/* Check if we have external events in the queue */
@@ -547,7 +546,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		break;
 	}
 	case CMD_LSTAT:
-		if (len != CMD_LSTAT_DATA_LEN) {
+		if (len != 0) {
 			break;
 		}
 		cmd.id = OSDP_CMD_STATUS;
@@ -563,7 +562,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case CMD_ISTAT:
-		if (len != CMD_ISTAT_DATA_LEN) {
+		if (len != 0) {
 			break;
 		}
 		if (!pd_cmd_cap_ok(pd, NULL)) {
@@ -583,7 +582,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case CMD_OSTAT:
-		if (len != CMD_OSTAT_DATA_LEN) {
+		if (len != 0) {
 			break;
 		}
 		if (!pd_cmd_cap_ok(pd, NULL)) {
@@ -603,7 +602,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case CMD_RSTAT:
-		if (len != CMD_RSTAT_DATA_LEN) {
+		if (len != 0) {
 			break;
 		}
 		cmd.id = OSDP_CMD_STATUS;
@@ -783,9 +782,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			LOG_ERR("cmd length error");
 			break;
 		}
-		for (i = 0; i < cmd.mfg.length; i++) {
-			cmd.mfg.data[i] = buf[pos++];
-		}
+		memcpy(cmd.mfg.data, buf + pos, cmd.mfg.length);
+		pos += cmd.mfg.length;
 
 		if (!do_command_callback(pd, &cmd)) {
 			ret = OSDP_PD_ERR_REPLY;
@@ -870,7 +868,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case CMD_ABORT:
-		if (len != CMD_ABORT_DATA_LEN) {
+		if (len != 0) {
 			break;
 		}
 		osdp_file_tx_abort(pd);
@@ -988,23 +986,20 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 	return ret;
 }
 
-static inline void assert_buf_len(int need, int have)
-{
-	__ASSERT(need < have, "OOM at build command: need:%d have:%d",
-		 need, have);
-	(void)need;
-	(void)have;
-}
-
 /**
+ * Build the reply in pd->reply_id into buf. The reply ID byte is written here,
+ * ahead of the switch, so each case deals only with its data block and max_len
+ * is the space that remains for it. Likewise, a reply that must be backed by an
+ * event is matched to it here, so the cases can use pd->active_event directly.
+ *
  * Returns:
- * +ve: length of command
+ * +ve: length of the reply (ID byte inclusive)
  * -ve: error
  */
 static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 {
 	int ret = OSDP_PD_ERR_GENERIC;
-	int i, len = 0;
+	int i, len = 0, event_type;
 	const struct osdp_event *event = pd->active_event;
 	const struct osdp_event_mfgstat *mfgstat;
 	int data_off = osdp_phy_packet_get_data_offset(pd, buf);
@@ -1012,16 +1007,29 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 
 	buf += data_off;
 	max_len -= data_off;
+	if (max_len <= 0) {
+		return OSDP_PD_ERR_GENERIC;
+	}
+
+	buf[len++] = pd->reply_id;
+	max_len -= 1;
+
+	event_type = reply_backing_event_type(pd->reply_id);
+	if (event_type >= 0 && (!event || (int)event->type != event_type)) {
+		LOG_ERR("REPLY: %s(%02x) has no matching event to build from",
+			osdp_reply_name(pd->reply_id), pd->reply_id);
+		goto out;
+	}
 
 	switch (pd->reply_id) {
 	case REPLY_ACK:
-		assert_buf_len(REPLY_ACK_LEN, max_len);
-		buf[len++] = pd->reply_id;
+		/* ACK is just the reply ID byte; it carries no data */
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_PDID:
-		assert_buf_len(REPLY_PDID_LEN, max_len);
-		buf[len++] = pd->reply_id;
+		if (max_len < REPLY_PDID_DATA_LEN) {
+			break;
+		}
 		bwrite_u24_le(pd->id.vendor_code, buf, &len);
 		buf[len++] = pd->id.model;
 		buf[len++] = pd->id.version;
@@ -1030,8 +1038,7 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_PDCAP:
-		assert_buf_len(REPLY_PDCAP_LEN, max_len);
-		buf[len++] = pd->reply_id;
+		/* Capability entities are bounds checked as they are emitted */
 		for (i = 1; i < OSDP_PD_CAP_SENTINEL; i++) {
 			if (pd->cap[i].function_code != i) {
 				continue;
@@ -1049,63 +1056,57 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		break;
 	case REPLY_OSTATR: {
 		int n = pd->cap[OSDP_PD_CAP_OUTPUT_CONTROL].num_items;
-		if (!event || event->type != OSDP_EVENT_STATUS) {
+		if (event->status.nr_entries != n ||
+		    n > OSDP_STATUS_REPORT_MAX_LEN) {
 			break;
 		}
-		if (event->status.nr_entries != n) {
+		if (max_len < n) {
 			break;
 		}
-		assert_buf_len(n + 1, max_len);
-		buf[len++] = pd->reply_id;
-		for (i = 0; i < n; i++) {
-			buf[len++] = event->status.report[i];
-		}
+		memcpy(buf + len, event->status.report, n);
+		len += n;
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	}
 	case REPLY_ISTATR: {
 		int n = pd->cap[OSDP_PD_CAP_CONTACT_STATUS_MONITORING].num_items;
-		if (!event || event->type != OSDP_EVENT_STATUS) {
+		if (event->status.nr_entries != n ||
+		    n > OSDP_STATUS_REPORT_MAX_LEN) {
 			break;
 		}
-		if (event->status.nr_entries != n) {
+		if (max_len < n) {
 			break;
 		}
-		assert_buf_len(n + 1, max_len);
-		buf[len++] = pd->reply_id;
-		for (i = 0; i < n; i++) {
-			buf[len++] = event->status.report[i];
-		}
+		memcpy(buf + len, event->status.report, n);
+		len += n;
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	}
 	case REPLY_LSTATR:
-		assert_buf_len(REPLY_LSTATR_LEN, max_len);
-		if (!event || event->type != OSDP_EVENT_STATUS ||
-		    event->status.nr_entries < 2) {
+		if (event->status.nr_entries < 2) {
 			break;
 		}
-		buf[len++] = pd->reply_id;
+		if (max_len < REPLY_LSTATR_DATA_LEN) {
+			break;
+		}
 		buf[len++] = event->status.report[0]; // tamper
 		buf[len++] = event->status.report[1]; // power
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_RSTATR:
-		assert_buf_len(REPLY_RSTATR_LEN, max_len);
-		if (!event || event->type != OSDP_EVENT_STATUS ||
-		    event->status.nr_entries < 1) {
+		if (event->status.nr_entries < 1) {
 			break;
 		}
-		buf[len++] = pd->reply_id;
+		if (max_len < REPLY_RSTATR_DATA_LEN) {
+			break;
+		}
 		buf[len++] = event->status.report[0]; // power
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_KEYPAD:
-		if (!event || event->type != OSDP_EVENT_KEYPRESS) {
+		if (max_len < REPLY_KEYPAD_DATA_LEN + event->keypress.length) {
 			break;
 		}
-		assert_buf_len(REPLY_KEYPAD_LEN + event->keypress.length, max_len);
-		buf[len++] = pd->reply_id;
 		buf[len++] = (uint8_t)event->keypress.reader_no;
 		buf[len++] = (uint8_t)event->keypress.length;
 		memcpy(buf + len, event->keypress.data, event->keypress.length);
@@ -1115,12 +1116,10 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	case REPLY_RAW: {
 		int len_bytes;
 
-		if (!event || event->type != OSDP_EVENT_CARDREAD) {
+		len_bytes = BITS_TO_BYTES(event->cardread.length);
+		if (max_len < REPLY_RAW_DATA_LEN + len_bytes) {
 			break;
 		}
-		len_bytes = BITS_TO_BYTES(event->cardread.length);
-		assert_buf_len(REPLY_RAW_LEN + len_bytes, max_len);
-		buf[len++] = pd->reply_id;
 		buf[len++] = (uint8_t)event->cardread.reader_no;
 		buf[len++] = (uint8_t)event->cardread.format;
 		bwrite_u16_le(event->cardread.length, buf, &len);
@@ -1129,32 +1128,32 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	}
-		case REPLY_COM:
-			assert_buf_len(REPLY_COM_LEN, max_len);
-			/**
-			 * If COMSET succeeds, the PD must reply with the old params and
-			 * then switch to the new params from then then on. We cache
-			 * the pending values in pd->comset_pending while decoding CMD_COMSET
-			 * and use them here in REPLY_COM.
-			 */
-				buf[len++] = pd->reply_id;
-				buf[len++] = pd->comset_pending.address;
+	case REPLY_COM:
+		if (max_len < REPLY_COM_DATA_LEN) {
+			break;
+		}
+		/**
+		 * If COMSET succeeds, the PD must reply with the old params and
+		 * then switch to the new params from then then on. We cache the
+		 * pending values in pd->comset_pending while decoding CMD_COMSET
+		 * and use them here in REPLY_COM.
+		 */
+		buf[len++] = pd->comset_pending.address;
 		bwrite_u32_le(pd->comset_pending.baud_rate, buf, &len);
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_NAK:
-		assert_buf_len(REPLY_NAK_LEN, max_len);
-		buf[len++] = pd->reply_id;
+		if (max_len < REPLY_NAK_DATA_LEN) {
+			break;
+		}
 		buf[len++] = pd->nak_code;
 		osdp_metrics_report(pd, OSDP_METRIC_NAK);
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_MFGREP:
-		if (!event || event->type != OSDP_EVENT_MFGREP) {
+		if (max_len < REPLY_MFGREP_DATA_LEN + event->mfgrep.length) {
 			break;
 		}
-		assert_buf_len(REPLY_MFGREP_LEN + event->mfgrep.length, max_len);
-		buf[len++] = pd->reply_id;
 		bwrite_u24_le(event->mfgrep.vendor_code, buf, &len);
 		memcpy(buf + len, event->mfgrep.data, event->mfgrep.length);
 		len += event->mfgrep.length;
@@ -1162,30 +1161,24 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		break;
 	case REPLY_MFGSTATR:
 	case REPLY_MFGERRR:
-		if (!event || (event->type != OSDP_EVENT_MFGSTATR &&
-			       event->type != OSDP_EVENT_MFGERRR)) {
-			break;
-		}
 		mfgstat = (event->type == OSDP_EVENT_MFGSTATR) ?
 			  &event->mfgstatr : &event->mfgerrr;
-		assert_buf_len(REPLY_MFGSTAT_LEN + mfgstat->length, max_len);
-		buf[len++] = pd->reply_id;
+		if (max_len < mfgstat->length) {
+			break;
+		}
 		memcpy(buf + len, mfgstat->data, mfgstat->length);
 		len += mfgstat->length;
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_BIOREADR:
-		if (!event || event->type != OSDP_EVENT_BIOREADR) {
-			break;
-		}
 		if (event->bioreadr.length > OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN) {
 			LOG_ERR("BIOREADR template too long (%d)",
 				event->bioreadr.length);
 			break;
 		}
-		assert_buf_len(REPLY_BIOREADR_LEN + event->bioreadr.length,
-			       max_len);
-		buf[len++] = pd->reply_id;
+		if (max_len < REPLY_BIOREADR_DATA_LEN + event->bioreadr.length) {
+			break;
+		}
 		buf[len++] = event->bioreadr.reader;
 		buf[len++] = event->bioreadr.status;
 		buf[len++] = event->bioreadr.type;
@@ -1196,18 +1189,15 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_BIOMATCHR:
-		if (!event || event->type != OSDP_EVENT_BIOMATCHR) {
+		if (max_len < REPLY_BIOMATCHR_DATA_LEN) {
 			break;
 		}
-		assert_buf_len(REPLY_BIOMATCHR_LEN, max_len);
-		buf[len++] = pd->reply_id;
 		buf[len++] = event->biomatchr.reader;
 		buf[len++] = event->biomatchr.status;
 		buf[len++] = event->biomatchr.score;
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_FTSTAT:
-		buf[len++] = pd->reply_id;
 		ret = osdp_file_cmd_stat_build(pd, buf + len, max_len);
 		if (ret <= 0) {
 			break;
@@ -1219,11 +1209,12 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		if (smb == NULL) {
 			break;
 		}
-		assert_buf_len(REPLY_CCRYPT_LEN, max_len);
+		if (max_len < REPLY_CCRYPT_DATA_LEN) {
+			break;
+		}
 		osdp_fill_random(pd->sc.pd_random, 8);
 		osdp_compute_session_keys(pd);
 		osdp_compute_pd_cryptogram(pd);
-		buf[len++] = pd->reply_id;
 		memcpy(buf + len, pd->sc.pd_client_uid, 8);
 		memcpy(buf + len + 8, pd->sc.pd_random, 8);
 		memcpy(buf + len + 16, pd->sc.pd_cryptogram, 16);
@@ -1237,9 +1228,10 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		if (smb == NULL) {
 			break;
 		}
-		assert_buf_len(REPLY_RMAC_I_LEN, max_len);
+		if (max_len < REPLY_RMAC_I_DATA_LEN) {
+			break;
+		}
 		osdp_compute_rmac_i(pd);
-		buf[len++] = pd->reply_id;
 		memcpy(buf + len, pd->sc.r_mac, 16);
 		len += 16;
 		smb[0] = 3;       /* length */
@@ -1258,20 +1250,30 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	default: BUG();
 	}
 
-	if (smb && (smb[1] > SCS_14) && sc_is_active(pd)) {
-		smb[0] = 2; /* length */
-		smb[1] = (len > 1) ? SCS_18 : SCS_16;
-	}
-
+out:
 	if (ret != 0) {
 		/* catch all errors and report it as a RECORD error to CP */
 		LOG_ERR("Failed to build REPLY: %s(%02x); Sending NAK instead!",
 			osdp_reply_name(pd->reply_id), pd->reply_id);
-		assert_buf_len(REPLY_NAK_LEN, max_len);
+		if (max_len < REPLY_NAK_DATA_LEN) {
+			LOG_ERR("Out of buffer space to build NAK; have:%d",
+				max_len);
+			return OSDP_PD_ERR_GENERIC;
+		}
 		buf[0] = REPLY_NAK;
 		buf[1] = OSDP_PD_NAK_RECORD;
 		len = 2;
 		osdp_metrics_report(pd, OSDP_METRIC_NAK);
+	}
+
+	/**
+	 * Pick the SCS type only after the reply is final: a failed build is
+	 * rewritten as a NAK above, and that carries data bytes even when the
+	 * reply it replaced did not.
+	 */
+	if (smb && (smb[1] > SCS_14) && sc_is_active(pd)) {
+		smb[0] = 2; /* length */
+		smb[1] = (len > 1) ? SCS_18 : SCS_16;
 	}
 
 	return len;
