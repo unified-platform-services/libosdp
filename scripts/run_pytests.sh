@@ -123,7 +123,11 @@ if [ "$SKIP_SETUP" = false ]; then
     pip install -r requirements.txt
 
     echo "[-] Installing libosdp.."
-    pip install "${ROOT_DIR}/python"
+    # Dial the online timeout down from its 8s production default so that the
+    # tests which wait out a PD going offline don't dominate the run. This is
+    # what tests/unit-tests does via -DOSDP_PD_ONLINE_TOUT_MS.
+    OSDP_PD_ONLINE_TOUT_MS="${OSDP_PD_ONLINE_TOUT_MS:-1500}" \
+        pip install "${ROOT_DIR}/python"
 else
     echo "[-] Using existing environment.."
     if [ ! -d .venv ]; then

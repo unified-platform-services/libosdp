@@ -60,7 +60,8 @@ if [ "$SKIP_SETUP" = false ]; then
     echo "[-] Building an instrumented libosdp (this takes a minute).."
     pip install --quiet setuptools
     ( cd "${ROOT_DIR}/python" && \
-      OSDP_COVERAGE=1 OSDP_PD_ONLINE_TOUT_MS=1500 \
+      OSDP_COVERAGE=1 \
+      OSDP_PD_ONLINE_TOUT_MS="${OSDP_PD_ONLINE_TOUT_MS:-1500}" \
         python setup.py --quiet build_ext --inplace )
 
     # Make python/ importable without pip, which would rebuild the extension
