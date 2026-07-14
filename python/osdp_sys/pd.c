@@ -357,9 +357,10 @@ error:
 #define pyosdp_pd_tp_init_doc                                                       \
 	"PeripheralDevice(pd_info, *, capabilities=[])\n"                           \
 	"\n"                                                                        \
-	"pd_info is an osdp_pd_info_t dict. Its 'scbk' must be exactly 16 raw\n"    \
-	"bytes; anything else, including an absent key, leaves the PD in install\n" \
-	"mode. capabilities is a list of osdp_pd_cap_t dicts."
+	"pd_info is an osdp_pd_info_t dict. Its 'scbk', when present, must be\n"    \
+	"exactly 16 raw bytes; any other length is a TypeError. An absent key\n"    \
+	"leaves the PD in install mode. capabilities is a list of osdp_pd_cap_t\n"  \
+	"dicts."
 static int pyosdp_pd_tp_init(pyosdp_pd_t *self, PyObject *args, PyObject *kwargs)
 {
 	int scbk_length, baud_rate;
@@ -432,8 +433,12 @@ static int pyosdp_pd_tp_init(pyosdp_pd_t *self, PyObject *args, PyObject *kwargs
 		goto error;
 
 	if (pyosdp_dict_get_bytes(py_info, "scbk", &scbk, &scbk_length) == 0) {
-		if (scbk && scbk_length == 16)
-			info.scbk = scbk;
+		if (scbk && scbk_length != 16) {
+			PyErr_SetString(PyExc_TypeError,
+					"scbk must be exactly 16 bytes");
+			goto error;
+		}
+		info.scbk = scbk;
 	} else {
 		PyErr_Clear();
 	}
