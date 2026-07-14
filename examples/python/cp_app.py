@@ -55,13 +55,11 @@ cp.start()
 cp.sc_wait_all()
 
 ## Flash the reader LED red for one second. Durations are in units of 100ms;
-## on_count and off_count cannot both be zero.
+## on_count and off_count cannot both be zero. Every field has a default, so
+## only what differs from it needs spelling out.
 led_cmd = commands.LED(
-    reader=1,
-    led_number=0,
     temporary=commands.TemporaryLEDParams(
         on_color=LEDColor.Red,
-        off_color=LEDColor.Black,
         on_count=10,
         off_count=10,
         timer_count=10,
