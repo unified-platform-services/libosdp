@@ -330,3 +330,26 @@ def cleanup_fifo_pair(name):
 @pytest.fixture(scope='session')
 def utils():
     return TestUtils()
+
+
+@pytest.fixture
+def fifo_pair(tmp_path):
+    """A connected pair of FIFO channels, private to one test.
+
+    Unlike make_fifo_pair(), the paths live under the test's own tmp_path, so
+    two tests -- or two runs -- cannot collide on them.
+    """
+    pairs = []
+
+    def make(name='pair'):
+        one = str(tmp_path / f'{name}.one')
+        two = str(tmp_path / f'{name}.two')
+        pair = (FIFOChannel(one, two), FIFOChannel(two, one))
+        pairs.append(pair)
+        return pair
+
+    yield make
+
+    for pair in pairs:
+        for chan in pair:
+            chan.close()
