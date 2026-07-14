@@ -246,21 +246,23 @@ static bool validate_command(struct osdp_pd *pd, struct osdp_cmd *cmd)
 	switch (cmd->id) {
 	case OSDP_CMD_LED:
 		/* The ON Time OFF Time values cannot both be set to zero */
-		if (cmd->led.temporary.control_code == 0x02 && /* SET */
+		if (cmd->led.temporary.control_code ==
+			    OSDP_CMD_LED_TEMPORARY_CC_SET &&
 		    cmd->led.temporary.on_count == 0 &&
 		    cmd->led.temporary.off_count == 0) {
 			result = false;
 		}
-		if (cmd->led.permanent.control_code == 0x01 &&  /* SET */
+		if (cmd->led.permanent.control_code ==
+			    OSDP_CMD_LED_PERMANENT_CC_SET &&
 		    cmd->led.permanent.on_count == 0 &&
 		    cmd->led.permanent.off_count == 0) {
 			result = false;
 		}
 		break;
 	case OSDP_CMD_BUZZER:
-		/* ON duration must nonzero unless the control_code is 0x01 */
+		/* ON duration must nonzero unless the buzzer is being silenced */
 		if (cmd->buzzer.on_count == 0 &&
-		    cmd->buzzer.control_code != 1) {
+		    cmd->buzzer.control_code != OSDP_CMD_BUZZER_CC_OFF) {
 			result = false;
 		}
 		break;

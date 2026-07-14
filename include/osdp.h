@@ -634,6 +634,28 @@ struct osdp_cmd_biomatch {
 };
 
 /**
+ * @brief What an output command does to the output line.
+ */
+enum osdp_cmd_output_control_code_e {
+	/** Do not alter this output */
+	OSDP_CMD_OUTPUT_CC_NOP,
+	/** Set the permanent state to OFF, abort timed operation (if any) */
+	OSDP_CMD_OUTPUT_CC_PERMANENT_OFF,
+	/** Set the permanent state to ON, abort timed operation (if any) */
+	OSDP_CMD_OUTPUT_CC_PERMANENT_ON,
+	/** Set the permanent state to OFF, allow timed operation to complete */
+	OSDP_CMD_OUTPUT_CC_PERMANENT_OFF_ALLOW_TIMED,
+	/** Set the permanent state to ON, allow timed operation to complete */
+	OSDP_CMD_OUTPUT_CC_PERMANENT_ON_ALLOW_TIMED,
+	/** Set the temporary state to ON, resume perm state on timeout */
+	OSDP_CMD_OUTPUT_CC_TEMPORARY_ON,
+	/** Set the temporary state to OFF, resume perm state on timeout */
+	OSDP_CMD_OUTPUT_CC_TEMPORARY_OFF,
+	/** Max value */
+	OSDP_CMD_OUTPUT_CC_SENTINEL
+};
+
+/**
  * @brief Command sent from CP to Control digital output of PD.
  */
 struct osdp_cmd_output {
@@ -642,16 +664,9 @@ struct osdp_cmd_output {
 	 */
 	uint8_t output_no;
 	/**
-	 * One of the following:
-	 *    0 - NOP – do not alter this output
-	 *    1 - set the permanent state to OFF, abort timed operation (if any)
-	 *    2 - set the permanent state to ON, abort timed operation (if any)
-	 *    3 - set the permanent state to OFF, allow timed operation to complete
-	 *    4 - set the permanent state to ON, allow timed operation to complete
-	 *    5 - set the temporary state to ON, resume perm state on timeout
-	 *    6 - set the temporary state to OFF, resume permanent state on timeout
+	 * What to do to the output line.
 	 */
-	uint8_t control_code;
+	enum osdp_cmd_output_control_code_e control_code;
 	/**
 	 * Time in units of 100 ms
 	 */
@@ -675,20 +690,44 @@ enum osdp_led_color_e {
 };
 
 /**
+ * @brief What the temporary block of an LED command does.
+ */
+enum osdp_cmd_led_temporary_control_code_e {
+	/** Do not alter this LED's temporary settings */
+	OSDP_CMD_LED_TEMPORARY_CC_NOP,
+	/**
+	 * Cancel any temporary operation and display this LED's permanent
+	 * state immediately
+	 */
+	OSDP_CMD_LED_TEMPORARY_CC_CANCEL,
+	/** Set the temporary state as given and start timer immediately */
+	OSDP_CMD_LED_TEMPORARY_CC_SET,
+	/** Max value */
+	OSDP_CMD_LED_TEMPORARY_CC_SENTINEL
+};
+
+/**
+ * @brief What the permanent block of an LED command does.
+ */
+enum osdp_cmd_led_permanent_control_code_e {
+	/** Do not alter this LED's permanent settings */
+	OSDP_CMD_LED_PERMANENT_CC_NOP,
+	/** Set the permanent state as given */
+	OSDP_CMD_LED_PERMANENT_CC_SET,
+	/** Max value */
+	OSDP_CMD_LED_PERMANENT_CC_SENTINEL
+};
+
+/**
  * @brief LED params sub-structure. Part of LED command. See @ref osdp_cmd_led.
  */
 struct osdp_cmd_led_params {
 	/** Control code.
 	 *
-	 * Temporary Control Code:
-	 * - 0 - NOP - do not alter this LED's temporary settings.
-	 * - 1 - Cancel any temporary operation and display this LED's
-	 *       permanent state immediately.
-	 * - 2 - Set the temporary state as given and start timer immediately.
-	 *
-	 * Permanent Control Code:
-	 * - 0 - NOP - do not alter this LED's permanent settings.
-	 * - 1 - Set the permanent state as given.
+	 * The block this struct is used as decides which enumeration applies:
+	 * @ref osdp_cmd_led_temporary_control_code_e for osdp_cmd_led::temporary,
+	 * @ref osdp_cmd_led_permanent_control_code_e for osdp_cmd_led::permanent.
+	 * They do not agree numerically, so the two cannot share a type.
 	 */
 	uint8_t control_code;
 	/**
@@ -736,6 +775,20 @@ struct osdp_cmd_led {
 };
 
 /**
+ * @brief What a buzzer command does.
+ */
+enum osdp_cmd_buzzer_control_code_e {
+	/** No tone */
+	OSDP_CMD_BUZZER_CC_NO_TONE,
+	/** Silence the buzzer */
+	OSDP_CMD_BUZZER_CC_OFF,
+	/** Sound the reader's default tone */
+	OSDP_CMD_BUZZER_CC_DEFAULT_TONE,
+	/** Max value */
+	OSDP_CMD_BUZZER_CC_SENTINEL
+};
+
+/**
  * @brief Sent from CP to control the behaviour of a buzzer in the PD.
  */
 struct osdp_cmd_buzzer {
@@ -744,13 +797,9 @@ struct osdp_cmd_buzzer {
 	 */
 	uint8_t reader;
 	/**
-	 * Control code.
-	 * - 0 - no tone
-	 * - 1 - off
-	 * - 2 - default tone
-	 * - 3+ - TBD
+	 * What the buzzer should do.
 	 */
-	uint8_t control_code;
+	enum osdp_cmd_buzzer_control_code_e control_code;
 	/**
 	 * The ON duration of the sound, in units of 100 ms.
 	 */
@@ -766,6 +815,25 @@ struct osdp_cmd_buzzer {
 };
 
 /**
+ * @brief How a text command displays its message.
+ *
+ * @note Unlike the other control codes, these are 1-indexed; zero is not a
+ * valid value.
+ */
+enum osdp_cmd_text_control_code_e {
+	/** Permanent text, no wrap */
+	OSDP_CMD_TEXT_CC_PERMANENT_NO_WRAP = 1,
+	/** Permanent text, with wrap */
+	OSDP_CMD_TEXT_CC_PERMANENT_WRAP,
+	/** Temporary text, no wrap; reverts after osdp_cmd_text::temp_time */
+	OSDP_CMD_TEXT_CC_TEMPORARY_NO_WRAP,
+	/** Temporary text, with wrap; reverts after osdp_cmd_text::temp_time */
+	OSDP_CMD_TEXT_CC_TEMPORARY_WRAP,
+	/** Max value */
+	OSDP_CMD_TEXT_CC_SENTINEL
+};
+
+/**
  * @brief Command to manipulate any display units that the PD supports.
  */
 struct osdp_cmd_text {
@@ -774,13 +842,9 @@ struct osdp_cmd_text {
 	 */
 	uint8_t reader;
 	/**
-	 * Control code.
-	 * - 1 - permanent text, no wrap
-	 * - 2 - permanent text, with wrap
-	 * - 3 - temp text, no wrap
-	 * - 4 - temp text, with wrap
+	 * How the message should be displayed.
 	 */
-	uint8_t control_code;
+	enum osdp_cmd_text_control_code_e control_code;
 	/**
 	 * Duration to display temporary text, in seconds
 	 */
