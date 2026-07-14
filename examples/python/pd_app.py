@@ -109,13 +109,15 @@ pd = PeripheralDevice(
 pd.start()
 pd.sc_wait(timeout=-1)
 
-## A card read to report to the CP. For the raw formats the length is in bits;
-## here the card is ASCII, so it is just bytes.
+## A card read to report to the CP. For the raw formats the card is a bit
+## string, so its length is in bits: this is a 26-bit Wiegand card, which needs
+## four bytes to carry its 26 bits.
 card_event = events.CardRead(
     reader_no=1,
-    direction=1,
-    format=CardFormat.ASCII,
-    data=bytes([9, 1, 9, 2, 6, 3, 1, 7, 7, 0]),
+    direction=0,
+    format=CardFormat.Wiegand,
+    data=bytes([0x01, 0x02, 0x03, 0x40]),
+    bits=26,
 )
 
 while not exit_event:
