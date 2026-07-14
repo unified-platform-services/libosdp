@@ -414,3 +414,5 @@ class Capability(IntEnum):
     SmartCard = _sys.CAP_SMART_CARD_SUPPORT
     Readers = _sys.CAP_READERS
     Biometrics = _sys.CAP_BIOMETRICS
+    SecurePinEntry = _sys.CAP_SECURE_PIN_ENTRY
+    OSDPVersion = _sys.CAP_OSDP_VERSION
