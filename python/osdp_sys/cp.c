@@ -44,9 +44,9 @@ pyosdp_cp_take_pending_command(pyosdp_cp_t *self, int pd, const struct osdp_cmd 
 }
 
 #define pyosdp_cp_pd_status_doc                                                \
-	"Get PD status, (online/offline) as a bitmask for all connected PDs\n" \
+	"status() -> int\n"                                                    \
 	"\n"                                                                   \
-	"@return PD status bitmask"
+	"Bitmask of the PDs that are online; bit N is the PD at offset N."
 static PyObject *pyosdp_cp_pd_status(pyosdp_cp_t *self, PyObject *args)
 {
 	uint32_t bitmask = 0;
@@ -57,9 +57,9 @@ static PyObject *pyosdp_cp_pd_status(pyosdp_cp_t *self, PyObject *args)
 }
 
 #define pyosdp_cp_sc_status_doc                                                \
-	"Get PD Secure Channel status bitmask of all connected PDs\n"          \
+	"sc_status() -> int\n"                                                 \
 	"\n"                                                                   \
-	"@return Secure Channel Status bitmask"
+	"Bitmask of the PDs that have an active secure channel."
 static PyObject *pyosdp_cp_sc_status(pyosdp_cp_t *self, PyObject *args)
 {
 	uint32_t bitmask = 0;
@@ -128,12 +128,12 @@ static void pyosdp_cp_command_completion_cb(void *data, int pd,
 	free(pending);
 }
 
-#define pyosdp_cp_set_command_completion_callback_doc                           \
-	"Set OSDP command completion callback handler\n"                        \
-	"\n"                                                                   \
-	"@param callback Function called with (pd, command, status)\n"         \
-	"\n"                                                                   \
-	"@return None"
+#define pyosdp_cp_set_command_completion_callback_doc                             \
+	"set_command_completion_callback(callback) -> None\n"                     \
+	"\n"                                                                      \
+	"Call callback(pd, command, status) when a command finishes. The\n"       \
+	"command is marshalled afresh from the C struct, so it is equal to the\n" \
+	"one submitted but never the same object."
 static PyObject *pyosdp_cp_set_command_completion_callback(pyosdp_cp_t *self,
 							    PyObject *args)
 {
@@ -154,11 +154,9 @@ static PyObject *pyosdp_cp_set_command_completion_callback(pyosdp_cp_t *self,
 }
 
 #define pyosdp_cp_set_event_callback_doc                                       \
-	"Set OSDP event callback handler\n"                                    \
+	"set_event_callback(callback) -> None\n"                               \
 	"\n"                                                                   \
-	"@param callback A function to call when a PD reports an event\n"      \
-	"\n"                                                                   \
-	"@return None"
+	"Call callback(address, event) when a PD reports an event."
 static PyObject *pyosdp_cp_set_event_callback(pyosdp_cp_t *self, PyObject *args)
 {
 	PyObject *event_cb = NULL;
@@ -177,10 +175,10 @@ static PyObject *pyosdp_cp_set_event_callback(pyosdp_cp_t *self, PyObject *args)
 	Py_RETURN_NONE;
 }
 
-#define pyosdp_cp_refresh_doc                                                   \
-	"OSDP periodic refresh hook. Must be called at least once every 50ms\n" \
-	"\n"                                                                    \
-	"@return None\n"
+#define pyosdp_cp_refresh_doc                                                  \
+	"refresh() -> None\n"                                                  \
+	"\n"                                                                   \
+	"Periodic hook; must be called at least once every 50ms."
 static PyObject *pyosdp_cp_refresh(pyosdp_cp_t *self, pyosdp_cp_t *args)
 {
 	osdp_cp_refresh(self->ctx);
@@ -189,11 +187,9 @@ static PyObject *pyosdp_cp_refresh(pyosdp_cp_t *self, pyosdp_cp_t *args)
 }
 
 #define pyosdp_cp_get_pd_id_doc                                                \
-	"Get PD_ID info as reported by the PD\n"                               \
+	"get_pd_id(pd) -> dict\n"                                              \
 	"\n"                                                                   \
-	"@param pd PD offset number\n"                                         \
-	"\n"                                                                   \
-	"@return dict with PD_ID info\n"
+	"The PD_ID the PD reported. Raises ValueError on a bad PD offset."
 static PyObject *pyosdp_cp_get_pd_id(pyosdp_cp_t *self, PyObject *args)
 {
 	int pd;
@@ -212,13 +208,11 @@ static PyObject *pyosdp_cp_get_pd_id(pyosdp_cp_t *self, PyObject *args)
 	return pyosdp_make_dict_pd_id(&pd_id);
 }
 
-#define pyosdp_cp_check_capability_doc                                         \
-	"Get capability associated to a function_code as reported by the PD\n" \
-	"\n"                                                                   \
-	"@param pd PD offset number\n"                                         \
-	"@param capability function code\n"                                    \
-	"\n"                                                                   \
-	"@return (compliance_level, num_items)\n"
+#define pyosdp_cp_check_capability_doc                                           \
+	"check_capability(pd, function_code) -> tuple\n"                         \
+	"\n"                                                                     \
+	"(compliance_level, num_items) for one capability, as reported by the\n" \
+	"PD. Raises ValueError on a bad PD offset or function code."
 static PyObject *pyosdp_cp_check_capability(pyosdp_cp_t *self, PyObject *args)
 {
 	int pd, function_code;
@@ -238,13 +232,12 @@ static PyObject *pyosdp_cp_check_capability(pyosdp_cp_t *self, PyObject *args)
 	return Py_BuildValue("(II)", cap.compliance_level, cap.num_items);
 }
 
-#define pyosdp_cp_submit_command_doc                                                 \
-	"Send an OSDP command to a PD\n"                                             \
-	"\n"                                                                         \
-	"@param pd PD offset number\n"                                               \
-	"@param command A dict of command keys and values. See osdp.h for details\n" \
-	"\n"                                                                         \
-	"@return boolean status of command submission\n"
+#define pyosdp_cp_submit_command_doc                                               \
+	"submit_command(pd, command) -> bool\n"                                    \
+	"\n"                                                                       \
+	"Queue a command dict for a PD. Raises ValueError if the dict cannot be\n" \
+	"marshalled; returns False if the queue is full. The dict schema is the\n" \
+	"one osdp._marshal encodes."
 static PyObject *pyosdp_cp_submit_command(pyosdp_cp_t *self, PyObject *args)
 {
 	int pd, ret;
@@ -287,12 +280,10 @@ static PyObject *pyosdp_cp_submit_command(pyosdp_cp_t *self, PyObject *args)
 	Py_RETURN_FALSE;
 }
 
-#define pyosdp_cp_flush_commands_doc                                            \
-	"Deletes all queued commands for a given PD.\n"                         \
+#define pyosdp_cp_flush_commands_doc                                           \
+	"flush_commands(pd) -> int\n"                                          \
 	"\n"                                                                   \
-	"@param pd PD offset number\n"                                          \
-	"\n"                                                                   \
-	"@return int Count of commands dequeued.\n"
+	"Drop every queued command for a PD; returns how many were dropped."
 static PyObject *pyosdp_cp_flush_commands(pyosdp_cp_t *self, PyObject *args)
 {
 	int pd, ret;
@@ -310,12 +301,10 @@ static PyObject *pyosdp_cp_flush_commands(pyosdp_cp_t *self, PyObject *args)
 	return Py_BuildValue("I", ret);
 }
 
-#define pyosdp_cp_disable_pd_doc                                             \
-	"Disable a PD (simulate hot-plug removal)\n"                         \
-	"\n"                                                                 \
-	"@param pd PD offset number\n"                                       \
-	"\n"                                                                 \
-	"@return boolean status of disable request\n"
+#define pyosdp_cp_disable_pd_doc                                               \
+	"disable_pd(pd) -> bool\n"                                             \
+	"\n"                                                                   \
+	"Stop polling a PD, as though it had been unplugged."
 static PyObject *pyosdp_cp_disable_pd(pyosdp_cp_t *self, PyObject *args)
 {
 	int pd;
@@ -336,12 +325,10 @@ static PyObject *pyosdp_cp_disable_pd(pyosdp_cp_t *self, PyObject *args)
 	Py_RETURN_TRUE;
 }
 
-#define pyosdp_cp_enable_pd_doc                                              \
-	"Enable a PD (simulate hot-plug insertion)\n"                        \
-	"\n"                                                                 \
-	"@param pd PD offset number\n"                                       \
-	"\n"                                                                 \
-	"@return boolean status of enable request\n"
+#define pyosdp_cp_enable_pd_doc                                                \
+	"enable_pd(pd) -> bool\n"                                              \
+	"\n"                                                                   \
+	"Resume polling a PD."
 static PyObject *pyosdp_cp_enable_pd(pyosdp_cp_t *self, PyObject *args)
 {
 	int ret, pd;
@@ -362,12 +349,7 @@ static PyObject *pyosdp_cp_enable_pd(pyosdp_cp_t *self, PyObject *args)
 	Py_RETURN_TRUE;
 }
 
-#define pyosdp_cp_is_pd_enabled_doc                                          \
-	"Check if a PD is currently enabled\n"                               \
-	"\n"                                                                 \
-	"@param pd PD offset number\n"                                       \
-	"\n"                                                                 \
-	"@return boolean enabled state of the PD\n"
+#define pyosdp_cp_is_pd_enabled_doc "is_pd_enabled(pd) -> bool"
 static PyObject *pyosdp_cp_is_pd_enabled(pyosdp_cp_t *self, PyObject *args)
 {
 	int pd;
@@ -406,25 +388,19 @@ static PyObject *pyosdp_cp_modify_flag(pyosdp_cp_t *self, PyObject *args, bool d
 	Py_RETURN_TRUE;
 }
 
-#define pyosdp_cp_set_flag_doc \
-	"Set PD flag\n" \
-	"\n" \
-	"@param pd_idx PD offset number\n" \
-	"@param flag One of the OSDP public flags" \
-	"\n" \
-	"@return boolean status"
+#define pyosdp_cp_set_flag_doc                                                 \
+	"set_flag(pd, flag) -> bool\n"                                         \
+	"\n"                                                                   \
+	"Set one of the OSDP public flags on a PD."
 static PyObject *pyosdp_cp_set_flag(pyosdp_cp_t *self, PyObject *args)
 {
 	return pyosdp_cp_modify_flag(self, args, true);
 }
 
-#define pyosdp_cp_clear_flag_doc \
-	"Clear PD flag\n" \
-	"\n" \
-	"@param pd_idx PD offset number\n" \
-	"@param flag One of the OSDP public flags" \
-	"\n" \
-	"@return boolean status"
+#define pyosdp_cp_clear_flag_doc                                               \
+	"clear_flag(pd, flag) -> bool\n"                                       \
+	"\n"                                                                   \
+	"Clear one of the OSDP public flags on a PD."
 static PyObject *pyosdp_cp_clear_flag(pyosdp_cp_t *self, PyObject *args)
 {
 	return pyosdp_cp_modify_flag(self, args, false);
@@ -472,12 +448,11 @@ static void pyosdp_cp_tp_dealloc(pyosdp_cp_t *self)
 	Py_TYPE(self)->tp_free((PyObject *)self);
 }
 
-#define pyosdp_cp_tp_init_doc                                                                \
-	"OSDP Control Panel Class\n"                                                         \
-	"\n"                                                                                 \
-	"@param pd_info List of PD info dicts. See osdp_pd_info_t in osdp.h for more info\n" \
-	"\n"                                                                                 \
-	"@return None"
+#define pyosdp_cp_tp_init_doc                                                   \
+	"ControlPanel(pd_info)\n"                                               \
+	"\n"                                                                    \
+	"pd_info is a list of osdp_pd_info_t dicts, one per PD. They share a\n" \
+	"channel: the one in pd_info[0] is used for all of them."
 static int pyosdp_cp_tp_init(pyosdp_cp_t *self, PyObject *args, PyObject *kwargs)
 {
 	int i, len, baud_rate;

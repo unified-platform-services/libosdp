@@ -160,11 +160,9 @@ void pyosdp_add_module_constants(PyObject *module)
 }
 
 #define pyosdp_set_loglevel_doc                                                \
-	"Set OSDP logging level\n"                                             \
+	"set_loglevel(level) -> None\n"                                        \
 	"\n"                                                                   \
-	"@param log_level OSDP log level (0 to 7)\n"                           \
-	"\n"                                                                   \
-	"@return None"
+	"OSDP log level, from 0 (emergency) to 7 (debug)."
 static PyObject *pyosdp_set_loglevel(void *self, PyObject *args)
 {
 	int log_level = OSDP_LOG_DEBUG;

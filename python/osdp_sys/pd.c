@@ -43,10 +43,7 @@ pyosdp_pd_take_pending_event(pyosdp_pd_t *self, const struct osdp_event *event)
 	return NULL;
 }
 
-#define pyosdp_pd_is_online_doc                                                \
-	"Get PD status, (online/offline)\n"                                    \
-	"\n"                                                                   \
-	"@return PD online status (Bool)"
+#define pyosdp_pd_is_online_doc "is_online() -> bool"
 static PyObject *pyosdp_pd_is_online(pyosdp_pd_t *self, PyObject *args)
 {
 	uint64_t mask;
@@ -60,9 +57,9 @@ static PyObject *pyosdp_pd_is_online(pyosdp_pd_t *self, PyObject *args)
 }
 
 #define pyosdp_pd_is_sc_active_doc                                             \
-	"Get Secure Channel status, (active/inactive)\n"                       \
+	"is_sc_active() -> bool\n"                                             \
 	"\n"                                                                   \
-	"@return Secure Channel Status (Bool)"
+	"Whether the secure channel is up."
 static PyObject *pyosdp_pd_is_sc_active(pyosdp_pd_t *self, PyObject *args)
 {
 	uint64_t mask;
@@ -75,12 +72,12 @@ static PyObject *pyosdp_pd_is_sc_active(pyosdp_pd_t *self, PyObject *args)
 		Py_RETURN_FALSE;
 }
 
-#define pyosdp_pd_submit_event_doc                                               \
-	"Notify the CP of an OSDP event\n"                                       \
-	"\n"                                                                     \
-	"@param event A dict of event keys and values. See osdp.h for details\n" \
-	"\n"                                                                     \
-	"@return None\n"
+#define pyosdp_pd_submit_event_doc                                                 \
+	"submit_event(event) -> bool\n"                                            \
+	"\n"                                                                       \
+	"Queue an event dict for the CP. Raises TypeError if the dict cannot be\n" \
+	"marshalled; returns False if the queue is full. The dict schema is the\n" \
+	"one osdp._marshal encodes."
 static PyObject *pyosdp_pd_submit_event(pyosdp_pd_t *self, PyObject *args)
 {
 	PyObject *event_dict;
@@ -111,10 +108,10 @@ static PyObject *pyosdp_pd_submit_event(pyosdp_pd_t *self, PyObject *args)
 	Py_RETURN_TRUE;
 }
 
-#define pyosdp_pd_flush_events_doc                                               \
-	"Deletes all events from the PD's event queue.\n"                        \
-	"\n"                                                                     \
-	"@return int Count of events dequeued.\n"
+#define pyosdp_pd_flush_events_doc                                             \
+	"flush_events() -> int\n"                                              \
+	"\n"                                                                   \
+	"Drop every queued event; returns how many were dropped."
 static PyObject *pyosdp_pd_flush_events(pyosdp_pd_t *self)
 {
 	int ret;
@@ -203,12 +200,10 @@ static void pyosdp_pd_event_completion_cb(void *arg, const struct osdp_event *ev
 	free(pending);
 }
 
-#define pyosdp_pd_set_event_completion_callback_doc                             \
-	"Set OSDP event completion callback handler\n"                          \
+#define pyosdp_pd_set_event_completion_callback_doc                            \
+	"set_event_completion_callback(callback) -> None\n"                    \
 	"\n"                                                                   \
-	"@param callback Function called with (event, status)\n"               \
-	"\n"                                                                   \
-	"@return None"
+	"Call callback(event, status) when an event finishes."
 static PyObject *pyosdp_pd_set_event_completion_callback(pyosdp_pd_t *self,
 							  PyObject *args)
 {
@@ -228,12 +223,12 @@ static PyObject *pyosdp_pd_set_event_completion_callback(pyosdp_pd_t *self,
 	Py_RETURN_NONE;
 }
 
-#define pyosdp_pd_set_command_callback_doc                                     \
-	"Set OSDP command callback handler\n"                                  \
-	"\n"                                                                   \
-	"@param callback A function to call when a CP sends a command\n"       \
-	"\n"                                                                   \
-	"@return None"
+#define pyosdp_pd_set_command_callback_doc                                          \
+	"set_command_callback(callback) -> None\n"                                  \
+	"\n"                                                                        \
+	"Call callback(command) for each command from the CP. It returns a\n"       \
+	"(status, reply) tuple: a status of zero accepts the command, a negative\n" \
+	"status is a NAK code, and a reply dict answers the command inline."
 static PyObject *pyosdp_pd_set_command_callback(pyosdp_pd_t *self, PyObject *args)
 {
 	PyObject *callable = NULL;
@@ -253,10 +248,10 @@ static PyObject *pyosdp_pd_set_command_callback(pyosdp_pd_t *self, PyObject *arg
 	Py_RETURN_NONE;
 }
 
-#define pyosdp_pd_refresh_doc                                                   \
-	"OSDP periodic refresh hook. Must be called at least once every 50ms\n" \
-	"\n"                                                                    \
-	"@return None\n"
+#define pyosdp_pd_refresh_doc                                                  \
+	"refresh() -> None\n"                                                  \
+	"\n"                                                                   \
+	"Periodic hook; must be called at least once every 50ms."
 static PyObject *pyosdp_pd_refresh(pyosdp_pd_t *self, PyObject *args)
 {
 	osdp_pd_refresh(self->ctx);
@@ -359,14 +354,12 @@ error:
 	return -1;
 }
 
-#define pyosdp_pd_tp_init_doc                                                                         \
-	"OSDP Peripheral Device Class\n"                                                              \
-	"\n"                                                                                          \
-	"@param pd_info A dict with osdp_pd_info_t keys and values. See osdp.h for more info.\n"      \
-	"@param capabilities A list of osdp_pd_cap_t keys and values. See osdp.h for more details.\n" \
-	"@param scbk A hexadecimal string representation of the PD secure channel base key\n"         \
-	"\n"                                                                                          \
-	"@return None"
+#define pyosdp_pd_tp_init_doc                                                       \
+	"PeripheralDevice(pd_info, *, capabilities=[])\n"                           \
+	"\n"                                                                        \
+	"pd_info is an osdp_pd_info_t dict. Its 'scbk' must be exactly 16 raw\n"    \
+	"bytes; anything else, including an absent key, leaves the PD in install\n" \
+	"mode. capabilities is a list of osdp_pd_cap_t dicts."
 static int pyosdp_pd_tp_init(pyosdp_pd_t *self, PyObject *args, PyObject *kwargs)
 {
 	int scbk_length, baud_rate;

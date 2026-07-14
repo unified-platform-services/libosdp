@@ -108,10 +108,10 @@ int  pyosdp_fops_close(void *arg)
 	return 0;
 }
 
-#define pyosdp_file_tx_status_doc                                                     \
-	"Get status of the current file transfer\n"                                   \
-	"\n"                                                                          \
-	"@return dictionary of keys 'size' and 'offset' if file TX is in progress.\n"
+#define pyosdp_file_tx_status_doc                                              \
+	"get_file_tx_status(pd) -> dict | None\n"                              \
+	"\n"                                                                   \
+	"{'size', 'offset'} while a transfer is running, None otherwise."
 static PyObject *pyosdp_get_file_tx_status(pyosdp_base_t *self, PyObject *args)
 {
 	int pd_idx;
@@ -146,10 +146,11 @@ static PyObject *pyosdp_get_file_tx_status(pyosdp_base_t *self, PyObject *args)
 	return dict;
 }
 
-#define pyosdp_get_metrics_doc                                                    \
-	"Get and reset link/protocol metrics for a PD slot\n"                     \
-	"\n"                                                                      \
-	"@return dictionary with metric counters or None on invalid PD index.\n"
+#define pyosdp_get_metrics_doc                                                 \
+	"get_metrics(pd) -> dict | None\n"                                     \
+	"\n"                                                                   \
+	"Link and protocol counters for a PD, which this call also resets.\n"  \
+	"None on a bad PD offset."
 static PyObject *pyosdp_get_metrics(pyosdp_base_t *self, PyObject *args)
 {
 	int pd_idx;
@@ -187,11 +188,10 @@ static PyObject *pyosdp_get_metrics(pyosdp_base_t *self, PyObject *args)
 }
 
 #define pyosdp_file_register_ops_doc                                           \
-	"Register file OPs handler\n"                                          \
+	"register_file_ops(pd, fops) -> bool\n"                                \
 	"\n"                                                                   \
-	"@param struct osdp_file_ops dict. See osdp.h for details\n"           \
-	"\n"                                                                   \
-	"@return boolean status of command submission\n"
+	"fops is a dict of 'open', 'read', 'write' and 'close' callables.\n"   \
+	"Raises ValueError if any of them is missing."
 static PyObject *pyosdp_file_register_ops(pyosdp_base_t *self, PyObject *args)
 {
 	int rc, pd_idx;
