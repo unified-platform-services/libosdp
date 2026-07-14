@@ -11,6 +11,7 @@
 
 extern int test_state_update(struct osdp_pd *);
 extern bool test_cp_cmd_failure_is_soft(struct osdp_pd *);
+extern int test_cp_decode_response(struct osdp_pd *, uint8_t *, int);
 
 int test_fsm_resp = 0;
 #ifdef OPT_OSDP_RX_ZERO_COPY
@@ -260,6 +261,76 @@ static void test_cp_soft_failure_matrix(struct test *t)
 	TEST_REPORT(t, result);
 }
 
+/**
+ * NAK(MSG_CHK) means "your check character was wrong". From a PD that never
+ * claimed CRC-16 that is how a checksum-only PD tells us so, and we downgrade
+ * the link. From a PD that did claim CRC-16 it can only mean the frame was
+ * corrupted in flight: downgrading there would silently reframe every packet
+ * that follows, and the PD -- still speaking CRC -- would demand a sequence
+ * reset and take the whole link offline. Resend instead.
+ */
+static void feed_msg_chk_nak(struct osdp_pd *pd, bool pd_declares_crc)
+{
+	struct osdp_pd_cap *cap =
+		&pd->cap[OSDP_PD_CAP_CHECK_CHARACTER_SUPPORT];
+	uint8_t nak[] = { REPLY_NAK, OSDP_PD_NAK_MSG_CHK };
+
+	pd->cmd_id = CMD_LED;
+	pd->phy_retry_count = 0;
+	SET_FLAG(pd, PD_FLAG_CP_USE_CRC);
+	if (pd_declares_crc) {
+		cap->function_code = OSDP_PD_CAP_CHECK_CHARACTER_SUPPORT;
+		cap->compliance_level = 1;
+	} else {
+		memset(cap, 0, sizeof(*cap));
+	}
+	test_cp_decode_response(pd, nak, sizeof(nak));
+}
+
+static void test_cp_crc_nak_fallback(struct test *t)
+{
+	bool result = true;
+	struct osdp_pd pd;
+	struct osdp ctx;
+
+	printf(SUB_1 "classifying a NAK(MSG_CHK)\n");
+
+	memset(&ctx, 0, sizeof(ctx));
+	memset(&pd, 0, sizeof(pd));
+	pd.osdp_ctx = &ctx;
+
+	feed_msg_chk_nak(&pd, false);
+	if (ISSET_FLAG(&pd, PD_FLAG_CP_USE_CRC)) {
+		printf(SUB_2 "a PD that never claimed CRC-16 must be downgraded\n");
+		result = false;
+	}
+
+	feed_msg_chk_nak(&pd, true);
+	if (!ISSET_FLAG(&pd, PD_FLAG_CP_USE_CRC)) {
+		printf(SUB_2 "a PD that claimed CRC-16 must not be downgraded\n");
+		result = false;
+	}
+	if (pd.phy_retry_count != 1) {
+		printf(SUB_2 "a corrupted frame must be resent; retries: %d\n",
+		       pd.phy_retry_count);
+		result = false;
+	}
+
+	/* Once the resends are spent, it is an ordinary NAK again */
+	pd.phy_retry_count = OSDP_CMD_MAX_RETRIES;
+	test_cp_decode_response(&pd, (uint8_t[]){ REPLY_NAK,
+						  OSDP_PD_NAK_MSG_CHK }, 2);
+	if (pd.phy_retry_count != OSDP_CMD_MAX_RETRIES ||
+	    !ISSET_FLAG(&pd, PD_FLAG_CP_USE_CRC)) {
+		printf(SUB_2 "resends must be bounded, not endless\n");
+		result = false;
+	}
+
+	printf(SUB_1 "NAK(MSG_CHK) classification %s\n",
+	       result ? "succeeded" : "failed");
+	TEST_REPORT(t, result);
+}
+
 void run_cp_fsm_tests(struct test *t)
 {
 	int result = true;
@@ -269,6 +340,7 @@ void run_cp_fsm_tests(struct test *t)
 	printf("\nStarting CP Phy state tests\n");
 
 	test_cp_soft_failure_matrix(t);
+	test_cp_crc_nak_fallback(t);
 
 	if (test_cp_fsm_setup(t))
 		return;

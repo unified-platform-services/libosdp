@@ -371,6 +371,20 @@ out_of_space:
 	return OSDP_CP_ERR_GENERIC;
 }
 
+/**
+ * Did the PD claim CRC-16 support in its capabilities? A PD that did cannot be
+ * telling us it speaks checksum when it NAKs a check character; it is telling us
+ * the frame reached it corrupted.
+ */
+static bool cp_pd_declared_crc(struct osdp_pd *pd)
+{
+	const struct osdp_pd_cap *cap =
+		&pd->cap[OSDP_PD_CAP_CHECK_CHARACTER_SUPPORT];
+
+	return cap->function_code == OSDP_PD_CAP_CHECK_CHARACTER_SUPPORT &&
+	       (cap->compliance_level & 0x01);
+}
+
 static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 {
 	int t, ret = OSDP_CP_ERR_GENERIC, pos = 0;
@@ -398,10 +412,26 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		pd->nak_code = buf[pos];
 		if (pd->nak_code == OSDP_PD_NAK_MSG_CHK &&
 		    ISSET_FLAG(pd, PD_FLAG_CP_USE_CRC)) {
-			LOG_INF("PD NAK'd CRC-16, falling back to checksum");
-			CLEAR_FLAG(pd, PD_FLAG_CP_USE_CRC);
-			ret = OSDP_CP_ERR_RETRY_CMD;
-			break;
+			if (!cp_pd_declared_crc(pd)) {
+				LOG_INF("PD NAK'd CRC-16, falling back to checksum");
+				CLEAR_FLAG(pd, PD_FLAG_CP_USE_CRC);
+				ret = OSDP_CP_ERR_RETRY_CMD;
+				break;
+			}
+			/**
+			 * The PD does CRC-16 and said so; downgrading the link
+			 * would only make the next frame unreadable too. Take it
+			 * at its word -- the frame was corrupted -- and resend.
+			 */
+			if (pd->phy_retry_count < OSDP_CMD_MAX_RETRIES) {
+				pd->phy_retry_count += 1;
+				LOG_WRN("PD NAK'd our check character for CMD: "
+					"%s(%02x); resending (%d)",
+					osdp_cmd_name(pd->cmd_id), pd->cmd_id,
+					pd->phy_retry_count);
+				ret = OSDP_CP_ERR_RETRY_CMD;
+				break;
+			}
 		}
 		LOG_WRN("PD replied with NAK(%d) for CMD: %s(%02x)",
 			pd->nak_code, osdp_cmd_name(pd->cmd_id), pd->cmd_id);
