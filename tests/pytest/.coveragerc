@@ -1,0 +1,14 @@
+[run]
+branch = True
+source_pkgs = osdp
+concurrency = thread
+# The C extension is measured with gcov, not coverage.py.
+omit = */osdp/_sys*
+
+[report]
+precision = 1
+show_missing = True
+exclude_also =
+    if TYPE_CHECKING:
+    raise NotImplementedError
+    @(abc\.)?abstractmethod

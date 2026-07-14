@@ -84,3 +84,10 @@ compile_commands.json
 *.orig
 *.rej
 *.patch
+
+## coverage
+coverage/
+.coverage
+.coverage.*
+*.gcda
+*.gcno

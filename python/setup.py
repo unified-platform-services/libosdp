@@ -220,6 +220,26 @@ compile_args = (
     [ "-I" + path for path in include_dirs ] +
     [ "-D" + define + "=1" for define in definitions ]
 )
+link_args = []
+
+# The timeouts in src/osdp_config.h.in are #ifndef-guarded so that a build can
+# dial them down; tests/unit-tests does the same via -DOSDP_PD_ONLINE_TOUT_MS.
+# Without this the pytest suite has to wait out the 8s production timeout to
+# observe a PD going offline.
+for tunable in ("OSDP_PD_ONLINE_TOUT_MS", "OSDP_RESP_TOUT_MS"):
+    if tunable in os.environ:
+        compile_args.append(f"-D{tunable}={int(os.environ[tunable])}")
+
+# scripts/run_coverage.sh sets this to collect gcov data. The extension links
+# src/ and utils/ straight in, so one instrumented build covers the bindings
+# and the library itself. Counters are bumped from the refresh thread while the
+# main thread runs test code, hence -fprofile-update=atomic.
+if os.environ.get("OSDP_COVERAGE") == "1":
+    compile_args += [
+        "--coverage", "-O0", "-g",
+        "-fprofile-abs-path", "-fprofile-update=atomic",
+    ]
+    link_args.append("--coverage")
 
 # PyPI Windows wheels are built with MSVC via cibuildwheel. Its legacy
 # preprocessor breaks the IS_ENABLED() macro in utils/include/utils/utils.h;
@@ -236,7 +256,7 @@ setup(
             name               = "osdp._sys",
             sources            = source_files,
             extra_compile_args = compile_args,
-            extra_link_args    = [],
+            extra_link_args    = link_args,
             define_macros      = [],
             language           = "C",
         )
