@@ -266,8 +266,13 @@ static int channel_read_callback(void *data, uint8_t *buf, int maxlen)
 
 	PyObject *result = PyObject_CallMethod(channel, "read", "I", maxlen);
 
-	if (!result || !PyBytes_Check(result))
+	if (!result)
 		return -1;
+
+	if (!PyBytes_Check(result)) {
+		Py_DECREF(result);
+		return -1;
+	}
 
 	PyArg_Parse(result, "y#", &tmp, &len);
 	if (len <= maxlen) {

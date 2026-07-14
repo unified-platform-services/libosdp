@@ -256,6 +256,13 @@ static PyObject *pyosdp_pd_refresh(pyosdp_pd_t *self, PyObject *args)
 {
 	osdp_pd_refresh(self->ctx);
 
+	/* The channel and command callbacks run inside the refresh above, and
+	 * can only report failure to the library as -1. If one of them left a
+	 * Python exception behind, hand it to the caller rather than returning
+	 * None with the error still set. */
+	if (PyErr_Occurred())
+		return NULL;
+
 	Py_RETURN_NONE;
 }
 
