@@ -81,11 +81,19 @@ int pyosdp_cp_event_cb(void *data, int address, struct osdp_event *event)
 		return -1;
 
 	arglist = Py_BuildValue("(IO)", address, event_dict);
+	if (arglist == NULL) {
+		PyErr_Print();
+		Py_DECREF(event_dict);
+		return -1;
+	}
 
 	result = PyObject_CallObject(self->event_cb, arglist);
+	if (result == NULL)
+		PyErr_Print();
 
 	Py_XDECREF(result);
 	Py_DECREF(arglist);
+	Py_DECREF(event_dict);
 	return 0;
 }
 
