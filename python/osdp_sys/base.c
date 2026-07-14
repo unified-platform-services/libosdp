@@ -200,6 +200,7 @@ static PyObject *pyosdp_file_register_ops(pyosdp_base_t *self, PyObject *args)
 {
 	int rc, pd_idx;
 	PyObject *fops_dict;
+	PyObject *open_cb, *read_cb, *write_cb, *close_cb;
 	osdp_t *ctx;
 	pyosdp_cp_t *cp = (pyosdp_cp_t *)self;
 	pyosdp_pd_t *pd = (pyosdp_pd_t *)self;
@@ -221,31 +222,30 @@ static PyObject *pyosdp_file_register_ops(pyosdp_base_t *self, PyObject *args)
 		ctx = pd->ctx;
 	}
 
-	if (pyosdp_dict_get_object(fops_dict, "open", &self->fops.open_cb)) {
+	/* pyosdp_dict_get_object hands back borrowed references, so collect them
+	 * in locals. Storing them on self as we go would leave a half-filled
+	 * fops behind when a later callback turns out to be missing, and the
+	 * destructor would then decref references we never owned. */
+	if (pyosdp_dict_get_object(fops_dict, "open", &open_cb)) {
 		pyosdp_add_error_context(PyExc_ValueError,
 			"Missing 'open' callback in fops dict");
 		return NULL;
 	}
-	if (pyosdp_dict_get_object(fops_dict, "read", &self->fops.read_cb)) {
+	if (pyosdp_dict_get_object(fops_dict, "read", &read_cb)) {
 		pyosdp_add_error_context(PyExc_ValueError,
 			"Missing 'read' callback in fops dict");
 		return NULL;
 	}
-	if (pyosdp_dict_get_object(fops_dict, "write", &self->fops.write_cb)) {
+	if (pyosdp_dict_get_object(fops_dict, "write", &write_cb)) {
 		pyosdp_add_error_context(PyExc_ValueError,
 			"Missing 'write' callback in fops dict");
 		return NULL;
 	}
-	if (pyosdp_dict_get_object(fops_dict, "close", &self->fops.close_cb)) {
+	if (pyosdp_dict_get_object(fops_dict, "close", &close_cb)) {
 		pyosdp_add_error_context(PyExc_ValueError,
 			"Missing 'close' callback in fops dict");
 		return NULL;
 	}
-
-	Py_INCREF(self->fops.open_cb);
-	Py_INCREF(self->fops.read_cb);
-	Py_INCREF(self->fops.write_cb);
-	Py_INCREF(self->fops.close_cb);
 
 	struct osdp_file_ops pyosdp_fops = {
 		.arg = (void *)self,
@@ -259,6 +259,23 @@ static PyObject *pyosdp_file_register_ops(pyosdp_base_t *self, PyObject *args)
 		PyErr_SetString(PyExc_ValueError, "fops registration failed");
 		return NULL;
 	}
+
+	/* Everything is in hand: take our own references and drop whatever was
+	 * registered before. */
+	Py_INCREF(open_cb);
+	Py_INCREF(read_cb);
+	Py_INCREF(write_cb);
+	Py_INCREF(close_cb);
+
+	Py_XDECREF(self->fops.open_cb);
+	Py_XDECREF(self->fops.read_cb);
+	Py_XDECREF(self->fops.write_cb);
+	Py_XDECREF(self->fops.close_cb);
+
+	self->fops.open_cb = open_cb;
+	self->fops.read_cb = read_cb;
+	self->fops.write_cb = write_cb;
+	self->fops.close_cb = close_cb;
 
 	Py_RETURN_TRUE;
 }
