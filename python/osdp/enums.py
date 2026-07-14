@@ -148,7 +148,7 @@ class LEDColor(_WireEnum):
     White = _sys.LED_COLOR_WHITE
 
 
-class OutputControlCode(IntEnum):
+class OutputControlCode(_WireEnum):
     """What an `Output` command does to the output line.
 
     @see osdp_cmd_output_control_code_e
@@ -176,7 +176,7 @@ class OutputControlCode(IntEnum):
     """Go inactive for `timer_count`, then revert."""
 
 
-class TemporaryLEDControlCode(IntEnum):
+class TemporaryLEDControlCode(_WireEnum):
     """What the temporary block of an `LED` command does.
 
     @see osdp_cmd_led_temporary_control_code_e
@@ -192,7 +192,7 @@ class TemporaryLEDControlCode(IntEnum):
     """Apply the temporary state and start its timer."""
 
 
-class PermanentLEDControlCode(IntEnum):
+class PermanentLEDControlCode(_WireEnum):
     """What the permanent block of an `LED` command does.
 
     @see osdp_cmd_led_permanent_control_code_e
@@ -205,7 +205,7 @@ class PermanentLEDControlCode(IntEnum):
     """Apply the permanent state."""
 
 
-class BuzzerControlCode(IntEnum):
+class BuzzerControlCode(_WireEnum):
     """What a `Buzzer` command does. @see osdp_cmd_buzzer_control_code_e"""
 
     NoTone = _sys.CMD_BUZZER_CC_NO_TONE
@@ -218,7 +218,7 @@ class BuzzerControlCode(IntEnum):
     """Sound the reader's default tone."""
 
 
-class TextControlCode(IntEnum):
+class TextControlCode(_WireEnum):
     """How a `Text` command displays its message.
 
     @see osdp_cmd_text_control_code_e

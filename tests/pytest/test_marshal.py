@@ -342,3 +342,17 @@ def test_unknown_wire_enum_value_is_tolerated():
     status = BioStatus(0x42)
     assert status == 0x42
     assert "UNKNOWN" in status.name
+
+
+def test_an_out_of_spec_control_code_decodes_instead_of_raising():
+    # Control codes arrive from the peer, so a CP that sends one we do not name
+    # must not take the PD's command callback down with it.
+    cmd = decode_command(
+        {
+            "command": CommandId.Output,
+            "output_no": 0,
+            "control_code": 200,
+            "timer_count": 0,
+        }
+    )
+    assert cmd.control_code == 200
