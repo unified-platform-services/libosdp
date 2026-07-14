@@ -1,0 +1,33 @@
+PROJECT_NAME           = "libosdp-python"
+PROJECT_BRIEF          = "Python bindings for LibOSDP"
+OUTPUT_DIRECTORY       = doxygen
+CREATE_SUBDIRS         = NO
+ALLOW_UNICODE_NAMES    = NO
+QUIET                  = YES
+WARN_AS_ERROR          = YES
+JAVADOC_AUTOBRIEF      = YES
+EXTRACT_ALL            = YES
+RECURSIVE              = NO
+INPUT                  = osdp
+FILE_PATTERNS          = *.py
+
+# The private half of the package: the C extension shim, the dict marshalling
+# and the field checks. Users never touch these.
+EXCLUDE                = osdp/_sys.pyi \
+                         osdp/_marshal.py \
+                         osdp/_validate.py
+
+PYTHON_DOCSTRING       = YES
+
+# Doxygen does not read PEP 258 attribute docstrings, but editors do, and we
+# refuse to write each field's documentation twice. This filter turns the
+# docstrings into trailing ##< comments that Doxygen does read. See
+# doxy-pyfilter.py.
+INPUT_FILTER           = "python3 doxy-pyfilter.py"
+
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+GENERATE_MAN           = NO
+GENERATE_RTF           = NO
+GENERATE_XML           = YES
+XML_OUTPUT             = xml
