@@ -216,8 +216,7 @@ class LED:
     Example:
         Flash red for two seconds, then go back to whatever it was:
 
-        >>> cmd = LED(reader=0, led_number=0,
-        ...           temporary=TemporaryLEDParams(on_color=LEDColor.Red,
+        >>> cmd = LED(temporary=TemporaryLEDParams(on_color=LEDColor.Red,
         ...                                        on_count=5, off_count=5,
         ...                                        timer_count=20))
         >>> cmd.permanent is None
@@ -226,7 +225,6 @@ class LED:
         Cancel a running temporary state and go steady green, in one command:
 
         >>> cmd = LED(
-        ...     led_number=0,
         ...     temporary=TemporaryLEDParams(
         ...         control_code=TemporaryLEDControlCode.Cancel),
         ...     permanent=PermanentLEDParams(on_color=LEDColor.Green,
@@ -279,7 +277,7 @@ class Buzzer:
     @see osdp_cmd_buzzer
 
     Example:
-        >>> cmd = Buzzer(reader=0, control_code=BuzzerControlCode.DefaultTone,
+        >>> cmd = Buzzer(control_code=BuzzerControlCode.DefaultTone,
         ...              on_count=2, off_count=2, rep_count=3)
         >>> cmd.rep_count
         3
@@ -316,7 +314,7 @@ class Text:
     @see osdp_cmd_text
 
     Example:
-        >>> cmd = Text(reader=0, control_code=TextControlCode.PermanentNoWrap,
+        >>> cmd = Text(control_code=TextControlCode.PermanentNoWrap,
         ...            data="PLEASE WAIT")
         >>> cmd.offset_row
         1
@@ -473,7 +471,7 @@ class BioRead:
     @see osdp_cmd_bioread
 
     Example:
-        >>> cmd = BioRead(reader=0, type=BioType.RightThumbPrint,
+        >>> cmd = BioRead(type=BioType.RightThumbPrint,
         ...               format=BioFormat.AnsiIncits378, quality=200)
         >>> cmd.type.name
         'RightThumbPrint'
@@ -507,7 +505,7 @@ class BioMatch:
     @see osdp_cmd_biomatch
 
     Example:
-        >>> cmd = BioMatch(reader=0, type=BioType.RightThumbPrint,
+        >>> cmd = BioMatch(type=BioType.RightThumbPrint,
         ...                format=BioFormat.AnsiIncits378, quality=200,
         ...                data=b"template")
         >>> len(cmd.data)

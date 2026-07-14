@@ -82,7 +82,7 @@ class CardRead:
     Example:
         A 26-bit Wiegand card needs four bytes to hold its 26 bits:
 
-        >>> event = CardRead(reader_no=0, format=CardFormat.Wiegand,
+        >>> event = CardRead(format=CardFormat.Wiegand,
         ...                  data=bytes([0x01, 0x02, 0x03, 0x40]), bits=26)
         >>> event.bits
         26
@@ -145,7 +145,7 @@ class KeyPress:
     @see osdp_event_keypress
 
     Example:
-        >>> event = KeyPress(reader_no=0, data=b"1234")
+        >>> event = KeyPress(data=b"1234")
         >>> event.data
         b'1234'
     """
@@ -248,7 +248,7 @@ class BioRead:
     @see osdp_event_bioreadr
 
     Example:
-        >>> event = BioRead(reader=0, status=BioStatus.Success,
+        >>> event = BioRead(status=BioStatus.Success,
         ...                 type=BioType.RightThumbPrint, quality=200,
         ...                 data=b"template")
         >>> event.status.name
@@ -292,7 +292,7 @@ class BioMatch:
     @see osdp_event_biomatchr
 
     Example:
-        >>> event = BioMatch(reader=0, status=BioStatus.Success, score=250)
+        >>> event = BioMatch(status=BioStatus.Success, score=250)
         >>> event.score
         250
     """
