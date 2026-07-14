@@ -141,6 +141,46 @@ def test_cp_command_completion_statuses():
         _teardown(cp, pd, "completion-cp")
 
 
+def test_pd_naks_an_out_of_spec_control_code():
+    """A control code is a byte off the wire, so a peer can send one the spec
+    does not define. The PD rejects it itself: the app never sees a code it
+    cannot act on, and the CP is told the command failed."""
+    cp, pd = _make_pair("nak-control-code")
+    rec = Recorder()
+    seen = []
+
+    cp.set_command_completion_handler(rec.on_command_complete)
+    pd.set_command_handler(lambda command: seen.append(command))
+
+    try:
+        pd.start()
+        cp.start()
+        assert cp.online_wait(PD_ADDR, timeout=10), "PD did not come online"
+
+        # 200 is not an OutputControlCode; nothing downstream can honour it.
+        bad = commands.Output(output_no=0, control_code=200, timer_count=0)
+        assert cp.submit_command(PD_ADDR, bad)
+
+        assert rec.wait_for_status(CompletionStatus.Failed), \
+            "PD did not NAK a command carrying an undefined control code"
+        assert not seen, \
+            "PD handed the app a control code it cannot name"
+
+        # A valid code on the same link still gets through, so the PD rejected
+        # the command rather than wedging the connection.
+        good = commands.Output(
+            output_no=0,
+            control_code=OutputControlCode.PermanentOff,
+            timer_count=0,
+        )
+        assert cp.submit_command(PD_ADDR, good)
+        assert rec.wait_for_status(CompletionStatus.Ok), \
+            "PD did not accept a valid command after NAKing a bad one"
+        assert seen == [good]
+    finally:
+        _teardown(cp, pd, "nak-control-code")
+
+
 def test_pd_event_completion_statuses():
     """Every event a PD accepts settles exactly once: Ok once the CP takes it,
     Flushed if it is dropped from the queue, Aborted if the PD is torn down

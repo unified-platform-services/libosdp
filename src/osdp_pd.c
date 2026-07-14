@@ -243,8 +243,24 @@ static bool validate_command(struct osdp_pd *pd, struct osdp_cmd *cmd)
 {
 	bool result = true;
 
+	/*
+	 * A control code is a byte off the wire, so a peer can hand us one the
+	 * spec does not define. Reject those here rather than passing them to
+	 * the app, which has no way to act on a code it cannot name.
+	 */
 	switch (cmd->id) {
+	case OSDP_CMD_OUTPUT:
+		if (cmd->output.control_code >= OSDP_CMD_OUTPUT_CC_SENTINEL) {
+			result = false;
+		}
+		break;
 	case OSDP_CMD_LED:
+		if (cmd->led.temporary.control_code >=
+			    OSDP_CMD_LED_TEMPORARY_CC_SENTINEL ||
+		    cmd->led.permanent.control_code >=
+			    OSDP_CMD_LED_PERMANENT_CC_SENTINEL) {
+			result = false;
+		}
 		/* The ON Time OFF Time values cannot both be set to zero */
 		if (cmd->led.temporary.control_code ==
 			    OSDP_CMD_LED_TEMPORARY_CC_SET &&
@@ -260,9 +276,20 @@ static bool validate_command(struct osdp_pd *pd, struct osdp_cmd *cmd)
 		}
 		break;
 	case OSDP_CMD_BUZZER:
+		if (cmd->buzzer.control_code >= OSDP_CMD_BUZZER_CC_SENTINEL) {
+			result = false;
+		}
 		/* ON duration must nonzero unless the buzzer is being silenced */
 		if (cmd->buzzer.on_count == 0 &&
 		    cmd->buzzer.control_code != OSDP_CMD_BUZZER_CC_OFF) {
+			result = false;
+		}
+		break;
+	case OSDP_CMD_TEXT:
+		/* Text control codes are 1-indexed; zero is not a valid value */
+		if (cmd->text.control_code <
+			    OSDP_CMD_TEXT_CC_PERMANENT_NO_WRAP ||
+		    cmd->text.control_code >= OSDP_CMD_TEXT_CC_SENTINEL) {
 			result = false;
 		}
 		break;
