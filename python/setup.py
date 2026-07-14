@@ -11,10 +11,21 @@ from setuptools import setup, Extension
 import shutil
 import subprocess
 
-project_name = "libosdp"
-project_version = "3.2.0"
 current_dir = os.path.dirname(os.path.realpath(__file__))
 repo_root = os.path.realpath(os.path.join(current_dir, ".."))
+
+def get_project_version():
+    # Metadata lives in pyproject.toml; osdp_config.h needs the version too, so
+    # read it back rather than keep a second copy in sync. tomllib is 3.11+ and
+    # the interpreter running the build may be older.
+    with open(os.path.join(current_dir, "pyproject.toml")) as f:
+        match = re.search(r'^version\s*=\s*"([^"]+)"', f.read(), re.MULTILINE)
+    if not match:
+        raise RuntimeError("Unable to read version from pyproject.toml")
+    return match.group(1)
+
+project_name = "libosdp"
+project_version = get_project_version()
 
 def add_prefix_to_path(src_list, path, check_files=True):
     paths = [ os.path.join(path, src) for src in src_list ]
@@ -216,28 +227,13 @@ compile_args = (
 if sys.platform == "win32":
     compile_args.append("/Zc:preprocessor")
 
-if os.path.exists("README.md"):
-    with open("README.md", "r") as f:
-        long_description = f.read()
-else:
-    long_description = ""
-
+# Everything else (name, version, classifiers, ...) lives in pyproject.toml.
+# The extension is built into the osdp package as a private submodule so that
+# its type stub and the py.typed marker ship beside it.
 setup(
-    name         = project_name,
-    version      = project_version,
-    author       = "Siddharth Chandrasekaran",
-    author_email = "sidcha.dev@gmail.com",
-    description  = "Library implementation of IEC 60839-11-5 OSDP (Open Supervised Device Protocol)",
-    url          = "https://github.com/osdp-dev/libosdp",
-    project_urls = {
-        "Documentation": "https://doc.osdp.dev/",
-        "Python Docs":   "https://doc.osdp.dev/python/getting-started",
-        "Source":        "https://github.com/osdp-dev/libosdp",
-        "Changelog":     "https://doc.osdp.dev/changelog",
-    },
     ext_modules  = [
         Extension(
-            name               = "osdp_sys",
+            name               = "osdp._sys",
             sources            = source_files,
             extra_compile_args = compile_args,
             extra_link_args    = [],
@@ -245,14 +241,4 @@ setup(
             language           = "C",
         )
     ],
-    packages     = [ "osdp" ],
-    license_expression = "Apache-2.0",
-    classifiers  = [
-        "Programming Language :: Python :: 3",
-        "Operating System :: OS Independent",
-    ],
-    long_description              = long_description,
-    long_description_content_type = "text/markdown",
-    python_requires               = ">=3.10",
-    license_files                 = [ os.path.join("vendor", license_file) ],
 )

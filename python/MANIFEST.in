@@ -1,1 +1,3 @@
 recursive-include vendor *
+include osdp/py.typed
+include osdp/*.pyi

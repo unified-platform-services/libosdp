@@ -1,3 +1,42 @@
 [build-system]
 requires = ["setuptools >= 83.0.0"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "libosdp"
+version = "3.2.0"
+description = "Library implementation of IEC 60839-11-5 OSDP (Open Supervised Device Protocol)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["vendor/LICENSE"]
+authors = [
+    { name = "Siddharth Chandrasekaran", email = "sidcha.dev@gmail.com" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/osdp-dev/libosdp"
+Documentation = "https://doc.osdp.dev/"
+"Python Docs" = "https://doc.osdp.dev/python/getting-started"
+Source = "https://github.com/osdp-dev/libosdp"
+Changelog = "https://doc.osdp.dev/changelog"
+
+[tool.setuptools]
+packages = ["osdp"]
+
+[tool.setuptools.package-data]
+osdp = ["py.typed", "*.pyi"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["osdp"]
+
+[tool.pyright]
+include = ["osdp"]
+typeCheckingMode = "strict"

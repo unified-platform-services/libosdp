@@ -29,19 +29,6 @@ static void PyErr_SetRaisedException(PyObject *exc)
 }
 #endif
 
-int pyosdp_dict_add_bool(PyObject *dict, const char *key, bool val)
-{
-	int ret;
-	PyObject *val_obj;
-
-	val_obj = val ? Py_True : Py_False;
-
-	Py_INCREF(val_obj);
-	ret = PyDict_SetItemString(dict, key, val_obj);
-	Py_DECREF(val_obj);
-	return ret;
-}
-
 int pyosdp_dict_add_int(PyObject *dict, const char *key, int val)
 {
 	int ret;
@@ -132,18 +119,6 @@ int pyosdp_parse_int(PyObject *obj, int *res)
 	return 0;
 }
 
-int pyosdp_parse_bool(PyObject *obj, bool *res)
-{
-	/* Check if obj is boolean */
-	if (PyBool_Check(obj) != 1) {
-		PyErr_SetString(PyExc_TypeError, "Expected boolean");
-		return -1;
-	}
-
-	*res = PyObject_IsTrue(obj);
-	return 0;
-}
-
 /* NOTE: Caller must free the returned string with free() */
 int pyosdp_parse_str(PyObject *obj, char **str)
 {
@@ -225,22 +200,6 @@ int pyosdp_dict_get_int(PyObject *dict, const char *key, int *res)
 	}
 
 	return pyosdp_parse_int(tmp, res);
-}
-
-int pyosdp_dict_get_bool(PyObject *dict, const char *key, bool *res)
-{
-	PyObject *tmp;
-
-	if (!PyDict_Check(dict)) {
-		PyErr_SetString(PyExc_TypeError, "arg is not a dict");
-		return -1;
-	}
-
-	tmp = PyDict_GetItemString(dict, key);
-	if (tmp == NULL)
-		return 1;
-
-	return pyosdp_parse_bool(tmp, res);
 }
 
 int pyosdp_dict_get_bytes(PyObject *dict, const char *key, uint8_t **data,

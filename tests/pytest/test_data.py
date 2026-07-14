@@ -19,7 +19,13 @@ pd_cap = PDCapabilities([
 key = KeyStore.gen_key()
 f1, f2 = make_fifo_pair("data")
 
-pd_id = PdId(1, 1, 314, 512, 443)
+pd_id = PdId(
+    version=1,
+    model=1,
+    vendor_code=314,
+    serial_number=512,
+    firmware_version=443,
+)
 
 # TODO remove this.
 pd_addr = 101

@@ -3,215 +3,298 @@
 #
 #  SPDX-License-Identifier: Apache-2.0
 #
-import osdp_sys
-import time
+
+"""The Control Panel side of an OSDP bus."""
+
 import queue
 import threading
-from typing import Callable, Tuple
+import time
+from typing import Any, Callable
 
-from .helpers import PDInfo, PdId
-from .constants import Capability, LibFlag, LogLevel
+from . import _sys
+from ._marshal import decode_command, decode_event, encode_command
+from .commands import Command
+from .enums import Capability, CompletionStatus, LibFlag, LogLevel
+from .events import Event
+from .types import FileOps, FileTxStatus, Metrics, PdId, PDInfo
 
-class ControlPanel():
+__all__ = ["CommandCompletionHandler", "ControlPanel", "EventHandler"]
+
+EventHandler = Callable[[int, Event], int]
+"""Called with (pd_address, event) when a PD reports something.
+
+Runs on the refresh thread, inside the library. Return 0 to accept the event.
+"""
+
+CommandCompletionHandler = Callable[[int, Command, CompletionStatus], None]
+"""Called with (pd_address, command, status) when a submitted command settles.
+
+Every accepted command is reported exactly once, including ones that were
+flushed or torn down before reaching the wire.
+
+The command handed back is rebuilt from the library's own copy, so it compares
+equal to the one that was submitted but is not the same object.
+"""
+
+REFRESH_INTERVAL = 0.020
+"""How often to service the bus. OSDP requires at least once every 50ms."""
+
+
+class ControlPanel:
+    """Manages one or more PDs over a shared channel.
+
+    Runs a background thread that services the bus; nothing happens until
+    `start()` is called.
+
+    Example:
+        cp = ControlPanel([PDInfo(address=101, channel=my_channel)])
+        cp.start()
+        cp.online_wait(101)
+        cp.submit_command(101, commands.Buzzer(rep_count=3))
+    """
+
     def __init__(
-            self,
-            pd_info_list: list[PDInfo],
-            log_level: LogLevel=LogLevel.Info,
-            event_handler: Callable[[int, dict], int]=None,
-            command_completion_handler: Callable[[int, dict, int], None]=None
-        ) -> None:
-        self.pd_addr = []
-        info_list = []
+        self,
+        pd_info_list: list[PDInfo],
+        log_level: LogLevel = LogLevel.Info,
+        event_handler: EventHandler | None = None,
+        command_completion_handler: CommandCompletionHandler | None = None,
+    ) -> None:
+        self.pd_addr = [pd_info.address for pd_info in pd_info_list]
         self.num_pds = len(pd_info_list)
-        for pd_info in pd_info_list:
-            self.pd_addr.append(pd_info.address)
-            info_list.append(pd_info.get())
-        self.event_queue = [ queue.Queue() for i in self.pd_addr ]
-        self.user_event_handler = None
-        self.user_command_completion_handler = None
-        osdp_sys.set_loglevel(log_level)
-        self.ctx = osdp_sys.ControlPanel(info_list)
-        # Always use our internal handler to ensure queue functionality
+        self.event_queue: list[queue.Queue[Event]] = [
+            queue.Queue() for _ in self.pd_addr
+        ]
+        self.user_event_handler = event_handler
+        self.user_command_completion_handler = command_completion_handler
+
+        _sys.set_loglevel(int(log_level))
+        self._ctx: _sys.ControlPanel | None = _sys.ControlPanel(
+            [pd_info.to_dict() for pd_info in pd_info_list]
+        )
+        # Our handlers always run, so that get_event() works whether or not the
+        # caller registered one of their own.
         self.ctx.set_event_callback(self._internal_event_handler)
-        if hasattr(self.ctx, "set_command_completion_callback"):
-            self.ctx.set_command_completion_callback(
-                self._internal_command_completion_handler
+        self.ctx.set_command_completion_callback(
+            self._internal_command_completion_handler
+        )
+
+        self.event: threading.Event | None = None
+        self.lock = threading.RLock()
+        self.thread: threading.Thread | None = None
+
+    @property
+    def ctx(self) -> "_sys.ControlPanel":
+        """The library context. Raises once this CP has been torn down."""
+        if self._ctx is None:
+            raise RuntimeError("This ControlPanel has been torn down")
+        return self._ctx
+
+    # -- callbacks from the library -----------------------------------------
+
+    def _internal_event_handler(self, pd: int, event: dict[str, Any]) -> int:
+        decoded = decode_event(event)
+        self.event_queue[pd].put(decoded)
+        if self.user_event_handler:
+            return self.user_event_handler(self.pd_addr[pd], decoded)
+        return 0
+
+    def _internal_command_completion_handler(
+        self, pd: int, command: dict[str, Any], status: int
+    ) -> None:
+        if self.user_command_completion_handler:
+            self.user_command_completion_handler(
+                self.pd_addr[pd],
+                decode_command(command),
+                CompletionStatus(status),
             )
-        self.set_event_handler(event_handler)
-        self.set_command_completion_handler(command_completion_handler)
-        self.event = None
-        self.lock = None
-        self.thread = None
 
-    @staticmethod
-    def refresh(event, lock, ctx):
-        while not event.is_set():
-            with lock:
-                ctx.refresh()
-            time.sleep(0.020) #sleep for 20ms
-
-    def set_event_handler(self, handler: Callable[[int, dict], int]):
-        """Set user event handler while maintaining queue functionality"""
+    def set_event_handler(self, handler: EventHandler | None) -> None:
+        """Install the handler called for every event from every PD."""
         self.user_event_handler = handler
 
     def set_command_completion_handler(
-            self, handler: Callable[[int, dict, int], None]):
+        self, handler: CommandCompletionHandler | None
+    ) -> None:
+        """Install the handler called when a submitted command settles."""
         self.user_command_completion_handler = handler
 
-    def _internal_event_handler(self, pd, event) -> int:
-        """Internal handler that manages both queue and user callback"""
-        # Always put event in queue for get_event() compatibility
-        self.event_queue[pd].put(event)
+    # -- commands and events ------------------------------------------------
 
-        # If user has set a custom handler, call it too
-        if self.user_event_handler:
-            try:
-                return self.user_event_handler(pd, event)
-            except Exception as e:
-                print(f"Error in user event handler: {e}")
-                return -1
+    def submit_command(self, address: int, command: Command) -> bool:
+        """Queue a command for a PD. Returns False if it could not be queued.
 
-        return 0
-
-    def _internal_command_completion_handler(self, pd, command, status) -> None:
-        if self.user_command_completion_handler:
-            try:
-                self.user_command_completion_handler(
-                    self.pd_addr[pd], command, status
-                )
-            except Exception as e:
-                print(f"Error in user command completion handler: {e}")
-
-    def get_event(self, address, timeout: int=5):
-        pd = self.pd_addr.index(address)
-        block = timeout >= 0
-        try:
-            event = self.event_queue[pd].get(block, timeout=timeout)
-        except queue.Empty:
-            return None
-        return event
-
-    def status(self):
-        with self.lock:
-            return self.ctx.status()
-
-    def is_online(self, address):
-        pd = self.pd_addr.index(address)
-        return bool(self.status() & (1 << pd))
-
-    def get_pd_id(self, address: int) -> PdId:
+        The command is copied on the way in, so it may be discarded or reused
+        as soon as this returns.
+        """
         pd = self.pd_addr.index(address)
         with self.lock:
-            pd_id_dict = self.ctx.get_pd_id(pd)
-        if pd_id_dict:
-            # version: int, model: int, vendor_code: int, serial_number: int, firmware_version: int
-            pd_id = PdId(
-                pd_id_dict['version'],
-                pd_id_dict['model'],
-                pd_id_dict['vendor_code'],
-                pd_id_dict['serial_number'],
-                pd_id_dict['firmware_version']
-            )
-        return pd_id
+            return bool(self.ctx.submit_command(pd, encode_command(command)))
 
-    def check_capability(self, address: int, cap: Capability) -> Tuple[int, int]:
-        pd = self.pd_addr.index(address)
-        with self.lock:
-            compliance_level, num_items = self.ctx.check_capability(pd, cap)
-        return (compliance_level, num_items)
+    def flush_commands(self, address: int) -> int:
+        """Drop every queued command for a PD. Returns how many were dropped.
 
-    def get_num_online(self):
-        online = 0
-        bitmask = self.status()
-        for i in range(len(self.pd_addr)):
-            if bitmask & (1 << i):
-                online += 1
-        return online
-
-    def sc_status(self):
-        with self.lock:
-            return self.ctx.sc_status()
-
-    def is_sc_active(self, address):
-        pd = self.pd_addr.index(address)
-        return bool(self.sc_status() & (1 << pd))
-
-    def get_num_sc_active(self):
-        sc_active = 0
-        bitmask = self.sc_status()
-        for i in range(len(self.pd_addr)):
-            if bitmask & (1 << i):
-                sc_active += 1
-        return sc_active
-
-    def submit_command(self, address, cmd):
-        pd = self.pd_addr.index(address)
-        with self.lock:
-            return self.ctx.submit_command(pd, cmd)
-
-    def flush_commands(self, address):
+        Each one is still reported to the completion handler, as Flushed.
+        """
         pd = self.pd_addr.index(address)
         with self.lock:
             return self.ctx.flush_commands(pd)
 
-    def send_command(self, address, cmd):
-        from warnings import warn
-        warn("This method has been renamed to submit_command", DeprecationWarning, 2)
-        return self.submit_command(address, cmd)
+    def get_event(self, address: int, timeout: float = 5) -> Event | None:
+        """Pop the next event from a PD, or None if none arrives in time.
 
-    def set_flag(self, address, flag: LibFlag):
+        A negative timeout does not block.
+        """
+        pd = self.pd_addr.index(address)
+        try:
+            return self.event_queue[pd].get(timeout >= 0, timeout=timeout)
+        except queue.Empty:
+            return None
+
+    # -- state --------------------------------------------------------------
+
+    def status(self) -> int:
+        """Bitmask of which PDs are online, indexed by their position."""
+        with self.lock:
+            return self.ctx.status()
+
+    def is_online(self, address: int) -> bool:
+        """Whether a PD is answering."""
+        return bool(self.status() & (1 << self.pd_addr.index(address)))
+
+    def get_num_online(self) -> int:
+        """How many PDs are answering."""
+        return self.status().bit_count()
+
+    def sc_status(self) -> int:
+        """Bitmask of which PDs have a secure channel up."""
+        with self.lock:
+            return self.ctx.sc_status()
+
+    def is_sc_active(self, address: int) -> bool:
+        """Whether a PD's secure channel is up."""
+        return bool(self.sc_status() & (1 << self.pd_addr.index(address)))
+
+    def get_num_sc_active(self) -> int:
+        """How many PDs have a secure channel up."""
+        return self.sc_status().bit_count()
+
+    def get_pd_id(self, address: int) -> PdId:
+        """The identity a PD reported during setup."""
         pd = self.pd_addr.index(address)
         with self.lock:
-            return self.ctx.set_flag(pd, flag)
+            info = self.ctx.get_pd_id(pd)
+        return PdId(
+            version=info["version"],
+            model=info["model"],
+            vendor_code=info["vendor_code"],
+            serial_number=info["serial_number"],
+            firmware_version=info["firmware_version"],
+        )
 
-    def clear_flag(self, address, flag: LibFlag):
+    def check_capability(
+        self, address: int, cap: Capability
+    ) -> tuple[int, int]:
+        """A PD's (compliance_level, num_items) for one capability.
+
+        Both are zero when the PD does not claim the capability.
+        """
         pd = self.pd_addr.index(address)
         with self.lock:
-            return self.ctx.clear_flag(pd, flag)
+            return self.ctx.check_capability(pd, int(cap))
 
-    def disable_pd(self, address: int) -> bool:
+    def set_flag(self, address: int, flag: LibFlag) -> bool:
+        """Turn a per-PD flag on."""
         pd = self.pd_addr.index(address)
         with self.lock:
-            return self.ctx.disable_pd(pd)
+            return bool(self.ctx.set_flag(pd, int(flag)))
+
+    def clear_flag(self, address: int, flag: LibFlag) -> bool:
+        """Turn a per-PD flag off."""
+        pd = self.pd_addr.index(address)
+        with self.lock:
+            return bool(self.ctx.clear_flag(pd, int(flag)))
 
     def enable_pd(self, address: int) -> bool:
+        """Resume polling a PD."""
         pd = self.pd_addr.index(address)
         with self.lock:
-            return self.ctx.enable_pd(pd)
+            return bool(self.ctx.enable_pd(pd))
+
+    def disable_pd(self, address: int) -> bool:
+        """Stop polling a PD without tearing down the CP."""
+        pd = self.pd_addr.index(address)
+        with self.lock:
+            return bool(self.ctx.disable_pd(pd))
 
     def is_pd_enabled(self, address: int) -> bool:
+        """Whether a PD is being polled."""
         pd = self.pd_addr.index(address)
         with self.lock:
-            return self.ctx.is_pd_enabled(pd)
+            return bool(self.ctx.is_pd_enabled(pd))
 
-    def register_file_ops(self, address, fops):
+    # -- file transfer ------------------------------------------------------
+
+    def register_file_ops(self, address: int, fops: FileOps) -> bool:
+        """Supply the file a subsequent FileTransfer command will send."""
         pd = self.pd_addr.index(address)
         with self.lock:
-            return self.ctx.register_file_ops(pd, fops)
+            return bool(
+                self.ctx.register_file_ops(
+                    pd,
+                    {
+                        "open": fops.open,
+                        "read": fops.read,
+                        "write": fops.write,
+                        "close": fops.close,
+                    },
+                )
+            )
 
-    def get_file_tx_status(self, address):
+    def get_file_tx_status(self, address: int) -> FileTxStatus | None:
+        """How far the running transfer has got, or None if none is running."""
         pd = self.pd_addr.index(address)
         with self.lock:
-            return self.ctx.get_file_tx_status(pd)
+            status = self.ctx.get_file_tx_status(pd)
+        if status is None:
+            return None
+        return FileTxStatus(size=status["size"], offset=status["offset"])
 
-    def get_metrics(self, address):
+    def get_metrics(self, address: int) -> Metrics | None:
+        """Packet and command counters for a PD."""
         pd = self.pd_addr.index(address)
         with self.lock:
-            return self.ctx.get_metrics(pd)
+            metrics = self.ctx.get_metrics(pd)
+        if metrics is None:
+            return None
+        return Metrics(**metrics)
 
-    def start(self):
+    # -- lifecycle ----------------------------------------------------------
+
+    @staticmethod
+    def _refresh_loop(
+        stop: threading.Event, lock: threading.RLock, ctx: Any
+    ) -> None:
+        while not stop.is_set():
+            with lock:
+                ctx.refresh()
+            time.sleep(REFRESH_INTERVAL)
+
+    def start(self) -> None:
+        """Start servicing the bus."""
         if self.thread:
             raise RuntimeError("Thread already running!")
         self.event = threading.Event()
-        # Reentrant: the event handler runs inside ctx.refresh() with this lock
-        # held, and may call submit_command() to respond to an event.
-        self.lock = threading.RLock()
-        args=(self.event, self.lock, self.ctx)
-        self.thread = threading.Thread(name='cp', target=self.refresh, args=args)
+        self.thread = threading.Thread(
+            name="cp",
+            target=self._refresh_loop,
+            args=(self.event, self.lock, self.ctx),
+        )
         self.thread.start()
 
-    def stop(self):
-        if not self.thread:
+    def stop(self) -> None:
+        """Stop servicing the bus."""
+        if not self.thread or self.event is None:
             raise RuntimeError("Thread not running!")
         while self.thread.is_alive():
             self.event.set()
@@ -220,62 +303,46 @@ class ControlPanel():
                 self.thread = None
                 break
 
-    def online_wait_all(self, timeout=10):
-        count = 0
-        res = False
-        while count < timeout * 2:
-            time.sleep(0.5)
-            if self.get_num_online() == len(self.pd_addr):
-                res = True
-                break
-            count += 1
-        return res
+    def teardown(self) -> None:
+        """Stop the bus and release the library context.
 
-    def online_wait(self, address, timeout=8):
-        count = 0
-        res = False
-        while count < timeout * 2:
-            time.sleep(0.5)
-            if self.is_online(address):
-                res = True
-                break
-            count += 1
-        return res
-
-    def offline_wait(self, address, timeout=8):
-        count = 0
-        res = False
-        while count < timeout * 2:
-            time.sleep(0.5)
-            if not self.is_online(address):
-                res = True
-                break
-            count += 1
-        return res
-
-    def sc_wait(self, address, timeout=5):
-        count = 0
-        res = False
-        while count < timeout * 2:
-            time.sleep(0.5)
-            if self.is_sc_active(address):
-                res = True
-                break
-            count += 1
-        return res
-
-    def sc_wait_all(self, timeout=5):
-        count = 0
-        res = False
-        all_pd_mask = (1 << self.num_pds) - 1
-        while count < timeout * 2:
-            time.sleep(0.5)
-            if self.sc_status() == all_pd_mask:
-                res = True
-                break
-            count += 1
-        return res
-
-    def teardown(self):
+        The CP cannot be used afterwards.
+        """
         self.stop()
-        self.ctx = None
+        self._ctx = None
+
+    # -- waiting ------------------------------------------------------------
+
+    def _wait_until(
+        self, predicate: Callable[[], bool], timeout: float
+    ) -> bool:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            if predicate():
+                return True
+        return False
+
+    def online_wait(self, address: int, timeout: float = 8) -> bool:
+        """Block until a PD comes online, or the timeout elapses."""
+        return self._wait_until(lambda: self.is_online(address), timeout)
+
+    def online_wait_all(self, timeout: float = 10) -> bool:
+        """Block until every PD is online, or the timeout elapses."""
+        return self._wait_until(
+            lambda: self.get_num_online() == self.num_pds, timeout
+        )
+
+    def offline_wait(self, address: int, timeout: float = 8) -> bool:
+        """Block until a PD goes offline, or the timeout elapses."""
+        return self._wait_until(lambda: not self.is_online(address), timeout)
+
+    def sc_wait(self, address: int, timeout: float = 5) -> bool:
+        """Block until a PD's secure channel comes up."""
+        return self._wait_until(lambda: self.is_sc_active(address), timeout)
+
+    def sc_wait_all(self, timeout: float = 5) -> bool:
+        """Block until every PD's secure channel comes up."""
+        return self._wait_until(
+            lambda: self.get_num_sc_active() == self.num_pds, timeout
+        )

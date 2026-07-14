@@ -1,3 +1,7 @@
 *.egg-info/
 build/
 dist/
+vendor/
+doxygen/
+osdp/*.so
+osdp/*.pyd

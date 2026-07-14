@@ -8,61 +8,60 @@ import time
 import random
 import pytest
 from osdp import *
+from osdp import commands, events
 from conftest import make_fifo_pair, cleanup_fifo_pair
 
-sender_data = [ random.randint(0, 255) for _ in range(4096) ]
+FILE_ID = 13
+FILE_SIZE = 4096
 
-def sender_open(file_id: int, file_size: int) -> int:
-    assert file_id == 13
-    assert file_size == 0 # sender has to return file_size so this must be 0
-    return 4096 # we'll just send 4k of random data
+sender_data = [ random.randint(0, 255) for _ in range(FILE_SIZE) ]
+receiver_data = [0] * FILE_SIZE
 
-def sender_read(size: int, offset: int) -> bytes:
-    assert offset < 4096
-    if offset + size > 4096:
-        size = 4096 - offset
-    return bytes(sender_data[offset:offset+size])
+class SenderFileOps:
+    """The CP side of a transfer: reads out of sender_data, never writes."""
 
-def sender_write(data: bytes, offset: int) -> int:
-    # sender should not try to write anything!
-    assert False
+    def open(self, file_id: int, size: int) -> int:
+        assert file_id == FILE_ID
+        assert size == 0 # sender has to return file_size so this must be 0
+        return FILE_SIZE # we'll just send 4k of random data
 
-def sender_close(file_id: int):
-    assert file_id == 13
+    def read(self, size: int, offset: int) -> bytes:
+        assert offset < FILE_SIZE
+        if offset + size > FILE_SIZE:
+            size = FILE_SIZE - offset
+        return bytes(sender_data[offset:offset+size])
 
-sender_fops = {
-    'open': sender_open,
-    'read': sender_read,
-    'write': sender_write,
-    'close': sender_close
-}
+    def write(self, data: bytes, offset: int) -> int:
+        # sender should not try to write anything!
+        assert False
 
-receiver_data = [0] * 4096
+    def close(self, file_id: int) -> int:
+        assert file_id == FILE_ID
+        return 0
 
-def receiver_open(file_id: int, file_size: int) -> int:
-    assert file_id == 13
-    assert file_size == 4096
-    return 0 # indicates success. Both CP and PD have the file_size now.
+class ReceiverFileOps:
+    """The PD side of a transfer: writes into receiver_data, never reads."""
 
-def receiver_read(size: int, offset: int) -> bytes:
-    # receiver should not read anything
-    assert False
+    def open(self, file_id: int, size: int) -> int:
+        assert file_id == FILE_ID
+        assert size == FILE_SIZE
+        return 0 # indicates success. Both CP and PD have the file_size now.
 
-def receiver_write(data: bytes, offset: int) -> int:
-    global receiver_data
-    assert offset + len(data) <= 4096
-    receiver_data[offset:offset + len(data)] = list(data)
-    return len(data)
+    def read(self, size: int, offset: int) -> bytes:
+        # receiver should not read anything
+        assert False
 
-def receiver_close(file_id: int):
-    assert file_id == 13
+    def write(self, data: bytes, offset: int) -> int:
+        assert offset + len(data) <= FILE_SIZE
+        receiver_data[offset:offset + len(data)] = list(data)
+        return len(data)
 
-receiver_fops = {
-    'open': receiver_open,
-    'read': receiver_read,
-    'write': receiver_write,
-    'close': receiver_close
-}
+    def close(self, file_id: int) -> int:
+        assert file_id == FILE_ID
+        return 0
+
+sender_fops = SenderFileOps()
+receiver_fops = ReceiverFileOps()
 
 pd_cap = PDCapabilities([])
 
@@ -100,17 +99,17 @@ def wait_for_file_tx_done(address, expected_outcome, timeout=10.0,
         e = cp.get_event(address, timeout=max(0.05, remaining))
         if e is None:
             continue
-        if e.get('event') != Event.Notification:
+        if not isinstance(e, events.Notification):
             continue
-        if e.get('type') != Notification.FileTransferDone:
+        if e.type != NotificationType.FileTransferDone:
             continue
         notif = e
         break
     assert notif is not None, "FileTransferDone notification not received"
-    assert notif['arg0'] == 13, \
-        f"unexpected file_id in notification: {notif['arg0']}"
-    assert notif['arg1'] == expected_outcome, \
-        f"unexpected outcome: got {notif['arg1']}, want {expected_outcome}"
+    assert notif.arg0 == FILE_ID, \
+        f"unexpected file_id in notification: {notif.arg0}"
+    assert notif.arg1 == expected_outcome, \
+        f"unexpected outcome: got {notif.arg1}, want {expected_outcome}"
 
     # Pin "fires exactly once" — drain for a short window and fail on any dupe
     dupe_deadline = time.monotonic() + dupe_window
@@ -118,8 +117,8 @@ def wait_for_file_tx_done(address, expected_outcome, timeout=10.0,
         e = cp.get_event(address, timeout=0.05)
         if e is None:
             continue
-        if e.get('event') == Event.Notification and \
-           e.get('type') == Notification.FileTransferDone:
+        if isinstance(e, events.Notification) and \
+           e.type == NotificationType.FileTransferDone:
             raise AssertionError("FileTransferDone fired more than once")
     return notif
 
@@ -143,11 +142,7 @@ def test_file_transfer(utils):
     # Register file OPs and kick off a transfer
     assert cp.register_file_ops(101, sender_fops)
     assert pd.register_file_ops(receiver_fops)
-    file_tx_cmd = {
-        'command': Command.FileTransfer,
-        'id': 13,
-        'flags': 0
-    }
+    file_tx_cmd = commands.FileTransfer(id=FILE_ID)
     assert cp.submit_command(101, file_tx_cmd)
     assert pd.get_command() == file_tx_cmd
 
@@ -167,22 +162,14 @@ def test_file_tx_abort(utils):
     # Register file OPs and kick off a transfer
     assert cp.register_file_ops(101, sender_fops)
     assert pd.register_file_ops(receiver_fops)
-    file_tx_cmd = {
-        'command': Command.FileTransfer,
-        'id': 13,
-        'flags': 0
-    }
+    file_tx_cmd = commands.FileTransfer(id=FILE_ID)
     assert cp.submit_command(101, file_tx_cmd)
     assert pd.get_command() == file_tx_cmd
 
     # Allow some number of transfers to go through
     time.sleep(0.5)
 
-    file_tx_abort = {
-        'command': Command.FileTransfer,
-        'id': 13,
-        'flags': CommandFileTxFlags.Cancel
-    }
+    file_tx_abort = commands.FileTransfer(id=FILE_ID, flags=FileTxFlag.Cancel)
     assert cp.submit_command(101, file_tx_abort)
 
     # Wait for the abort completion notification

@@ -8,6 +8,7 @@ import time
 import pytest
 
 from osdp import *
+from osdp import commands
 from conftest import (
     MultidropBus,
     assert_command_received,
@@ -105,14 +106,13 @@ def test_hotplug_enable_after_disable():
 def test_hotplug_command_blocking():
     assert cp.is_pd_enabled(secure_pd_addr) == True
 
-    cmd = {
-        'command': Command.Buzzer,
-        'reader': 0,
-        'control_code': 1,
-        'on_count': 1,
-        'off_count': 1,
-        'rep_count': 1
-    }
+    cmd = commands.Buzzer(
+        reader=0,
+        control_code=BuzzerControlCode.Off,
+        on_count=1,
+        off_count=1,
+        rep_count=1
+    )
 
     initial_result = cp.submit_command(secure_pd_addr, cmd)
     assert initial_result == True, "Commands should be accepted for enabled PDs"

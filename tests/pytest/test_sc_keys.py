@@ -5,6 +5,7 @@
 #
 
 from osdp import *
+from osdp import commands
 from conftest import make_fifo_pair, cleanup_fifo_pair
 
 def test_set_new_scbk(utils):
@@ -18,11 +19,7 @@ def test_set_new_scbk(utils):
     # Set a new SCBK from the CP side and verify whether it was received
     # by the PD as we intended.
     new_key = utils.ks.gen_key()
-    keyset_cmd = {
-        'command': Command.Keyset,
-        'type': 1,
-        'data': new_key
-    }
+    keyset_cmd = commands.Keyset(type=1, data=new_key)
     assert cp.submit_command(pd_addr, keyset_cmd)
     cmd = pd.get_command()
     assert cmd == keyset_cmd

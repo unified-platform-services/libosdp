@@ -1,14 +1,14 @@
 # LibOSDP for Python
 
 This package exposes the C/C++ library for OSDP devices to python to enable rapid
-prototyping of these devices. There are two modules exposed by this package:
+prototyping of these devices.
 
-- `osdp_sys`: A thin wrapper around the C/C++ API; this is a low level API and
-  is no longer recommended to use this directly.
+Commands and events are typed dataclasses, so your editor completes the fields,
+a type checker catches a wrong one before you run, and an out-of-range value
+raises where you wrote it instead of being truncated on its way into a packet.
 
-- `osdp`: A wrapper over the `osdp_sys` to provide python friendly API; this
-  implementation which is now powering the integration testing suit used to test
-  all changes made to this project.
+The package ships a `py.typed` marker; `mypy --strict` and `pyright` both pass
+against it.
 
 ## Documentation
 
@@ -17,8 +17,8 @@ a Python-specific section:
 
 - [Getting Started](https://doc.osdp.dev/python/getting-started)
 - [API Reference](https://doc.osdp.dev/python/api)
-- [Commands](https://doc.osdp.dev/python/commands) — the command dicts a CP sends
-- [Events](https://doc.osdp.dev/python/events) — the event dicts a PD sends
+- [Commands](https://doc.osdp.dev/python/commands) — what a CP sends
+- [Events](https://doc.osdp.dev/python/events) — what a PD sends
 
 ## Install
 
@@ -55,13 +55,13 @@ class SerialChannel(Channel):
     def __init__(self, device: str, speed: int = 115200):
         self.dev = serial.Serial(device, speed, timeout=0)
 
-    def read(self, max_read: int) -> bytes:
-        return self.dev.read(max_read)
+    def read(self, max_bytes: int) -> bytes:
+        return self.dev.read(max_bytes)
 
     def write(self, data: bytes) -> int:
         return self.dev.write(data)
 
-    def flush(self):
+    def flush(self) -> None:
         self.dev.flush()
 
     def __del__(self):
@@ -71,7 +71,7 @@ class SerialChannel(Channel):
 ### Control Panel Mode
 
 ```python
-from osdp import ControlPanel, PDInfo, KeyStore, LogLevel, Command, CommandLEDColor
+from osdp import ControlPanel, PDInfo, KeyStore, LogLevel, LEDColor, commands, events
 
 # Create a communication channel
 channel = SerialChannel("/dev/ttyUSB0")
@@ -87,39 +87,42 @@ cp = ControlPanel(pd_info, log_level=LogLevel.Debug)
 cp.start()
 cp.sc_wait_all()
 
-# See https://doc.osdp.dev/python/commands for all command dicts
-led_cmd = {
-    'command': Command.LED,
-    'reader': 1,
-    'led_number': 0,
-    'control_code': 1,
-    'on_count': 10,
-    'off_count': 10,
-    'on_color': CommandLEDColor.Red,
-    'off_color': CommandLEDColor.Black,
-    'temporary': False,
-}
+# An LED command carries a temporary block, a permanent block, or both. Counts
+# are in units of 100ms; on_count and off_count cannot both be zero.
+led_cmd = commands.LED(
+    reader=1,
+    led_number=0,
+    permanent=commands.PermanentLEDParams(
+        on_color=LEDColor.Red,
+        off_color=LEDColor.Black,
+        on_count=10,
+        off_count=10,
+    ),
+)
 
 while True:
-    ## Check if we have an event from PD
-    event = cp.get_event(pd_info[0].address)
-    if event:
-        print(f"CP: Received event {event}")
+    # Each event is its own type, so match gives you the right fields for free
+    match cp.get_event(pd_info[0].address):
+        case events.CardRead(data=data):
+            print(f"CP: card {data.hex()}")
+        case events.KeyPress(data=keys):
+            print(f"CP: keypad {keys!r}")
 
     # Send LED command to PD-0
-    cp.send_command(pd_info[0].address, led_cmd)
+    cp.submit_command(pd_info[0].address, led_cmd)
 ```
 
 see [examples/cp_app.py][2] for more details.
 
-Optional command completion callback:
+Optional command completion callback. Every submitted command is reported
+exactly once, including ones flushed before they reached the wire:
 
 ```python
 from osdp import CompletionStatus
 
 def on_command_complete(address, command, status):
     if status == CompletionStatus.Ok:
-        print("command completed")
+        print(f"{type(command).__name__} completed")
 
 cp.set_command_completion_handler(on_command_complete)
 ```
@@ -127,7 +130,10 @@ cp.set_command_completion_handler(on_command_complete)
 ### Peripheral Device mode:
 
 ```python
-from osdp import PeripheralDevice, PDInfo, PDCapabilities, Capability, Event, CardFormat
+from osdp import (
+    Capability, CardFormat, Command, NakCode, NakError, PDCapabilities, PDInfo,
+    PeripheralDevice, StatusReportType, commands, events,
+)
 
 # Create a communication channel
 channel = SerialChannel("/dev/ttyUSB0")
@@ -141,29 +147,31 @@ pd_cap = PDCapabilities([
     (Capability.LEDControl, 2, 1),
 ])
 
-# Create a PD device and kick-off the handler thread and wait till a secure
-# channel is established.
-pd = PeripheralDevice(pd_info, pd_cap)
+# Return None to accept a command, return a command to answer it inline, or
+# raise NakError to decline it.
+def command_handler(cmd: Command) -> Command | None:
+    match cmd:
+        case commands.Status(type=report_type):
+            return commands.Status(type=report_type, report=read_inputs())
+        case commands.BioRead():
+            raise NakError(NakCode.BioType)
+    return None
+
+pd = PeripheralDevice(pd_info, pd_cap, command_handler=command_handler)
 pd.start()
 pd.sc_wait()
 
-# See https://doc.osdp.dev/python/events for all event dicts
-card_event = {
-    'event': Event.CardRead,
-    'reader_no': 1,
-    'direction': 1,
-    'format': CardFormat.ASCII,
-    'data': bytes([9, 1, 9, 2, 6, 3, 1, 7, 7, 0]),
-}
+# For the raw card formats the length is in BITS; this one is ASCII, so bytes.
+card_event = events.CardRead(
+    reader_no=1,
+    direction=1,
+    format=CardFormat.ASCII,
+    data=bytes([9, 1, 9, 2, 6, 3, 1, 7, 7, 0]),
+)
 
 while True:
     # Send a card read event to CP
-    pd.notify_event(card_event)
-
-    # Check if we have any commands from the CP
-    cmd = pd.get_command()
-    if cmd:
-        print(f"PD: Received command: {cmd}")
+    pd.submit_event(card_event)
 ```
 
 see [examples/pd_app.py][3] for more details.
@@ -178,6 +186,40 @@ def on_event_complete(event, status):
         print("event removed by flush")
 
 pd.set_event_completion_handler(on_event_complete)
+```
+
+## Contributing
+
+### The C extension is private
+
+The compiled extension lives at `osdp._sys`. It speaks dicts, and the only
+module allowed to talk to it is `osdp/_marshal.py`. Treat its dict schema as an
+implementation detail shared between the two halves of this package, not an API:
+it changes whenever that is convenient.
+
+### How fields are documented
+
+Every field carries a PEP 258 attribute docstring — a plain string *after* the
+field, not a `#` comment above it:
+
+```python
+on_count: int = 0
+"""Duration of the ON phase, in units of 100ms."""
+```
+
+This is deliberate and load-bearing. That one string does two jobs: editors
+(pyright, Pylance) show it when you hover the field, and `doxy-pyfilter.py`
+rewrites it into a Doxygen `##` block so it also reaches the documentation site.
+Doxygen will not read the docstring itself, and editors will not read a `##`
+comment, so writing it either other way silently loses half the benefit.
+
+Do not "tidy" these into `#` comments. `tests/pytest/test_docs.py` asserts the
+documentation actually lands in the generated XML, and will fail if you do.
+
+To regenerate the XML the doc site consumes:
+
+```sh
+cd python && doxygen Doxyfile   # output in python/doxygen/xml
 ```
 
 [2]: https://github.com/osdp-dev/libosdp/blob/master/examples/python/cp_app.py

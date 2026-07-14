@@ -8,6 +8,7 @@ import os
 import socket
 import pytest
 from osdp import *
+from osdp import commands, events
 
 import fcntl
 import errno
@@ -226,15 +227,15 @@ class MultidropBus:
 # messages when OSDP communication fails during tests.
 
 def assert_command_received(pd, expected_cmd, timeout=2):
-    """Helper to assert that a PD receives the expected command within timeout
+    """Assert that a PD receives the expected command within timeout.
 
     Args:
         pd: PeripheralDevice instance
-        expected_cmd: Expected command dict to match
+        expected_cmd: Expected osdp.commands.* dataclass to match
         timeout: Timeout in seconds (default: 2)
 
     Returns:
-        The received command dict
+        The received command
 
     Raises:
         pytest.fail if timeout occurs or command doesn't match
@@ -246,7 +247,7 @@ def assert_command_received(pd, expected_cmd, timeout=2):
     return cmd
 
 def assert_event_received(cp, pd_address, expected_event, timeout=2):
-    """Helper to assert that a CP receives the expected event within timeout"""
+    """Assert that a CP receives the expected osdp.events.* dataclass"""
     event = cp.get_event(pd_address, timeout=timeout)
     if event is None:
         pytest.fail(f"Timeout waiting for event after {timeout}s")
@@ -254,30 +255,25 @@ def assert_event_received(cp, pd_address, expected_event, timeout=2):
     return event
 
 def wait_for_notification_event(cp, pd_address, expected_event, timeout=5):
-    """Helper to wait for a specific notification event, filtering out other events"""
-    timeout_count = 0
+    """Wait for a specific notification event, ignoring anything else"""
     max_attempts = int(timeout * 2)  # Check every 0.5s
 
-    while timeout_count < max_attempts:
+    for _ in range(max_attempts):
         e = cp.get_event(pd_address, timeout=0.5)
-        if e and e['event'] == Event.Notification and e['type'] == expected_event['type']:
-            if e == expected_event:
-                return e
-        timeout_count += 1
+        if isinstance(e, events.Notification) and e == expected_event:
+            return e
 
     pytest.fail(f"Timeout waiting for notification event after {timeout}s")
 
 def wait_for_non_notification_event(cp, pd_address, expected_event, timeout=5):
-    """Helper to wait for a non-notification event, filtering out notification events"""
-    timeout_count = 0
+    """Wait for a real event, ignoring library notifications"""
     max_attempts = int(timeout * 2)  # Check every 0.5s
 
-    while timeout_count < max_attempts:
+    for _ in range(max_attempts):
         e = cp.get_event(pd_address, timeout=0.5)
-        if e and e['event'] != Event.Notification:
+        if e is not None and not isinstance(e, events.Notification):
             if e == expected_event:
                 return e
-        timeout_count += 1
 
     pytest.fail(f"Timeout waiting for non-notification event after {timeout}s")
 

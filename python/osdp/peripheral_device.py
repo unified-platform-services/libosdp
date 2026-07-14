@@ -4,133 +4,246 @@
 #  SPDX-License-Identifier: Apache-2.0
 #
 
-import osdp_sys
-import time
+"""The Peripheral Device side of an OSDP bus."""
+
 import queue
 import threading
-from typing import Callable, Tuple
+import time
+from typing import Any, Callable
 
-from .helpers import PDInfo, PDCapabilities
-from .constants import LogLevel
+from . import _sys
+from ._marshal import decode_command, decode_event, encode_command, encode_event
+from .commands import Command
+from .enums import CompletionStatus, LogLevel
+from .errors import NakError
+from .events import Event
+from .types import FileOps, FileTxStatus, Metrics, PDCapabilities, PDInfo
 
-class PeripheralDevice():
-    def __init__(self, pd_info: PDInfo, pd_cap: PDCapabilities,
-                 log_level: LogLevel=LogLevel.Info,
-                 command_handler: Callable[[dict], Tuple[int, dict]]=None,
-                 event_completion_handler: Callable[[dict, int], None]=None):
-        self.command_queue = queue.Queue()
+__all__ = ["CommandHandler", "EventCompletionHandler", "PeripheralDevice"]
+
+CommandHandler = Callable[[Command], "Command | None"]
+"""Called with each command the CP sends. Runs on the refresh thread.
+
+Return None to acknowledge the command.
+
+Return a command to acknowledge it and send that as an inline reply. In
+practice that means answering a `commands.Status` query with a `commands.Status`
+carrying the report.
+
+Raise `NakError` to reject the command. Any other exception propagates.
+"""
+
+EventCompletionHandler = Callable[[Event, CompletionStatus], None]
+"""Called with (event, status) when a submitted event settles.
+
+Every accepted event is reported exactly once, including ones that were flushed
+or torn down before reaching the wire.
+"""
+
+REFRESH_INTERVAL = 0.020
+"""How often to service the bus. OSDP requires at least once every 50ms."""
+
+
+class PeripheralDevice:
+    """Answers a CP on one address.
+
+    Runs a background thread that services the bus; nothing happens until
+    `start()` is called.
+
+    Example:
+        def on_command(cmd: Command) -> Command | None:
+            match cmd:
+                case commands.Status(type=t):
+                    return commands.Status(type=t, report=read_inputs())
+                case commands.BioRead():
+                    raise NakError(NakCode.BioType)
+            return None
+
+        pd = PeripheralDevice(info, caps, command_handler=on_command)
+        pd.start()
+    """
+
+    def __init__(
+        self,
+        pd_info: PDInfo,
+        pd_cap: PDCapabilities,
+        log_level: LogLevel = LogLevel.Info,
+        command_handler: CommandHandler | None = None,
+        event_completion_handler: EventCompletionHandler | None = None,
+    ) -> None:
         self.address = pd_info.address
-        self.user_command_handler = None
-        self.user_event_completion_handler = None
-        osdp_sys.set_loglevel(log_level)
-        self.ctx = osdp_sys.PeripheralDevice(pd_info.get(), capabilities=pd_cap.get())
-        # Always use our internal handler to ensure queue functionality
+        self.command_queue: queue.Queue[Command] = queue.Queue()
+        self.user_command_handler = command_handler
+        self.user_event_completion_handler = event_completion_handler
+
+        _sys.set_loglevel(int(log_level))
+        self._ctx: _sys.PeripheralDevice | None = _sys.PeripheralDevice(
+            pd_info.to_dict(), capabilities=pd_cap.to_dict_list()
+        )
+        # Our handlers always run, so that get_command() works whether or not
+        # the caller registered one of their own.
         self.ctx.set_command_callback(self._internal_command_handler)
-        if hasattr(self.ctx, "set_event_completion_callback"):
-            self.ctx.set_event_completion_callback(
-                self._internal_event_completion_handler
+        self.ctx.set_event_completion_callback(
+            self._internal_event_completion_handler
+        )
+
+        self.event: threading.Event | None = None
+        self.lock = threading.RLock()
+        self.thread: threading.Thread | None = None
+
+    @property
+    def ctx(self) -> "_sys.PeripheralDevice":
+        """The library context. Raises once this PD has been torn down."""
+        if self._ctx is None:
+            raise RuntimeError("This PeripheralDevice has been torn down")
+        return self._ctx
+
+    # -- callbacks from the library -----------------------------------------
+
+    def _internal_command_handler(
+        self, command: dict[str, Any]
+    ) -> tuple[int, dict[str, Any] | None]:
+        decoded = decode_command(command)
+        self.command_queue.put(decoded)
+
+        if self.user_command_handler is None:
+            return 0, None
+
+        try:
+            reply = self.user_command_handler(decoded)
+        except NakError as nak:
+            return -int(nak.code), None
+
+        if reply is None:
+            return 0, None
+        return 0, encode_command(reply)
+
+    def _internal_event_completion_handler(
+        self, event: dict[str, Any], status: int
+    ) -> None:
+        if self.user_event_completion_handler:
+            self.user_event_completion_handler(
+                decode_event(event), CompletionStatus(status)
             )
-        self.set_command_handler(command_handler)
-        self.set_event_completion_handler(event_completion_handler)
-        self.event = None
-        self.lock = None
-        self.thread = None
 
-    @staticmethod
-    def refresh(event, lock, ctx):
-        while not event.is_set():
-            with lock:
-                ctx.refresh()
-            time.sleep(0.020) #sleep for 20ms
-
-    def _internal_command_handler(self, command) -> Tuple[int, dict]:
-        """Internal handler that manages both queue and user callback"""
-        # Always put command in queue for get_command() compatibility
-        self.command_queue.put(command)
-
-        # If user has set a custom handler, call it too
-        if self.user_command_handler:
-            try:
-                return self.user_command_handler(command)
-            except Exception as e:
-                print(f"Error in user command handler: {e}")
-                return -1, None
-
-        return 0, None
-
-    def set_command_handler(self, handler: Callable[[dict], Tuple[int, dict]]):
-        """Set user command handler while maintaining queue functionality"""
+    def set_command_handler(self, handler: CommandHandler | None) -> None:
+        """Install the handler called for every command from the CP."""
         self.user_command_handler = handler
 
-    def set_event_completion_handler(self, handler: Callable[[dict, int], None]):
+    def set_event_completion_handler(
+        self, handler: EventCompletionHandler | None
+    ) -> None:
+        """Install the handler called when a submitted event settles."""
         self.user_event_completion_handler = handler
 
-    def _internal_event_completion_handler(self, event, status) -> None:
-        if self.user_event_completion_handler:
-            try:
-                self.user_event_completion_handler(event, status)
-            except Exception as e:
-                print(f"Error in user event completion handler: {e}")
+    # -- commands and events ------------------------------------------------
 
-    def get_command(self, timeout: int=5):
-        block = timeout >= 0
+    def submit_event(self, event: Event) -> bool:
+        """Queue an event for the CP. Returns False if it could not be queued.
+
+        Submitting from inside the command handler sends the event as an inline
+        reply to that command. Submitting later sends it as a poll response, and
+        the command is acknowledged on its own.
+        """
+        with self.lock:
+            return bool(self.ctx.submit_event(encode_event(event)))
+
+    def flush_events(self) -> int:
+        """Drop every queued event. Returns how many were dropped.
+
+        Each one is still reported to the completion handler, as Flushed.
+        """
+        with self.lock:
+            return self.ctx.flush_events()
+
+    def get_command(self, timeout: float = 5) -> Command | None:
+        """Pop the next command from the CP, or None if none arrives in time.
+
+        A negative timeout does not block.
+        """
         try:
-            cmd = self.command_queue.get(block, timeout=timeout)
+            return self.command_queue.get(timeout >= 0, timeout=timeout)
         except queue.Empty:
             return None
-        return cmd
 
-    def submit_event(self, event):
-        with self.lock:
-            return self.ctx.submit_event(event)
+    # -- state --------------------------------------------------------------
 
-    def notify_event(self, event):
-        from warnings import warn
-        warn("This method has been renamed to submit_event", DeprecationWarning, 2)
-        return self.submit_event(event)
+    def is_online(self) -> bool:
+        """Whether the CP is polling us."""
+        return bool(self.ctx.is_online())
 
-    def register_file_ops(self, fops):
-        with self.lock:
-            return self.ctx.register_file_ops(0, fops)
+    def is_sc_active(self) -> bool:
+        """Whether the secure channel is up."""
+        return bool(self.ctx.is_sc_active())
 
-    def is_sc_active(self):
-        return self.ctx.is_sc_active()
-
-    def is_online(self):
-        return self.ctx.is_online()
-
-    def sc_wait(self, timeout=8):
-        count = 0
-        res = False
-        while count < timeout * 2:
+    def sc_wait(self, timeout: float = 8) -> bool:
+        """Block until the secure channel comes up, or the timeout elapses."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
             time.sleep(0.5)
             if self.is_sc_active():
-                res = True
-                break
-            count += 1
-        return res
+                return True
+        return False
 
-    def start(self):
+    # -- file transfer ------------------------------------------------------
+
+    def register_file_ops(self, fops: FileOps) -> bool:
+        """Supply the sink a file transfer from the CP will write into."""
+        with self.lock:
+            return bool(
+                self.ctx.register_file_ops(
+                    0,
+                    {
+                        "open": fops.open,
+                        "read": fops.read,
+                        "write": fops.write,
+                        "close": fops.close,
+                    },
+                )
+            )
+
+    def get_file_tx_status(self) -> FileTxStatus | None:
+        """How far the running transfer has got, or None if none is running."""
+        with self.lock:
+            status = self.ctx.get_file_tx_status(0)
+        if status is None:
+            return None
+        return FileTxStatus(size=status["size"], offset=status["offset"])
+
+    def get_metrics(self) -> Metrics | None:
+        """Packet and command counters."""
+        with self.lock:
+            metrics = self.ctx.get_metrics(0)
+        if metrics is None:
+            return None
+        return Metrics(**metrics)
+
+    # -- lifecycle ----------------------------------------------------------
+
+    @staticmethod
+    def _refresh_loop(
+        stop: threading.Event, lock: threading.RLock, ctx: Any
+    ) -> None:
+        while not stop.is_set():
+            with lock:
+                ctx.refresh()
+            time.sleep(REFRESH_INTERVAL)
+
+    def start(self) -> None:
+        """Start servicing the bus."""
         if self.thread:
             raise RuntimeError("Thread already running!")
         self.event = threading.Event()
-        # Reentrant: the command handler runs inside ctx.refresh() with this
-        # lock held, and may call submit_event() to answer inline.
-        self.lock = threading.RLock()
-        args = (self.event, self.lock, self.ctx,)
-        self.thread = threading.Thread(name='pd', target=self.refresh, args=args)
+        self.thread = threading.Thread(
+            name="pd",
+            target=self._refresh_loop,
+            args=(self.event, self.lock, self.ctx),
+        )
         self.thread.start()
 
-    def get_file_tx_status(self):
-        with self.lock:
-            return self.ctx.get_file_tx_status(0)
-
-    def get_metrics(self):
-        with self.lock:
-            return self.ctx.get_metrics(0)
-
-    def stop(self):
-        if not self.thread:
+    def stop(self) -> None:
+        """Stop servicing the bus."""
+        if not self.thread or self.event is None:
             raise RuntimeError("Thread not running!")
         while self.thread.is_alive():
             self.event.set()
@@ -139,6 +252,10 @@ class PeripheralDevice():
                 self.thread = None
                 break
 
-    def teardown(self):
+    def teardown(self) -> None:
+        """Stop the bus and release the library context.
+
+        The PD cannot be used afterwards.
+        """
         self.stop()
-        self.ctx = None
+        self._ctx = None

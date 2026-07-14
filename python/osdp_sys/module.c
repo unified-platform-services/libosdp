@@ -9,8 +9,8 @@
 
 static PyModuleDef osdp_sys_module = {
 	PyModuleDef_HEAD_INIT,
-	.m_name = "osdp_sys",
-	.m_doc = "Open Supervised Device Protocol",
+	.m_name = "osdp._sys",
+	.m_doc = "Private C extension backing the osdp package",
 	.m_size = -1,
 };
 
@@ -191,7 +191,7 @@ static PyMethodDef pyosdp_nodule_methods[] = {
 	{ NULL, NULL, 0, NULL } /* Sentinel */
 };
 
-PyMODINIT_FUNC PyInit_osdp_sys(void)
+PyMODINIT_FUNC PyInit__sys(void)
 {
 	PyObject *module;
 

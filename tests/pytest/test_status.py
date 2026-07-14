@@ -5,6 +5,8 @@
 #
 
 import time
+from dataclasses import astuple, fields
+
 import pytest
 
 from osdp import *
@@ -118,13 +120,15 @@ def test_metrics_access_and_reset():
     while time.time() < deadline:
         cp_metrics = cp.get_metrics(pd_addr)
         pd_metrics = pd.get_metrics()
-        if cp_metrics["packets_sent"] or cp_metrics["packets_received"]:
+        if cp_metrics and (cp_metrics.packets_sent or cp_metrics.packets_received):
             break
         time.sleep(0.1)
 
     assert cp_metrics is not None
     assert pd_metrics is not None
-    assert set(cp_metrics.keys()) == {
+    assert isinstance(cp_metrics, Metrics)
+    assert isinstance(pd_metrics, Metrics)
+    assert {f.name for f in fields(Metrics)} == {
         "packets_sent",
         "packets_received",
         "packet_check_errors",
@@ -134,15 +138,14 @@ def test_metrics_access_and_reset():
         "command_count",
         "event_count",
     }
-    assert set(pd_metrics.keys()) == set(cp_metrics.keys())
 
     # The API provides interval metrics, so a second read after the first
     # snapshot should reset counters back toward zero.
     next_cp_metrics = cp.get_metrics(pd_addr)
     next_pd_metrics = pd.get_metrics()
-    assert sum(next_cp_metrics.values()) <= sum(cp_metrics.values())
-    assert sum(next_pd_metrics.values()) <= sum(pd_metrics.values())
+    assert sum(astuple(next_cp_metrics)) <= sum(astuple(cp_metrics))
+    assert sum(astuple(next_pd_metrics)) <= sum(astuple(pd_metrics))
 
 def test_pd_info_default_baud_rate():
-    info = PDInfo(101, f1, scbk=key).get()
-    assert info["baud_rate"] == 9600
+    info = PDInfo(101, f1, scbk=key)
+    assert info.baud_rate == 9600

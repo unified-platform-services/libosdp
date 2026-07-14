@@ -8,6 +8,7 @@ import time
 import pytest
 
 from osdp import *
+from osdp import commands, events
 from conftest import (
     MultidropBus,
     assert_command_received,
@@ -55,13 +56,12 @@ pd_list = [
 
 cp = ControlPanel(pd_info_list, log_level=LogLevel.Debug)
 
-def cp_check_command_status(cmd, expected_outcome=True):
-    event = {
-        'event': Event.Notification,
-        'type': Notification.Command,
-        'arg0': cmd,
-        'arg1': 0 if expected_outcome else -1,
-    }
+def cp_check_command_status(cmd_id, expected_outcome=True):
+    event = events.Notification(
+        type=NotificationType.Command,
+        arg0=int(cmd_id),
+        arg1=0 if expected_outcome else -1,
+    )
     wait_for_notification_event(cp, secure_pd.address, event)
 
 @pytest.fixture(scope='module', autouse=True)
@@ -81,45 +81,39 @@ def teardown_test():
         pd.teardown()
 
 def test_command_output():
-    test_cmd = {
-        'command': Command.Output,
-        'output_no': 0,
-        'control_code': 1,
-        'timer_count': 0
-    }
+    test_cmd = commands.Output(
+        output_no=0,
+        control_code=OutputControlCode.PermanentOff,
+        timer_count=0,
+    )
     assert cp.is_online(secure_pd_addr)
     assert cp.submit_command(secure_pd_addr, test_cmd)
     assert_command_received(secure_pd, test_cmd)
-    cp_check_command_status(Command.Output)
+    cp_check_command_status(CommandId.Output)
 
 @pytest.mark.parametrize("answer_inline", [False, True])
 def test_command_output_ostatr(answer_inline):
     """OSDP v2.2 6.9: the PD may answer osdp_OUT with an osdp_OSTATR reporting
     the new output state, or ACK it and send the osdp_OSTATR later on a poll.
     The app picks by submitting the status from within its callback, or not."""
-    reply = {
-        'event': Event.Status,
-        'type': StatusReportType.Output,
-        'report': bytes([1]),
-    }
+    reply = events.Status(type=StatusReportType.Output, report=bytes([1]))
 
     def cmd_handler(command):
-        assert command['command'] == Command.Output
+        assert isinstance(command, commands.Output)
         if answer_inline:
             secure_pd.submit_event(reply)
-        return 0, None
+        return None
 
     assert cp.is_online(secure_pd_addr)
-    original = getattr(secure_pd, 'user_command_handler', None)
+    original = secure_pd.user_command_handler
     try:
         secure_pd.set_command_handler(cmd_handler)
 
-        test_cmd = {
-            'command': Command.Output,
-            'output_no': 0,
-            'control_code': 1,
-            'timer_count': 0
-        }
+        test_cmd = commands.Output(
+            output_no=0,
+            control_code=OutputControlCode.PermanentOff,
+            timer_count=0,
+        )
         assert cp.submit_command(secure_pd_addr, test_cmd)
         assert_command_received(secure_pd, test_cmd)
 
@@ -132,195 +126,215 @@ def test_command_output_ostatr(answer_inline):
         secure_pd.set_command_handler(original)
 
 def test_command_buzzer():
-    test_cmd = {
-        'command': Command.Buzzer,
-        'reader': 0,
-        'control_code': 1,
-        'on_count': 10,
-        'off_count': 10,
-        'rep_count': 10
-    }
+    test_cmd = commands.Buzzer(
+        reader=0,
+        control_code=BuzzerControlCode.Off,
+        on_count=10,
+        off_count=10,
+        rep_count=10,
+    )
     assert cp.is_online(secure_pd_addr)
     assert cp.submit_command(secure_pd_addr, test_cmd)
     assert_command_received(secure_pd, test_cmd)
-    cp_check_command_status(Command.Buzzer)
+    cp_check_command_status(CommandId.Buzzer)
 
 def test_command_text():
-    test_cmd = {
-        'command': Command.Text,
-        'reader': 0,
-        'control_code': 1,
-        'temp_time': 20,
-        'offset_row': 1,
-        'offset_col': 1,
-        'data': 'PYOSDP'
-    }
+    test_cmd = commands.Text(
+        reader=0,
+        control_code=TextControlCode.PermanentNoWrap,
+        temp_time=20,
+        offset_row=1,
+        offset_col=1,
+        data='PYOSDP',
+    )
     assert cp.is_online(secure_pd_addr)
     assert cp.submit_command(secure_pd_addr, test_cmd)
     assert_command_received(secure_pd, test_cmd)
-    cp_check_command_status(Command.Text)
+    cp_check_command_status(CommandId.Text)
 
-def test_command_led():
-    test_cmd = {
-        'command': Command.LED,
-        'reader': 1,
-        'led_number': 0,
-        'control_code': 1,
-        'on_count': 10,
-        'off_count': 10,
-        'on_color': CommandLEDColor.Red,
-        'off_color': CommandLEDColor.Black,
-        'timer_count': 10,
-        'temporary': True
-    }
+def test_command_led_temporary():
+    """A temporary state flashes for its timer and then reverts."""
+    test_cmd = commands.LED(
+        reader=1,
+        led_number=0,
+        temporary=commands.TemporaryLEDParams(
+            control_code=TemporaryLEDControlCode.Set,
+            on_count=10,
+            off_count=10,
+            on_color=LEDColor.Red,
+            off_color=LEDColor.Black,
+            timer_count=10,
+        ),
+    )
+    assert cp.is_online(secure_pd_addr)
     assert cp.submit_command(secure_pd_addr, test_cmd)
     assert_command_received(secure_pd, test_cmd)
-    cp_check_command_status(Command.LED)
+    cp_check_command_status(CommandId.LED)
 
-    test_cmd['temporary'] = False
-    del test_cmd['timer_count']
-
+def test_command_led_permanent():
+    """A permanent state persists until something else changes it."""
+    test_cmd = commands.LED(
+        reader=1,
+        led_number=0,
+        permanent=commands.PermanentLEDParams(
+            control_code=PermanentLEDControlCode.Set,
+            on_count=10,
+            off_count=10,
+            on_color=LEDColor.Red,
+            off_color=LEDColor.Black,
+        ),
+    )
+    assert cp.is_online(secure_pd_addr)
     assert cp.submit_command(secure_pd_addr, test_cmd)
     assert_command_received(secure_pd, test_cmd)
-    cp_check_command_status(Command.LED)
+    cp_check_command_status(CommandId.LED)
+
+def test_command_led_temporary_and_permanent():
+    """Both blocks in one command: cancel the running temporary state and put
+    the LED into a new permanent state. The old flat command could not say
+    this; it carried a single control code and a `temporary` boolean."""
+    flash = commands.LED(
+        reader=1,
+        led_number=0,
+        temporary=commands.TemporaryLEDParams(
+            on_count=5,
+            off_count=5,
+            on_color=LEDColor.Red,
+            off_color=LEDColor.Black,
+            timer_count=100,
+        ),
+    )
+    assert cp.is_online(secure_pd_addr)
+    assert cp.submit_command(secure_pd_addr, flash)
+    assert_command_received(secure_pd, flash)
+    cp_check_command_status(CommandId.LED)
+
+    cancel_and_set = commands.LED(
+        reader=1,
+        led_number=0,
+        temporary=commands.TemporaryLEDParams(
+            control_code=TemporaryLEDControlCode.Cancel,
+        ),
+        permanent=commands.PermanentLEDParams(
+            on_color=LEDColor.Green,
+            on_count=1,
+        ),
+    )
+    assert cp.submit_command(secure_pd_addr, cancel_and_set)
+    received = assert_command_received(secure_pd, cancel_and_set)
+    assert received.temporary is not None
+    assert received.permanent is not None
+    cp_check_command_status(CommandId.LED)
+
+def test_command_led_nop_block_is_dropped():
+    """A block that does nothing is the same as no block at all, and an LED
+    command that does nothing at all is an error."""
+    cmd = commands.LED(
+        led_number=0,
+        temporary=commands.TemporaryLEDParams(
+            control_code=TemporaryLEDControlCode.Nop),
+        permanent=commands.PermanentLEDParams(
+            on_color=LEDColor.Green, on_count=1),
+    )
+    assert cmd.temporary is None
+
+    with pytest.raises(ValueError):
+        commands.LED(led_number=0)
 
 def test_command_comset():
-    test_cmd = {
-        'command': Command.Comset,
-        'address': secure_pd_addr,
-        'baud_rate': 9600
-    }
-    test_cmd_done = {
-        'command': Command.ComsetDone,
-        'address': secure_pd_addr,
-        'baud_rate': 9600
-    }
+    test_cmd = commands.Comset(address=secure_pd_addr, baud_rate=9600)
+    test_cmd_done = commands.ComsetDone(address=secure_pd_addr, baud_rate=9600)
     assert cp.is_online(secure_pd_addr)
     assert cp.submit_command(secure_pd_addr, test_cmd)
     assert_command_received(secure_pd, test_cmd)
     assert_command_received(secure_pd, test_cmd_done)
-    cp_check_command_status(Command.Comset)
+    cp_check_command_status(CommandId.Comset)
 
 def test_command_mfg():
-    test_cmd = {
-        'command': Command.Manufacturer,
-        'vendor_code': 0x00030201,
-        'data': bytes([9,1,9,2,6,3,1,7,7,0])
-    }
+    test_cmd = commands.Manufacturer(
+        vendor_code=0x00030201,
+        data=bytes([9,1,9,2,6,3,1,7,7,0]),
+    )
     assert cp.is_online(secure_pd_addr)
     assert cp.submit_command(secure_pd_addr, test_cmd)
     assert_command_received(secure_pd, test_cmd)
-    cp_check_command_status(Command.Manufacturer)
+    cp_check_command_status(CommandId.Manufacturer)
 
 def test_command_mfg_with_reply():
     """Test manufacturer command with asynchronous manufacturer reply event"""
-    def evt_handler(pd, event):
-        print(f"DEBUG: Received event: {event}")
-        assert event['event'] == Event.ManufacturerReply
-        assert event['vendor_code'] == 0x00030201
-        assert event['data'] == bytes([9,1,9,2,6,3,1,7,7,0])
+    payload = bytes([9,1,9,2,6,3,1,7,7,0])
+    seen_events = []
+    seen_commands = []
+
+    def evt_handler(address, event):
+        seen_events.append((address, event))
         return 0
 
     def cmd_handler(command):
-        print(f"DEBUG: Received command: {command}")
-        assert command['command'] == Command.Manufacturer
-        assert command['vendor_code'] == 0x00030201
-        assert command['data'] == bytes([9,1,9,2,6,3,1,7,7,0])
-        return 0, None
+        seen_commands.append(command)
+        return None
 
     assert cp.is_online(secure_pd_addr)
 
-    # Backup original handlers
-    original_event_handler = getattr(cp, '_event_handler', None)
-    original_command_handler = getattr(secure_pd, 'user_command_handler', None)
+    original_event_handler = cp.user_event_handler
+    original_command_handler = secure_pd.user_command_handler
 
     try:
         cp.set_event_handler(evt_handler)
         secure_pd.set_command_handler(cmd_handler)
 
-        test_cmd = {
-            'command': Command.Manufacturer,
-            'vendor_code': 0x00030201,
-            'data': bytes([9,1,9,2,6,3,1,7,7,0])
-        }
+        test_cmd = commands.Manufacturer(vendor_code=0x00030201, data=payload)
 
         assert cp.submit_command(secure_pd_addr, test_cmd)
+        assert_command_received(secure_pd, test_cmd)
+        assert test_cmd in seen_commands
 
-        # The command should be received by the PD (without mfg_command field)
-        expected_cmd_received = {
-            'command': Command.Manufacturer,
-            'vendor_code': 0x00030201,
-            'data': bytes([9,1,9,2,6,3,1,7,7,0])
-        }
-        assert_command_received(secure_pd, expected_cmd_received)
-
-        cp_check_command_status(Command.Manufacturer)
+        cp_check_command_status(CommandId.Manufacturer)
 
         # Emit manufacturer reply event asynchronously from the PD app
-        secure_pd.submit_event({
-            'event': Event.ManufacturerReply,
-            'vendor_code': 0x00030201,
-            'data': bytes([9,1,9,2,6,3,1,7,7,0]),
-        })
+        reply = events.ManufacturerReply(vendor_code=0x00030201, data=payload)
+        secure_pd.submit_event(reply)
 
         # The manufacturer reply event should be received by the CP
-        expected_event = {
-            'event': Event.ManufacturerReply,
-            'vendor_code': 0x00030201,
-            'data': bytes([9,1,9,2,6,3,1,7,7,0])
-        }
-        wait_for_non_notification_event(cp, secure_pd_addr, expected_event)
-
+        wait_for_non_notification_event(cp, secure_pd_addr, reply)
+        assert (secure_pd_addr, reply) in seen_events
     finally:
-        # Restore original handlers
-        if original_event_handler is not None:
-            cp.set_event_handler(original_event_handler)
-        else:
-            cp.set_event_handler(None)
+        cp.set_event_handler(original_event_handler)
+        secure_pd.set_command_handler(original_command_handler)
 
-        if original_command_handler is not None:
-            secure_pd.set_command_handler(original_command_handler)
-        else:
-            secure_pd.set_command_handler(None)
-
-@pytest.mark.parametrize("reply_event", [
-    Event.ManufacturerReply,
-    Event.ManufacturerStatus,
-    Event.ManufacturerError,
+@pytest.mark.parametrize("reply_type", [
+    events.ManufacturerReply,
+    events.ManufacturerStatus,
+    events.ManufacturerError,
 ])
-def test_command_mfg_inline_reply(reply_event):
+def test_command_mfg_inline_reply(reply_type):
     """PD answers from within its command handler; the reply must ride out on
     the MFG command itself rather than on a later poll."""
     payload = bytes([0xC0, 0xFF, 0xEE])
 
+    if reply_type is events.ManufacturerReply:
+        reply = reply_type(vendor_code=0x00030201, data=payload)
+    else:
+        reply = reply_type(data=payload)
+
     def cmd_handler(command):
-        assert command['command'] == Command.Manufacturer
-        event = {'event': reply_event, 'data': payload}
-        if reply_event == Event.ManufacturerReply:
-            event['vendor_code'] = 0x00030201
-        secure_pd.submit_event(event)
-        return 0, None
+        assert isinstance(command, commands.Manufacturer)
+        secure_pd.submit_event(reply)
+        return None
 
     assert cp.is_online(secure_pd_addr)
 
-    original_command_handler = getattr(secure_pd, 'user_command_handler', None)
+    original_command_handler = secure_pd.user_command_handler
     try:
         secure_pd.set_command_handler(cmd_handler)
 
-        test_cmd = {
-            'command': Command.Manufacturer,
-            'vendor_code': 0x00030201,
-            'data': payload,
-        }
+        test_cmd = commands.Manufacturer(vendor_code=0x00030201, data=payload)
         assert cp.submit_command(secure_pd_addr, test_cmd)
 
         # Also drains the PD's command queue so it does not leak to other tests
         assert_command_received(secure_pd, test_cmd)
 
-        expected_event = {'event': reply_event, 'data': payload}
-        if reply_event == Event.ManufacturerReply:
-            expected_event['vendor_code'] = 0x00030201
-        wait_for_non_notification_event(cp, secure_pd_addr, expected_event)
+        wait_for_non_notification_event(cp, secure_pd_addr, reply)
 
         # An error reply fails the command but must not take the PD offline
         assert cp.is_online(secure_pd_addr)
@@ -333,35 +347,33 @@ BIO_TEMPLATE = bytes([0xB1, 0x0C, 0x0D, 0xA7, 0xA0])
 def test_command_bioread(answer_inline):
     """BIOREAD: the PD scans and returns a template. The app may answer from
     within its callback (inline) or later (deferred, riding out on a poll)."""
-    reply = {
-        'event': Event.BioRead,
-        'reader': 0,
-        'status': BioStatus.Success,
-        'type': BioType.RightIndexFingerPrint,
-        'quality': 0xC0,
-        'data': BIO_TEMPLATE,
-    }
+    reply = events.BioRead(
+        reader=0,
+        status=BioStatus.Success,
+        type=BioType.RightIndexFingerPrint,
+        quality=0xC0,
+        data=BIO_TEMPLATE,
+    )
 
     def cmd_handler(command):
-        assert command['command'] == Command.BioRead
-        assert command['type'] == BioType.RightIndexFingerPrint
-        assert command['format'] == BioFormat.AnsiIncits378
+        assert isinstance(command, commands.BioRead)
+        assert command.type == BioType.RightIndexFingerPrint
+        assert command.format == BioFormat.AnsiIncits378
         if answer_inline:
             secure_pd.submit_event(reply)
-        return 0, None
+        return None
 
     assert cp.is_online(secure_pd_addr)
-    original = getattr(secure_pd, 'user_command_handler', None)
+    original = secure_pd.user_command_handler
     try:
         secure_pd.set_command_handler(cmd_handler)
 
-        test_cmd = {
-            'command': Command.BioRead,
-            'reader': 0,
-            'type': BioType.RightIndexFingerPrint,
-            'format': BioFormat.AnsiIncits378,
-            'quality': 0x80,
-        }
+        test_cmd = commands.BioRead(
+            reader=0,
+            type=BioType.RightIndexFingerPrint,
+            format=BioFormat.AnsiIncits378,
+            quality=0x80,
+        )
         assert cp.submit_command(secure_pd_addr, test_cmd)
         assert_command_received(secure_pd, test_cmd)
 
@@ -375,33 +387,27 @@ def test_command_bioread(answer_inline):
 @pytest.mark.parametrize("answer_inline", [False, True])
 def test_command_biomatch(answer_inline):
     """BIOMATCH: the CP sends a template, the PD scans and returns a score."""
-    reply = {
-        'event': Event.BioMatch,
-        'reader': 0,
-        'status': BioStatus.Success,
-        'score': 0xFF,
-    }
+    reply = events.BioMatch(reader=0, status=BioStatus.Success, score=0xFF)
 
     def cmd_handler(command):
-        assert command['command'] == Command.BioMatch
-        assert command['data'] == BIO_TEMPLATE
+        assert isinstance(command, commands.BioMatch)
+        assert command.data == BIO_TEMPLATE
         if answer_inline:
             secure_pd.submit_event(reply)
-        return 0, None
+        return None
 
     assert cp.is_online(secure_pd_addr)
-    original = getattr(secure_pd, 'user_command_handler', None)
+    original = secure_pd.user_command_handler
     try:
         secure_pd.set_command_handler(cmd_handler)
 
-        test_cmd = {
-            'command': Command.BioMatch,
-            'reader': 0,
-            'type': BioType.RightIndexFingerPrint,
-            'format': BioFormat.AnsiIncits378,
-            'quality': 0x80,
-            'data': BIO_TEMPLATE,
-        }
+        test_cmd = commands.BioMatch(
+            reader=0,
+            type=BioType.RightIndexFingerPrint,
+            format=BioFormat.AnsiIncits378,
+            quality=0x80,
+            data=BIO_TEMPLATE,
+        )
         assert cp.submit_command(secure_pd_addr, test_cmd)
         assert_command_received(secure_pd, test_cmd)
 
@@ -416,68 +422,59 @@ def test_command_bioread_nak_unsupported_type():
     """A PD that cannot scan the requested body part NAKs with BIO_TYPE. The
     NAK is a command failure but must not take the PD offline."""
     def cmd_handler(command):
-        assert command['command'] == Command.BioRead
-        return -Nak.BioType, None
+        assert isinstance(command, commands.BioRead)
+        raise NakError(NakCode.BioType)
 
     assert cp.is_online(secure_pd_addr)
-    original = getattr(secure_pd, 'user_command_handler', None)
+    original = secure_pd.user_command_handler
     try:
         secure_pd.set_command_handler(cmd_handler)
 
-        test_cmd = {
-            'command': Command.BioRead,
-            'reader': 0,
-            'type': BioType.LeftRetinaScan,
-            'format': BioFormat.AnsiIncits378,
-            'quality': 0x80,
-        }
+        test_cmd = commands.BioRead(
+            reader=0,
+            type=BioType.LeftRetinaScan,
+            format=BioFormat.AnsiIncits378,
+            quality=0x80,
+        )
         assert cp.submit_command(secure_pd_addr, test_cmd)
         assert_command_received(secure_pd, test_cmd)
 
-        cp_check_command_status(Command.BioRead, expected_outcome=False)
+        cp_check_command_status(CommandId.BioRead, expected_outcome=False)
         assert cp.is_online(secure_pd_addr)
     finally:
         secure_pd.set_command_handler(original)
 
 def test_command_mfg_nack_soft_fail():
     def cmd_handler(command):
-        assert command['command'] == Command.Manufacturer
-        return -1, None
+        assert isinstance(command, commands.Manufacturer)
+        raise NakError(NakCode.Record)
 
     assert cp.is_online(secure_pd_addr)
 
-    original_command_handler = getattr(secure_pd, 'user_command_handler', None)
+    original_command_handler = secure_pd.user_command_handler
     try:
         secure_pd.set_command_handler(cmd_handler)
 
-        test_cmd = {
-            'command': Command.Manufacturer,
-            'vendor_code': 0x00030201,
-            'data': bytes([1, 2, 3, 4]),
-        }
+        test_cmd = commands.Manufacturer(
+            vendor_code=0x00030201,
+            data=bytes([1, 2, 3, 4]),
+        )
         assert cp.submit_command(secure_pd_addr, test_cmd)
         assert_command_received(secure_pd, test_cmd)
-        cp_check_command_status(Command.Manufacturer, expected_outcome=False)
+        cp_check_command_status(CommandId.Manufacturer, expected_outcome=False)
 
         # MFG NAK is a soft failure and does not drop PD online state.
         time.sleep(0.2)
         assert cp.is_online(secure_pd_addr)
     finally:
-        if original_command_handler is not None:
-            secure_pd.set_command_handler(original_command_handler)
-        else:
-            secure_pd.set_command_handler(None)
+        secure_pd.set_command_handler(original_command_handler)
 
 def test_command_keyset():
-    test_cmd = {
-        'command': Command.Keyset,
-        'type': 1,
-        'data': KeyStore.gen_key()
-    }
+    test_cmd = commands.Keyset(type=1, data=KeyStore.gen_key())
     assert cp.is_online(secure_pd_addr)
     assert cp.submit_command(secure_pd_addr, test_cmd)
     assert_command_received(secure_pd, test_cmd)
-    cp_check_command_status(Command.Keyset)
+    cp_check_command_status(CommandId.Keyset)
 
     # PD must be online and SC active after a KEYSET command
     time.sleep(0.5)
@@ -489,87 +486,74 @@ def test_command_keyset():
     assert cp.submit_command(insecure_pd_addr, test_cmd) == False
 
 def test_command_status():
-    def evt_handler(pd, event):
-        assert event['event'] == Event.Status
-        assert event['type'] == StatusReportType.Input
-        assert event['report'] == bytes([ 0, 1, 0, 1, 0, 1, 0, 1 ])
-        return 0
+    """A PD answers a status query by returning a Status from its command
+    handler; the report it puts there must reach the CP intact."""
+    report = bytes([0, 1])
 
     def cmd_handler(command):
-        assert command['command'] == Command.Status
-        assert command['type'] == StatusReportType.Input
-        cmd = {
-            'command': Command.Status,
-            'type': StatusReportType.Input,
-            'report': bytes([ 0, 1, 0, 1, 0, 1, 0, 1 ])
-        }
-        return 0, cmd
+        if isinstance(command, commands.Status):
+            return commands.Status(type=command.type, report=report)
+        return None
 
     assert cp.is_online(secure_pd_addr)
 
-    # Backup original handlers
-    original_event_handler = getattr(cp, '_event_handler', None)
-    original_command_handler = getattr(secure_pd, 'user_command_handler', None)
-
+    original_command_handler = secure_pd.user_command_handler
     try:
-        cp.set_event_handler(evt_handler)
         secure_pd.set_command_handler(cmd_handler)
 
-        test_cmd = {
-            'command': Command.Status,
-            'type': StatusReportType.Input,
-            'report': bytes([]),
-        }
-        cp.submit_command(secure_pd_addr, test_cmd)
+        query = commands.Status(type=StatusReportType.Local)
+        assert cp.submit_command(secure_pd_addr, query)
 
+        # The PD sees the query with an empty report ...
+        received = assert_command_received(secure_pd, query)
+        assert received.report == b''
+
+        # ... and the CP gets the report the PD answered with.
+        event = wait_for_non_notification_event(
+            cp, secure_pd_addr,
+            events.Status(type=StatusReportType.Local, report=report),
+        )
+        assert isinstance(event, events.Status)
+        assert event.type == StatusReportType.Local
+        assert event.report == report
+
+        cp_check_command_status(CommandId.Status)
     finally:
-        # Restore original handlers
-        if original_event_handler is not None:
-            cp.set_event_handler(original_event_handler)
-        else:
-            cp.set_event_handler(None)
-
-        if original_command_handler is not None:
-            secure_pd.set_command_handler(original_command_handler)
-        else:
-            secure_pd.set_command_handler(None)
+        secure_pd.set_command_handler(original_command_handler)
 
 soft_nak_commands = [
-    (Command.LED, {
-        'command': Command.LED,
-        'reader': 1,
-        'led_number': 0,
-        'control_code': 1,
-        'on_count': 10,
-        'off_count': 10,
-        'on_color': CommandLEDColor.Red,
-        'off_color': CommandLEDColor.Black,
-        'timer_count': 10,
-        'temporary': True
-    }),
-    (Command.Buzzer, {
-        'command': Command.Buzzer,
-        'reader': 0,
-        'control_code': 1,
-        'on_count': 10,
-        'off_count': 10,
-        'rep_count': 10
-    }),
-    (Command.Text, {
-        'command': Command.Text,
-        'reader': 0,
-        'control_code': 1,
-        'temp_time': 20,
-        'offset_row': 1,
-        'offset_col': 1,
-        'data': 'PYOSDP'
-    }),
-    (Command.Output, {
-        'command': Command.Output,
-        'output_no': 0,
-        'control_code': 1,
-        'timer_count': 0
-    }),
+    (CommandId.LED, commands.LED(
+        reader=1,
+        led_number=0,
+        temporary=commands.TemporaryLEDParams(
+            control_code=TemporaryLEDControlCode.Set,
+            on_count=10,
+            off_count=10,
+            on_color=LEDColor.Red,
+            off_color=LEDColor.Black,
+            timer_count=10,
+        ),
+    )),
+    (CommandId.Buzzer, commands.Buzzer(
+        reader=0,
+        control_code=BuzzerControlCode.Off,
+        on_count=10,
+        off_count=10,
+        rep_count=10,
+    )),
+    (CommandId.Text, commands.Text(
+        reader=0,
+        control_code=TextControlCode.PermanentNoWrap,
+        temp_time=20,
+        offset_row=1,
+        offset_col=1,
+        data='PYOSDP',
+    )),
+    (CommandId.Output, commands.Output(
+        output_no=0,
+        control_code=OutputControlCode.PermanentOff,
+        timer_count=0,
+    )),
 ]
 
 @pytest.mark.parametrize("cmd_id,test_cmd", soft_nak_commands,
@@ -580,11 +564,11 @@ def test_command_nak_keeps_pd_online(cmd_id, test_cmd):
     declined = []
 
     def cmd_handler(command):
-        declined.append(command['command'])
-        return -Nak.Record, None
+        declined.append(command.ID)
+        raise NakError(NakCode.Record)
 
     assert cp.is_online(secure_pd_addr)
-    original = getattr(secure_pd, 'user_command_handler', None)
+    original = secure_pd.user_command_handler
     try:
         secure_pd.set_command_handler(cmd_handler)
 
@@ -600,14 +584,10 @@ def test_command_unsupported_keeps_pd_online():
     """This PD has no contact status monitoring capability, so LibOSDP itself
     NAKs the input status request with CMD_UNKNOWN before the app sees it. An
     unsupported command is still not a link failure."""
-    test_cmd = {
-        'command': Command.Status,
-        'type': StatusReportType.Input,
-        'report': bytes([]),
-    }
+    test_cmd = commands.Status(type=StatusReportType.Input)
 
     assert cp.is_online(secure_pd_addr)
     assert cp.submit_command(secure_pd_addr, test_cmd)
 
-    cp_check_command_status(Command.Status, expected_outcome=False)
+    cp_check_command_status(CommandId.Status, expected_outcome=False)
     assert cp.is_online(secure_pd_addr)

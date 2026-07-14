@@ -5,123 +5,184 @@
 #
 
 import gc
+import threading
 import time
 
-import osdp_sys
 import pytest
 
 from osdp import *
+from osdp import commands, events
 from conftest import make_fifo_pair, cleanup_fifo_pair
 
 
-def _bring_online(cp, pd, timeout=5.0):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        cp.refresh()
-        pd.refresh()
-        if cp.status() & 0x1:
-            return
-        time.sleep(0.01)
-    pytest.fail("Timed out waiting for CP/PD to come online")
+PD_ADDR = 101
+
+# The CP command pool holds OSDP_CP_CMD_POOL_SIZE (4) entries per PD; the PD
+# event pool is sized the same way. Filling it is what lets a test observe the
+# Flushed and Aborted completions, which only happen to commands that never
+# reached the wire.
+POOL_SIZE = 4
 
 
-def _pump_until(predicate, cp, pd, timeout=2.0):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        cp.refresh()
-        pd.refresh()
-        if predicate():
-            return
-        time.sleep(0.01)
-    pytest.fail("Timed out waiting for completion callback")
+class Recorder:
+    """Collects completion callbacks from the library's refresh thread."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.records = []
+
+    def on_command_complete(self, pd_address, command, status):
+        with self.lock:
+            self.records.append((pd_address, command, status))
+
+    def on_event_complete(self, event, status):
+        with self.lock:
+            self.records.append((event, status))
+
+    def statuses(self):
+        with self.lock:
+            return [rec[-1] for rec in self.records]
+
+    def first_with_status(self, status):
+        with self.lock:
+            for rec in self.records:
+                if rec[-1] == status:
+                    return rec
+        return None
+
+    def wait_for_status(self, status, timeout=5.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if status in self.statuses():
+                return True
+            time.sleep(0.02)
+        return status in self.statuses()
 
 
-def _make_low_level_pair(name):
+def _make_pair(name):
     cp_channel, pd_channel = make_fifo_pair(name)
-    pd_info_cp = PDInfo(101, cp_channel, flags=[]).get()
-    pd_info_pd = PDInfo(101, pd_channel, flags=[]).get()
-    pd_cap = PDCapabilities([(Capability.OutputControl, 1, 1)]).get()
-    cp = osdp_sys.ControlPanel([pd_info_cp])
-    pd = osdp_sys.PeripheralDevice(pd_info_pd, capabilities=pd_cap)
+    pd_cap = PDCapabilities([(Capability.OutputControl, 1, 1)])
+    cp = ControlPanel(
+        [PDInfo(PD_ADDR, cp_channel, flags=[])],
+        log_level=LogLevel.Debug,
+    )
+    pd = PeripheralDevice(
+        PDInfo(PD_ADDR, pd_channel, flags=[]),
+        pd_cap,
+        log_level=LogLevel.Debug,
+    )
     return cp, pd
 
 
+def _teardown(cp, pd, name):
+    for dev in (cp, pd):
+        try:
+            dev.teardown()
+        except RuntimeError:
+            pass  # already torn down by the test body
+    gc.collect()
+    cleanup_fifo_pair(name)
+
+
+def _fill_queue(submit):
+    """Submit until the pool is full. Returns how many were accepted."""
+    queued = 0
+    while queued < POOL_SIZE and submit():
+        queued += 1
+    return queued
+
+
 def test_cp_command_completion_statuses():
-    cp = None
-    pd = None
-    records = []
-    cmd = {
-        'command': Command.Output,
-        'output_no': 0,
-        'control_code': 1,
-        'timer_count': 0,
-    }
+    """Every command a CP accepts settles exactly once: Ok once it is
+    acknowledged, Flushed if it is dropped from the queue, Aborted if the CP is
+    torn down while it is still queued."""
+    cp, pd = _make_pair("completion-cp")
+    rec = Recorder()
+    cmd = commands.Output(
+        output_no=0,
+        control_code=OutputControlCode.PermanentOff,
+        timer_count=0,
+    )
 
-    def on_command(command):
-        return 0, None
-
-    def on_complete(pd_idx, command_dict, status):
-        records.append((pd_idx, command_dict, status))
+    cp.set_command_completion_handler(rec.on_command_complete)
+    pd.set_command_handler(lambda command: None)
 
     try:
-        cp, pd = _make_low_level_pair("completion-cp")
-        pd.set_command_callback(on_command)
-        cp.set_command_completion_callback(on_complete)
-        _bring_online(cp, pd)
+        pd.start()
+        cp.start()
+        assert cp.online_wait(PD_ADDR, timeout=10), "PD did not come online"
 
-        assert cp.submit_command(0, cmd)
-        _pump_until(lambda: any(r[2] == CompletionStatus.Ok for r in records), cp, pd)
+        # Ok: the command reaches the PD and is acknowledged.
+        assert cp.submit_command(PD_ADDR, cmd)
+        assert rec.wait_for_status(CompletionStatus.Ok), \
+            "no Ok completion for an acknowledged command"
 
-        assert cp.submit_command(0, cmd)
-        assert cp.flush_commands(0) == 1
-        assert any(r[2] == CompletionStatus.Flushed for r in records)
+        pd_address, delivered, _ = rec.first_with_status(CompletionStatus.Ok)
+        assert pd_address == PD_ADDR
+        # The library hands back its own re-marshalled copy of the command.
+        assert delivered == cmd
+        assert delivered is not cmd
 
-        assert cp.submit_command(0, cmd)
-        cp = None
+        # Flushed: queued commands dropped by flush_commands() still settle.
+        queued = _fill_queue(lambda: cp.submit_command(PD_ADDR, cmd))
+        assert queued > 0, "could not queue any command to flush"
+        assert cp.flush_commands(PD_ADDR) > 0
+        assert rec.wait_for_status(CompletionStatus.Flushed), \
+            "no Flushed completion for a flushed command"
+
+        # Aborted: commands still queued when the CP is torn down settle too.
+        queued = _fill_queue(lambda: cp.submit_command(PD_ADDR, cmd))
+        assert queued > 0, "could not queue any command to abort"
+        cp.teardown()
         gc.collect()
-        assert any(r[2] == CompletionStatus.Aborted for r in records)
+        assert CompletionStatus.Aborted in rec.statuses(), \
+            "no Aborted completion for a command queued at teardown"
     finally:
-        cp = None
-        pd = None
-        gc.collect()
-        cleanup_fifo_pair("completion-cp")
+        _teardown(cp, pd, "completion-cp")
 
 
 def test_pd_event_completion_statuses():
-    cp = None
-    pd = None
-    records = []
-    event = {
-        'event': Event.Status,
-        'type': StatusReportType.Input,
-        'report': bytes([1, 0, 1, 0]),
-    }
+    """Every event a PD accepts settles exactly once: Ok once the CP takes it,
+    Flushed if it is dropped from the queue, Aborted if the PD is torn down
+    while it is still queued."""
+    cp, pd = _make_pair("completion-pd")
+    rec = Recorder()
+    event = events.Status(
+        type=StatusReportType.Input,
+        report=bytes([1, 0, 1, 0]),
+    )
 
-    def on_command(command):
-        return 0, None
-
-    def on_complete(event_dict, status):
-        records.append((event_dict, status))
+    pd.set_event_completion_handler(rec.on_event_complete)
+    pd.set_command_handler(lambda command: None)
 
     try:
-        cp, pd = _make_low_level_pair("completion-pd")
-        pd.set_command_callback(on_command)
-        pd.set_event_completion_callback(on_complete)
-        _bring_online(cp, pd)
+        pd.start()
+        cp.start()
+        assert cp.online_wait(PD_ADDR, timeout=10), "PD did not come online"
 
+        # Ok: the event is picked up by the CP.
         assert pd.submit_event(event)
-        _pump_until(lambda: any(r[1] == CompletionStatus.Ok for r in records), cp, pd)
+        assert rec.wait_for_status(CompletionStatus.Ok), \
+            "no Ok completion for a delivered event"
 
-        assert pd.submit_event(event)
-        assert pd.flush_events() == 1
-        assert any(r[1] == CompletionStatus.Flushed for r in records)
+        delivered, _ = rec.first_with_status(CompletionStatus.Ok)
+        # The library hands back its own re-marshalled copy of the event.
+        assert delivered == event
+        assert delivered is not event
 
-        assert pd.submit_event(event)
-        pd = None
+        # Flushed: queued events dropped by flush_events() still settle.
+        queued = _fill_queue(lambda: pd.submit_event(event))
+        assert queued > 0, "could not queue any event to flush"
+        assert pd.flush_events() > 0
+        assert rec.wait_for_status(CompletionStatus.Flushed), \
+            "no Flushed completion for a flushed event"
+
+        # Aborted: events still queued when the PD is torn down settle too.
+        queued = _fill_queue(lambda: pd.submit_event(event))
+        assert queued > 0, "could not queue any event to abort"
+        pd.teardown()
         gc.collect()
-        assert any(r[1] == CompletionStatus.Aborted for r in records)
+        assert CompletionStatus.Aborted in rec.statuses(), \
+            "no Aborted completion for an event queued at teardown"
     finally:
-        cp = None
-        pd = None
-        gc.collect()
-        cleanup_fifo_pair("completion-pd")
+        _teardown(cp, pd, "completion-pd")

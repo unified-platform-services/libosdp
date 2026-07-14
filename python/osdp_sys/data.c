@@ -41,92 +41,135 @@ static int pyosdp_make_struct_cmd_output(struct osdp_cmd *p, PyObject *dict)
 	return 0;
 }
 
+/*
+ * A LED command carries two independent parameter blocks; a control_code of
+ * zero means "no action" for that block. Each block is marshalled as a nested
+ * dict, present only when that block does something. timer_count is meaningful
+ * only for the temporary block.
+ */
+static int pyosdp_make_dict_cmd_led_params(PyObject **obj,
+					   struct osdp_cmd_led_params *p,
+					   bool temporary)
+{
+	PyObject *dict;
+
+	dict = PyDict_New();
+	if (dict == NULL)
+		return -1;
+
+	if (pyosdp_dict_add_int(dict, "control_code", p->control_code) ||
+	    pyosdp_dict_add_int(dict, "on_count", p->on_count) ||
+	    pyosdp_dict_add_int(dict, "off_count", p->off_count) ||
+	    pyosdp_dict_add_int(dict, "on_color", p->on_color) ||
+	    pyosdp_dict_add_int(dict, "off_color", p->off_color))
+		goto error;
+
+	if (temporary &&
+	    pyosdp_dict_add_int(dict, "timer_count", p->timer_count))
+		goto error;
+
+	*obj = dict;
+	return 0;
+error:
+	Py_DECREF(dict);
+	return -1;
+}
+
+static int pyosdp_dict_add_led_params(PyObject *obj, const char *key,
+				      struct osdp_cmd_led_params *p,
+				      bool temporary)
+{
+	int ret;
+	PyObject *dict;
+
+	if (pyosdp_make_dict_cmd_led_params(&dict, p, temporary))
+		return -1;
+
+	ret = PyDict_SetItemString(obj, key, dict);
+	Py_DECREF(dict);
+	return ret;
+}
+
 static int pyosdp_make_dict_cmd_led(PyObject *obj, struct osdp_cmd *cmd)
 {
-	bool is_temporary = false;
-	bool cancel_temporary = false;
-	struct osdp_cmd_led_params *p = &cmd->led.permanent;
-
-	if (cmd->led.temporary.control_code == 1 &&
-	    cmd->led.permanent.control_code != 0) {
-		cancel_temporary = true;
-	} else if (cmd->led.temporary.control_code) {
-		p = &cmd->led.temporary;
-		is_temporary = true;
-	}
-	if (pyosdp_dict_add_bool(obj, "temporary", is_temporary))
-		return -1;
 	if (pyosdp_dict_add_int(obj, "led_number", cmd->led.led_number))
 		return -1;
 	if (pyosdp_dict_add_int(obj, "reader", cmd->led.reader))
 		return -1;
-	if (pyosdp_dict_add_int(obj, "control_code", p->control_code))
+
+	if (cmd->led.temporary.control_code &&
+	    pyosdp_dict_add_led_params(obj, "temporary", &cmd->led.temporary,
+				       true))
 		return -1;
-	if (pyosdp_dict_add_int(obj, "off_color", p->off_color))
+
+	if (cmd->led.permanent.control_code &&
+	    pyosdp_dict_add_led_params(obj, "permanent", &cmd->led.permanent,
+				       false))
 		return -1;
-	if (pyosdp_dict_add_int(obj, "on_color", p->on_color))
+
+	return 0;
+}
+
+static int pyosdp_make_struct_cmd_led_params(struct osdp_cmd_led_params *params,
+					     PyObject *dict, bool temporary)
+{
+	int control_code, on_count, off_count, on_color, off_color, timer_count;
+
+	if (!PyDict_Check(dict)) {
+		PyErr_SetString(PyExc_TypeError, "LED params must be a dict");
 		return -1;
-	if (pyosdp_dict_add_int(obj, "on_count", p->on_count))
-		return -1;
-	if (pyosdp_dict_add_int(obj, "off_count", p->off_count))
-		return -1;
-	if (is_temporary) {
-		if (pyosdp_dict_add_int(obj, "timer_count", p->timer_count))
-			return -1;
 	}
-	if (cancel_temporary) {
-		if (pyosdp_dict_add_bool(obj, "cancel_temporary", cancel_temporary))
+
+	if (pyosdp_dict_get_int(dict, "control_code", &control_code))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "on_count", &on_count))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "off_count", &off_count))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "on_color", &on_color))
+		return -1;
+	if (pyosdp_dict_get_int(dict, "off_color", &off_color))
+		return -1;
+
+	if (temporary) {
+		if (pyosdp_dict_get_int(dict, "timer_count", &timer_count))
 			return -1;
+		params->timer_count = (uint16_t)timer_count;
 	}
+
+	params->control_code = (uint8_t)control_code;
+	params->on_count = (uint8_t)on_count;
+	params->off_count = (uint8_t)off_count;
+	params->on_color = (uint8_t)on_color;
+	params->off_color = (uint8_t)off_color;
 	return 0;
 }
 
 static int pyosdp_make_struct_cmd_led(struct osdp_cmd *p, PyObject *dict)
 {
-	int led_number, reader, off_color, on_color, off_count, on_count,
-		timer_count, control_code;
-	bool is_temporary = false;
+	int led_number, reader;
 	struct osdp_cmd_led *cmd = &p->led;
-	struct osdp_cmd_led_params *params = &cmd->permanent;
+	PyObject *params;
 
 	if (pyosdp_dict_get_int(dict, "led_number", &led_number))
 		return -1;
-
 	if (pyosdp_dict_get_int(dict, "reader", &reader))
 		return -1;
 
-	if (pyosdp_dict_get_bool(dict, "temporary", &is_temporary) < 0)
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "control_code", &control_code))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "off_color", &off_color))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "on_color", &on_color))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "off_count", &off_count))
-		return -1;
-
-	if (pyosdp_dict_get_int(dict, "on_count", &on_count))
-		return -1;
-
-	if (is_temporary) {
-		params = &cmd->temporary;
-		if (pyosdp_dict_get_int(dict, "timer_count", &timer_count))
-			return -1;
-		params->timer_count = (uint8_t)timer_count;
-	}
-
 	cmd->led_number = (uint8_t)led_number;
 	cmd->reader = (uint8_t)reader;
-	params->control_code = (uint8_t)control_code;
-	params->off_color = (uint8_t)off_color;
-	params->on_color = (uint8_t)on_color;
-	params->on_count = (uint8_t)on_count;
-	params->off_count = (uint8_t)off_count;
+
+	/* An absent block leaves it zeroed, which the spec reads as no-action */
+	params = PyDict_GetItemString(dict, "temporary");
+	if (params != NULL &&
+	    pyosdp_make_struct_cmd_led_params(&cmd->temporary, params, true))
+		return -1;
+
+	params = PyDict_GetItemString(dict, "permanent");
+	if (params != NULL &&
+	    pyosdp_make_struct_cmd_led_params(&cmd->permanent, params, false))
+		return -1;
+
 	return 0;
 }
 
