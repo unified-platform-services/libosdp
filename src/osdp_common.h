@@ -242,8 +242,8 @@ static inline __noreturn void die()
 #define CMD_LED		 0x69
 #define CMD_BUZ		 0x6A
 #define CMD_TEXT	 0x6B
-#define CMD_RMODE	 0x6C
-#define CMD_TDSET	 0x6D
+#define CMD_RMODE	 0x6C /* deprecated: removed from the spec */
+#define CMD_TDSET	 0x6D /* deprecated: removed from the spec */
 #define CMD_COMSET	 0x6E
 #define CMD_BIOREAD	 0x73
 #define CMD_BIOMATCH	 0x74
