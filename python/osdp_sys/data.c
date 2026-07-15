@@ -71,6 +71,15 @@ ASSERT_INT_SIZED(struct osdp_cmd_buzzer, control_code);
 ASSERT_INT_SIZED(struct osdp_cmd_text, control_code);
 ASSERT_INT_SIZED(struct osdp_status_report, type);
 ASSERT_INT_SIZED(struct osdp_notification, type);
+ASSERT_INT_SIZED(struct osdp_cmd_led_params, on_color);
+ASSERT_INT_SIZED(struct osdp_cmd_led_params, off_color);
+ASSERT_INT_SIZED(struct osdp_cmd_bioread, type);
+ASSERT_INT_SIZED(struct osdp_cmd_bioread, format);
+ASSERT_INT_SIZED(struct osdp_cmd_biomatch, type);
+ASSERT_INT_SIZED(struct osdp_cmd_biomatch, format);
+ASSERT_INT_SIZED(struct osdp_event_bioreadr, status);
+ASSERT_INT_SIZED(struct osdp_event_bioreadr, type);
+ASSERT_INT_SIZED(struct osdp_event_biomatchr, status);
 
 /* --- Field access --- */
 
@@ -290,8 +299,8 @@ static const struct pyosdp_field led_temporary_fields[] = {
 	U8_FIELD(struct osdp_cmd_led_params, control_code),
 	U8_FIELD(struct osdp_cmd_led_params, on_count),
 	U8_FIELD(struct osdp_cmd_led_params, off_count),
-	U8_FIELD(struct osdp_cmd_led_params, on_color),
-	U8_FIELD(struct osdp_cmd_led_params, off_color),
+	INT_FIELD_(struct osdp_cmd_led_params, on_color),
+	INT_FIELD_(struct osdp_cmd_led_params, off_color),
 	U16_FIELD(struct osdp_cmd_led_params, timer_count),
 	END_OF_FIELDS,
 };
@@ -300,8 +309,8 @@ static const struct pyosdp_field led_permanent_fields[] = {
 	U8_FIELD(struct osdp_cmd_led_params, control_code),
 	U8_FIELD(struct osdp_cmd_led_params, on_count),
 	U8_FIELD(struct osdp_cmd_led_params, off_count),
-	U8_FIELD(struct osdp_cmd_led_params, on_color),
-	U8_FIELD(struct osdp_cmd_led_params, off_color),
+	INT_FIELD_(struct osdp_cmd_led_params, on_color),
+	INT_FIELD_(struct osdp_cmd_led_params, off_color),
 	END_OF_FIELDS,
 };
 
@@ -387,16 +396,16 @@ static const struct pyosdp_field cmd_mfg_fields[] = {
 
 static const struct pyosdp_field cmd_bioread_fields[] = {
 	U8_FIELD(struct osdp_cmd_bioread, reader),
-	U8_FIELD(struct osdp_cmd_bioread, type),
-	U8_FIELD(struct osdp_cmd_bioread, format),
+	INT_FIELD_(struct osdp_cmd_bioread, type),
+	INT_FIELD_(struct osdp_cmd_bioread, format),
 	U8_FIELD(struct osdp_cmd_bioread, quality),
 	END_OF_FIELDS,
 };
 
 static const struct pyosdp_field cmd_biomatch_fields[] = {
 	U8_FIELD(struct osdp_cmd_biomatch, reader),
-	U8_FIELD(struct osdp_cmd_biomatch, type),
-	U8_FIELD(struct osdp_cmd_biomatch, format),
+	INT_FIELD_(struct osdp_cmd_biomatch, type),
+	INT_FIELD_(struct osdp_cmd_biomatch, format),
 	U8_FIELD(struct osdp_cmd_biomatch, quality),
 	{
 		.key = "data",
@@ -557,8 +566,8 @@ static const struct pyosdp_field event_mfgstat_fields[] = {
 
 static const struct pyosdp_field event_bioreadr_fields[] = {
 	U8_FIELD(struct osdp_event_bioreadr, reader),
-	U8_FIELD(struct osdp_event_bioreadr, status),
-	U8_FIELD(struct osdp_event_bioreadr, type),
+	INT_FIELD_(struct osdp_event_bioreadr, status),
+	INT_FIELD_(struct osdp_event_bioreadr, type),
 	U8_FIELD(struct osdp_event_bioreadr, quality),
 	{
 		/* A failed scan carries no template */
@@ -575,7 +584,7 @@ static const struct pyosdp_field event_bioreadr_fields[] = {
 
 static const struct pyosdp_field event_biomatchr_fields[] = {
 	U8_FIELD(struct osdp_event_biomatchr, reader),
-	U8_FIELD(struct osdp_event_biomatchr, status),
+	INT_FIELD_(struct osdp_event_biomatchr, status),
 	U8_FIELD(struct osdp_event_biomatchr, score),
 	END_OF_FIELDS,
 };

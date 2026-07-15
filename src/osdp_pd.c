@@ -1091,7 +1091,7 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	case REPLY_PDCAP:
 		/* Capability entities are bounds checked as they are emitted */
 		for (i = 1; i < OSDP_PD_CAP_SENTINEL; i++) {
-			if (pd->cap[i].function_code != i) {
+			if ((int)pd->cap[i].function_code != i) {
 				continue;
 			}
 			if (max_len < REPLY_PDCAP_ENTITY_LEN) {

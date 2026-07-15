@@ -469,7 +469,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 
 		/* Get peer RX buffer size */
 		t = OSDP_PD_CAP_RECEIVE_BUFFERSIZE;
-		if (pd->cap[t].function_code == t) {
+		if ((int)pd->cap[t].function_code == t) {
 			pd->peer_rx_size = pd->cap[t].compliance_level;
 			pd->peer_rx_size |= (uint32_t)pd->cap[t].num_items << 8;
 		}
@@ -484,7 +484,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 
 		/* Check checksum/CRC support capability */
 		t = OSDP_PD_CAP_CHECK_CHARACTER_SUPPORT;
-		if (pd->cap[t].function_code == t) {
+		if ((int)pd->cap[t].function_code == t) {
 			if (pd->cap[t].compliance_level & 0x01) {
 				SET_FLAG(pd, PD_FLAG_CP_USE_CRC);
 			} else {

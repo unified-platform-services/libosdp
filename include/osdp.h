@@ -237,7 +237,7 @@ struct osdp_pd_cap {
 	/**
 	 * Capability function code. See @ref osdp_pd_cap_function_code_e
 	 */
-	uint8_t function_code;
+	enum osdp_pd_cap_function_code_e function_code;
 	/**
 	 * A function_code dependent number that indicates what the PD can do
 	 * with this capability.
@@ -603,11 +603,11 @@ struct osdp_cmd_bioread {
 	/**
 	 * Body part to scan. See @ref osdp_biometric_type_e
 	 */
-	uint8_t type;
+	enum osdp_biometric_type_e type;
 	/**
 	 * Format of the data to be returned. See @ref osdp_biometric_format_e
 	 */
-	uint8_t format;
+	enum osdp_biometric_format_e format;
 	/**
 	 * Normalised scan quality
 	 */
@@ -628,11 +628,11 @@ struct osdp_cmd_biomatch {
 	/**
 	 * Body part to scan. See @ref osdp_biometric_type_e
 	 */
-	uint8_t type;
+	enum osdp_biometric_type_e type;
 	/**
 	 * Format of the attached template. See @ref osdp_biometric_format_e
 	 */
-	uint8_t format;
+	enum osdp_biometric_format_e format;
 	/**
 	 * Normalised threshold required for accepting the match
 	 */
@@ -755,11 +755,11 @@ struct osdp_cmd_led_params {
 	/**
 	 * Color to set during the ON timer (see @ref osdp_led_color_e).
 	 */
-	uint8_t on_color;
+	enum osdp_led_color_e on_color;
 	/**
 	 * Color to set during the OFF timer (see @ref osdp_led_color_e).
 	 */
-	uint8_t off_color;
+	enum osdp_led_color_e off_color;
 	/**
 	 * Time in units of 100 ms (only for temporary mode).
 	 */
@@ -1274,13 +1274,13 @@ struct osdp_event_bioreadr {
 	 * Outcome of the scan. See @ref osdp_biometric_status_e. The remaining
 	 * fields are valid only when this is `OSDP_BIO_STATUS_SUCCESS`.
 	 */
-	uint8_t status;
+	enum osdp_biometric_status_e status;
 	/**
 	 * Body part that was scanned. See @ref osdp_biometric_type_e
 	 *
 	 * @note The OSDP spec carries no format field in this reply.
 	 */
-	uint8_t type;
+	enum osdp_biometric_type_e type;
 	/**
 	 * Scan quality; 0x00 is worst, 0xFF is best
 	 */
@@ -1310,7 +1310,7 @@ struct osdp_event_biomatchr {
 	 * Outcome of the scan. See @ref osdp_biometric_status_e. @a score is
 	 * valid only when this is `OSDP_BIO_STATUS_SUCCESS`.
 	 */
-	uint8_t status;
+	enum osdp_biometric_status_e status;
 	/**
 	 * Result of the biometric match; 0x00 is no match, 0xFF is best match
 	 */
