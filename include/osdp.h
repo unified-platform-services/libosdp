@@ -459,6 +459,9 @@ enum osdp_status_report_type {
 	OSDP_STATUS_REPORT_REMOTE,
 };
 
+/**
+ * @brief Maximum number of status bits carried in struct osdp_status_report.
+ */
 #define OSDP_STATUS_REPORT_MAX_LEN 64
 
 /**
