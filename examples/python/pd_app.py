@@ -4,6 +4,9 @@
 #
 #  SPDX-License-Identifier: Apache-2.0
 #
+#  A minimal OSDP Peripheral Device. See the Python docs for a full walkthrough:
+#  https://doc.osdp.dev/python/peripheral-device
+#
 
 import argparse
 import signal

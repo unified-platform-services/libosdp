@@ -15,10 +15,13 @@ against it.
 Full documentation is hosted at [doc.osdp.dev](https://doc.osdp.dev/), including
 a Python-specific section:
 
-- [Getting Started](https://doc.osdp.dev/python/getting-started)
-- [API Reference](https://doc.osdp.dev/python/api)
+- [Getting Started](https://doc.osdp.dev/python/getting-started) — install and a minimal app
+- [Build and Install](https://doc.osdp.dev/python/build-and-install) — from source, per-OS
+- [Control Panel](https://doc.osdp.dev/python/control-panel) — the CP mode class
+- [Peripheral Device](https://doc.osdp.dev/python/peripheral-device) — the PD mode class
 - [Commands](https://doc.osdp.dev/python/commands) — what a CP sends
 - [Events](https://doc.osdp.dev/python/events) — what a PD sends
+- [API Reference](https://doc.osdp.dev/python/api) — PDInfo, capabilities, channel, errors, enums
 
 ## Install
 

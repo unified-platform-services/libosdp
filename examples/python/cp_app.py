@@ -4,6 +4,9 @@
 #
 #  SPDX-License-Identifier: Apache-2.0
 #
+#  A minimal OSDP Control Panel. See the Python docs for a full walkthrough:
+#  https://doc.osdp.dev/python/control-panel
+#
 
 import argparse
 
