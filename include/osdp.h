@@ -1879,8 +1879,7 @@ void osdp_get_sc_status_mask(const osdp_t *ctx, uint8_t *bitmask);
 struct osdp_metrics {
 	/**
 	 * Packets transmitted successfully on the wire. Counted once
-	 * per @ref osdp_phy_send_packet() that reached the channel
-	 * driver with the full payload.
+	 * per packet handed to the channel driver with its full payload.
 	 */
 	uint32_t packets_sent;
 	/**
