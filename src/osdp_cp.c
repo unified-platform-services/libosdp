@@ -536,13 +536,16 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_RSTATR:
-		if (len != REPLY_RSTATR_DATA_LEN) {
-			break;
+		t = OSDP_PD_CAP_READERS;
+		if (len != pd->cap[t].num_items ||
+		    len > OSDP_STATUS_REPORT_MAX_LEN) {
+			LOG_ERR("Invalid reader status report length %d", len);
+			return OSDP_CP_ERR_GENERIC;
 		}
 		event.type = OSDP_EVENT_STATUS;
-		event.status.type = OSDP_STATUS_REPORT_REMOTE;
-		event.status.nr_entries = 1;
-		event.status.report[0] = buf[pos++];
+		event.status.type = OSDP_STATUS_REPORT_READER;
+		event.status.nr_entries = len;
+		memcpy(event.status.report, buf + pos, len);
 		cp_dispatch_event(pd, &event);
 		ret = OSDP_CP_ERR_NONE;
 		break;
@@ -833,7 +836,7 @@ static int cp_translate_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		case OSDP_STATUS_REPORT_INPUT:  return CMD_ISTAT;
 		case OSDP_STATUS_REPORT_OUTPUT: return CMD_OSTAT;
 		case OSDP_STATUS_REPORT_LOCAL:  return CMD_LSTAT;
-		case OSDP_STATUS_REPORT_REMOTE: return CMD_RSTAT;
+		case OSDP_STATUS_REPORT_READER: return CMD_RSTAT;
 		default: return -1;
 		}
 	case OSDP_CMD_KEYSET:

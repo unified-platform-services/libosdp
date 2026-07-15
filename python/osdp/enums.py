@@ -246,10 +246,10 @@ class StatusReportType(_WireEnum):
     """One entry per output line."""
 
     Local = _sys.STATUS_REPORT_LOCAL
-    """Local tamper (bit 0) and power (bit 1) status."""
+    """Local status: two entries, report[0] tamper and report[1] power."""
 
-    Remote = _sys.STATUS_REPORT_REMOTE
-    """Remote tamper (bit 0) and power (bit 1) status."""
+    Reader = _sys.STATUS_REPORT_READER
+    """Reader tamper status: one entry per reader (0 normal, 1 not connected, 2 tamper)."""
 
 
 class NotificationType(IntEnum):

@@ -320,7 +320,6 @@ static inline __noreturn void die()
 #define REPLY_PDID_DATA_LEN       12
 #define REPLY_PDCAP_ENTITY_LEN    3  /* variable count of these entities */
 #define REPLY_LSTATR_DATA_LEN     2
-#define REPLY_RSTATR_DATA_LEN     1
 #define REPLY_COM_DATA_LEN        5
 #define REPLY_KEYPAD_DATA_LEN     2  /* variable length message */
 #define REPLY_RAW_DATA_LEN        4  /* variable length message */
@@ -347,7 +346,7 @@ static inline __noreturn void die()
 #define PD_FLAG_SC_CAPABLE     BIT(0)  /* PD secure channel capable */
 #define PD_FLAG_TAMPER         BIT(1)  /* local tamper status */
 #define PD_FLAG_POWER          BIT(2)  /* local power status */
-#define PD_FLAG_R_TAMPER       BIT(3)  /* remote tamper status */
+#define PD_FLAG_R_TAMPER       BIT(3)  /* reader tamper status */
 #define PD_FLAG_SKIP_SEQ_CHECK BIT(5)  /* disable seq checks (debug) */
 #define PD_FLAG_SC_USE_SCBKD   BIT(6)  /* in this SC attempt, use SCBKD */
 #define PD_FLAG_SC_ACTIVE      BIT(7)  /* secure channel is active */

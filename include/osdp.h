@@ -446,31 +446,40 @@ enum osdp_status_report_type {
 	/**
 	 * @brief Local tamper and power status report
 	 *
-	 * Bit-0: tamper
-	 * Bit-1: power
+	 * Always two entries, one byte each: report[0] is tamper, report[1] is
+	 * power.
 	 */
 	OSDP_STATUS_REPORT_LOCAL,
 	/**
-	 * @brief Remote tamper and power status report
+	 * @brief Reader tamper status report
 	 *
-	 * Bit-0: tamper
-	 * Bit-1: power
+	 * One byte per attached reader (see OSDP_PD_CAP_READERS); report[i] is
+	 * the status of reader i: 0 = normal, 1 = not connected, 2 = tamper.
 	 */
-	OSDP_STATUS_REPORT_REMOTE,
+	OSDP_STATUS_REPORT_READER,
 };
 
 /**
- * @brief Maximum number of status bits carried in struct osdp_status_report.
+ * @brief Maximum number of status entries an osdp_status_report can carry;
+ * i.e., the size of its report[] array. Each entry is one status byte, one per
+ * tracked entity (input, output, tamper/power, or reader).
  */
+#ifndef OSDP_STATUS_REPORT_MAX_LEN
 #define OSDP_STATUS_REPORT_MAX_LEN 64
+#endif
 
 /**
  * @brief Status report structure. Used by OSDP_CMD_STATUS and
  * OSDP_EVENT_STATUS. In case of command, it is used to send a query to the PD
  * while in the case of events, the PD responds back with this structure.
  *
- * This can is used by the PD to indicate various status change reports. Upto a
- * maximum of 32 statuses can be reported using this API.
+ * The report carries one byte per tracked entity and must be full (no partial
+ * reports), so nr_entries must exactly match what the PD supports for the given
+ * status type: the advertised capability count for input
+ * (OSDP_PD_CAP_CONTACT_STATUS_MONITORING), output (OSDP_PD_CAP_OUTPUT_CONTROL),
+ * and reader (OSDP_PD_CAP_READERS) status; and exactly two (tamper, power) for
+ * local status. A status event whose entry count does not match is rejected by
+ * osdp_pd_submit_event().
  */
 struct osdp_status_report {
 	/**
@@ -478,11 +487,11 @@ struct osdp_status_report {
 	 */
 	enum osdp_status_report_type type;
 	/**
-	 * Number of valid bits in `status`
+	 * Number of valid entries in `report`
 	 */
 	int nr_entries;
 	/**
-	 * Status report
+	 * Status report; one byte per entry
 	 */
 	uint8_t report[OSDP_STATUS_REPORT_MAX_LEN];
 };

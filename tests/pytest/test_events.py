@@ -16,6 +16,7 @@ pd_cap = PDCapabilities([
     (Capability.LEDControl, 1, 1),
     (Capability.AudibleControl, 1, 1),
     (Capability.TextOutput, 1, 1),
+    (Capability.Readers, 1, 2),
 ])
 
 key = KeyStore.gen_key()
@@ -121,3 +122,56 @@ def test_event_output():
     )
     secure_pd.submit_event(event)
     check_event(event)
+
+def test_event_local():
+    # Local status is always two entries: tamper and power.
+    event = events.Status(
+        type=StatusReportType.Local,
+        report=bytes([0, 1])
+    )
+    secure_pd.submit_event(event)
+    check_event(event)
+
+def test_event_reader():
+    # Reader status carries one byte per attached reader; the PD advertised 2.
+    event = events.Status(
+        type=StatusReportType.Reader,
+        report=bytes([0, 2])  # reader 0 normal, reader 1 tamper
+    )
+    secure_pd.submit_event(event)
+    check_event(event)
+
+def test_event_status_rejects_more_entries_than_capability():
+    # The PD advertised 8 contact points (ContactStatusMonitoring, num_items=8),
+    # so a status report carrying more entries than that must be rejected at
+    # submission time rather than silently dropped later.
+    event = events.Status(
+        type=StatusReportType.Input,
+        report=bytes([1, 0, 1, 0, 1, 0, 1, 0, 1])  # 9 entries > capability of 8
+    )
+    assert secure_pd.submit_event(event) is False
+
+def test_event_status_rejects_partial_report():
+    # A report must be full: one entry per tracked entity. The PD advertised 8
+    # contacts, so a partial (under-full) report is rejected too.
+    event = events.Status(
+        type=StatusReportType.Input,
+        report=bytes([1, 0, 1])  # 3 entries < capability of 8
+    )
+    assert secure_pd.submit_event(event) is False
+
+def test_event_reader_rejects_more_readers_than_capability():
+    # The PD advertised 2 readers, so a 3-entry reader status is rejected.
+    event = events.Status(
+        type=StatusReportType.Reader,
+        report=bytes([0, 0, 0])  # 3 entries > 2 readers
+    )
+    assert secure_pd.submit_event(event) is False
+
+def test_event_local_rejects_wrong_entry_count():
+    # Local status must be exactly two entries (tamper, power).
+    event = events.Status(
+        type=StatusReportType.Local,
+        report=bytes([0, 1, 0])  # 3 entries > 2
+    )
+    assert secure_pd.submit_event(event) is False

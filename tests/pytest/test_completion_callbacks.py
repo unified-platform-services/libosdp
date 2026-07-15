@@ -187,9 +187,11 @@ def test_pd_event_completion_statuses():
     while it is still queued."""
     cp, pd = _make_pair("completion-pd")
     rec = Recorder()
+    # The PD advertises OutputControl with one item, so a one-entry output
+    # status is a valid event to exercise the completion machinery with.
     event = events.Status(
-        type=StatusReportType.Input,
-        report=bytes([1, 0, 1, 0]),
+        type=StatusReportType.Output,
+        report=bytes([1]),
     )
 
     pd.set_event_completion_handler(rec.on_event_complete)

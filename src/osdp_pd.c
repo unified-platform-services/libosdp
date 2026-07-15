@@ -156,7 +156,7 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 		case OSDP_STATUS_REPORT_LOCAL:
 			reply_code = REPLY_LSTATR;
 			break;
-		case OSDP_STATUS_REPORT_REMOTE:
+		case OSDP_STATUS_REPORT_READER:
 			reply_code = REPLY_RSTATR;
 			break;
 		}
@@ -464,10 +464,13 @@ static int pd_prebuild_status_reply(struct osdp_pd *pd, int reply_id,
 		buf[len++] = status->report[1];
 		break;
 	case REPLY_RSTATR:
-		if (status->nr_entries < 1 || max_len < REPLY_RSTATR_DATA_LEN) {
+		n = pd->cap[OSDP_PD_CAP_READERS].num_items;
+		if (status->nr_entries != n || max_len < n ||
+		    n > OSDP_STATUS_REPORT_MAX_LEN) {
 			return -1;
 		}
-		buf[len++] = status->report[0];
+		memcpy(buf + len, status->report, n);
+		len += n;
 		break;
 	default:
 		return -1;
@@ -640,7 +643,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		cmd.id = OSDP_CMD_STATUS;
-		cmd.status.type = OSDP_STATUS_REPORT_REMOTE;
+		cmd.status.type = OSDP_STATUS_REPORT_READER;
 		if (!do_command_callback(pd, &cmd)) {
 			ret = OSDP_PD_ERR_REPLY;
 			break;
@@ -1132,16 +1135,20 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = event->status.report[1]; // power
 		ret = OSDP_PD_ERR_NONE;
 		break;
-	case REPLY_RSTATR:
-		if (event->status.nr_entries < 1) {
+	case REPLY_RSTATR: {
+		int n = pd->cap[OSDP_PD_CAP_READERS].num_items;
+		if (event->status.nr_entries != n ||
+		    n > OSDP_STATUS_REPORT_MAX_LEN) {
 			break;
 		}
-		if (max_len < REPLY_RSTATR_DATA_LEN) {
+		if (max_len < n) {
 			break;
 		}
-		buf[len++] = event->status.report[0]; // power
+		memcpy(buf + len, event->status.report, n);
+		len += n;
 		ret = OSDP_PD_ERR_NONE;
 		break;
+	}
 	case REPLY_KEYPAD:
 		if (max_len < REPLY_KEYPAD_DATA_LEN + event->keypress.length) {
 			break;
@@ -1787,6 +1794,30 @@ void osdp_pd_set_event_completion_callback(osdp_t *ctx,
 	pd->event_completion_callback_arg = arg;
 }
 
+/**
+ * Number of status entries a report of the given type carries; one byte per
+ * tracked entity. Input and output status report one byte per monitored contact
+ * or controlled output (from the PD's capabilities); local status is always the
+ * two bytes tamper and power; reader status reports one byte per attached reader
+ * (from OSDP_PD_CAP_READERS). Returns -1 for an unknown status type.
+ */
+static int pd_status_report_capacity(struct osdp_pd *pd,
+				     enum osdp_status_report_type type)
+{
+	switch (type) {
+	case OSDP_STATUS_REPORT_INPUT:
+		return pd->cap[OSDP_PD_CAP_CONTACT_STATUS_MONITORING].num_items;
+	case OSDP_STATUS_REPORT_OUTPUT:
+		return pd->cap[OSDP_PD_CAP_OUTPUT_CONTROL].num_items;
+	case OSDP_STATUS_REPORT_LOCAL:
+		return 2; /* tamper, power */
+	case OSDP_STATUS_REPORT_READER:
+		return pd->cap[OSDP_PD_CAP_READERS].num_items;
+	default:
+		return -1;
+	}
+}
+
 int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 {
 	input_check(ctx);
@@ -1795,6 +1826,18 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 	if (event->type <= 0 ||
 	    event->type >= OSDP_EVENT_SENTINEL) {
 		return -1;
+	}
+
+	if (event->type == OSDP_EVENT_STATUS) {
+		int cap = pd_status_report_capacity(pd, event->status.type);
+		/* A status report must be full: one entry per tracked entity,
+		 * no partial reports. */
+		if (cap < 0 || event->status.nr_entries != cap) {
+			LOG_ERR("Event: status report has %d entries; PD "
+				"requires exactly %d for this status type",
+				event->status.nr_entries, cap);
+			return -1;
+		}
 	}
 
 	return pd_event_enqueue(pd, event);
