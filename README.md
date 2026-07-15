@@ -45,37 +45,21 @@ This protocol is developed and maintained by [Security Industry Association][20]
 
 ## Usage Overview
 
-A device complying with OSDP can either be a CP or a PD. There can be only one
-CP on a bus which can talk to multiple PDs. LibOSDP allows your application to
-work either as a CP or a PD so depending on what you want to do you have to do
-some things differently.
+An OSDP bus has exactly one CP talking to one or more PDs; LibOSDP can act as
+either. Your application interacts through three constructs (not to be confused
+with the protocol's own terminology):
 
-LibOSDP creates the following constructs which allow interactions between
-devices on the OSDP bus. These should not be confused with the protocol
-specified terminologies that may use the same names. They are:
-  - Channel - Something that allows two OSDP devices to talk to each other
-  - Commands - A call for action from a CP to one of its PDs
-  - Events - A call for action from a PD to its CP
+  - **Channel** - the transport that lets two OSDP devices talk to each other
+  - **Commands** - a call for action from a CP to one of its PDs
+  - **Events** - a call for action from a PD to its CP
 
-You start by implementing the `osdp_channel` interface; this allows LibOSDP to
-communicate with other OSDP devices on the bus. Then you describe the PD you
-are
-  - talking to on the bus (in case of CP mode of operation) or,
-  - going to behave as on the bus (in case of PD mode of operation)
-by using the `osdp_pd_info_t` struct.
+You implement the `osdp_channel` interface, describe the device with
+`osdp_pd_info_t`, create an `osdp_t` context, and call `osdp_cp/pd_refresh()` at
+least once every 50ms to meet the protocol's timing requirements. From there a
+CP sends commands and receives events, while a PD notifies events and handles
+commands.
 
-You can use `osdp_pd_info_t` struct (or an array of it in case of CP) to create
-a `osdp_t` context. Then your app needs to call the `osdp_cp/pd_refresh()` as
-frequently as possible. To meet the OSDP specified timing requirements, your
-app must call this method at least once every 50ms.
-
-After this point, the CP context can,
-  - send commands to any one of the PDs (to control LEDs, Buzzers, etc.,)
-  - register a callback for events that are sent from a PD
-
-and the PD context can,
-  - notify it's controlling CP about an event (card read, key press, etc.,)
-  - register a callback for commands issued by the CP
+See the [API documentation][26] and [examples][39] for the full workflow.
 
 ## Language Support
 
@@ -101,45 +85,9 @@ OSDP has certain command and reply IDs pre-registered. This implementation of
 the protocol support only the most common among them. You can see a list of
 commands and replies and their support status in LibOSDP [here][22].
 
-## Dependencies
+## Build & Install
 
-  * A working C compiler; such as gcc, clang or msvc
-  * CMake 3.14 or newer (or GNU Make)
-  * [osdp-dev/C-Utils][25] submodule
-
-Optionally,
-  * Python3 (host)
-  * [Doxygen][9] (host; for generating API metadata)
-  * [OpenSSL][8] (host and target, optional - recommended)
-  * [MbedTLS][7] (host and target, optional)
-  * [PyTest][5] (host; for running the integrated test suite)
-
-## Compile LibOSDP
-
-LibOSDP provides a lean-build that only builds the core library and nothing
-else. This is useful if you are cross compiling as it doesn't have any other
-dependencies but a C compiler. Here is an example of how you can cross compile
-LibOSDP to `arm-none-eabi-gcc`.
-
-```
-export CROSS_COMPILE=arm-none-eabi-
-export CCFLAGS=--specs=nosys.specs
-./configure.sh
-make
-```
-
-To build LibOSDP and all its components you must have CMake version 3.14 (or
-above) and a C compiler installed. This repository produces a `libosdp.so` and
-`libosdpstatic.a`; so depending on your needs you can link these with `-losdp`
-or `-losdpstatic`, respectively. Downstream CMake projects can consume the
-library with `find_package(libosdp CONFIG REQUIRED)` and link against the
-`libosdp::libosdp` target.
-
-Have a look at `examples/*` for a quick lookup on how to consume this library and
-structure your application.
-
-You can also read the [API documentation][26] for a comprehensive list of APIs
-that are exposed by LibOSDP.
+You need a C compiler and CMake 3.14 or newer. Clone with submodules and build:
 
 ```sh
 git clone https://github.com/osdp-dev/libosdp --recurse-submodules
@@ -148,28 +96,15 @@ cmake -B build .
 cmake --build build --parallel
 ```
 
-Refer to the project links below for more information on build and usage.
+This produces `libosdp.so` and `libosdpstatic.a`; downstream CMake projects can
+consume the library with `find_package(libosdp CONFIG REQUIRED)` and link
+against the `libosdp::libosdp` target. LibOSDP also ships a lean Make-based build
+for cross-compile and embedded targets that needs nothing but a C compiler.
 
-### Run the test suite
-
-LibOSDP uses the [PyTest][5] python framework to test changes made to ensure
-we aren't breaking existing functionalities while adding newer ones. You can
-install PyTest in your development machine with,
-
-```sh
-python3 -m pip install pytest
-```
-
-Running the tests locally before creating a pull request is recommended to make
-sure that your changes aren't breaking any of the existing functionalities. Here
-is how you can run them:
-
-```sh
-./scripts/make-release.sh
-```
-
-To add new tests for the feature you are working one, see the other tests in
-`pytest` directory.
+The [Build and Install guide][6] on doc.osdp.dev is the full source of truth: it
+covers setting up the build environment on Linux, macOS, and Windows, the crypto
+backend and compile-time options, cross-compilation, running the test suite, and
+consuming LibOSDP from your own CMake, pkg-config, or vcpkg project.
 
 ## Contributions, Issues and Bugs
 
@@ -177,7 +112,7 @@ The Github issue tracker doubles up as TODO list for this project. Have a look
 at the [open issues][31], PRs in those directions are welcome.
 
 If you have a idea, find bugs, or other issues, please [open a new issue][28]
-in the github page of this project [https://github.com/goTomain/libosdp][24].
+in the github page of this project [https://github.com/osdp-dev/libosdp][24].
 
 You can read more on this [here](CONTRIBUTING.md).
 
@@ -202,14 +137,11 @@ and maintain this project. If you are a user and are happy with it, consider
 supporting the development by donations though my [GitHub sponsors page][15].
 Your support will ensure sustained development of LibOSDP.
 
-[1]: https://img.shields.io/github/v/release/GoToMain/libosdp?display_name=tag&logo=github
+[1]: https://img.shields.io/github/v/release/osdp-dev/libosdp?display_name=tag&logo=github
 [2]: https://github.com/osdp-dev/libosdp/releases/latest
-[3]: https://github.com/goTomain/libosdp/workflows/Build%20CI/badge.svg
-[4]: https://github.com/goTomain/libosdp/actions?query=workflow%3A%22Build+CI%22
-[5]: https://docs.pytest.org/en/latest/
-[7]: https://github.com/ARMmbed/mbedtls
-[8]: https://www.openssl.org/
-[9]: https://www.doxygen.nl/index.html
+[3]: https://github.com/osdp-dev/libosdp/workflows/Build%20CI/badge.svg
+[4]: https://github.com/osdp-dev/libosdp/actions?query=workflow%3A%22Build+CI%22
+[6]: https://doc.osdp.dev/libosdp/build-and-install
 [10]: https://crates.io/crates/libosdp
 [11]: https://github.com/osdp-dev/libosdp-rs/tree/master/libosdp
 [12]: https://pypi.org/project/libosdp/
@@ -223,8 +155,7 @@ Your support will ensure sustained development of LibOSDP.
 [20]: https://www.securityindustry.org/industry-standards/open-supervised-device-protocol/
 [21]: https://doc.osdp.dev/protocol/
 [22]: https://doc.osdp.dev/protocol/commands-and-replies
-[24]: https://github.com/goTomain/libosdp
-[25]: https://github.com/goTomain/c-utils
+[24]: https://github.com/osdp-dev/libosdp
 [26]: https://doc.osdp.dev/api/
 [27]: https://doc.osdp.dev/protocol/faq
 [28]: https://github.com/osdp-dev/libosdp/issues/new/choose

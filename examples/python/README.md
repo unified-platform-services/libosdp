@@ -1,5 +1,8 @@
 # Python Examples
 
+See [Getting Started](https://doc.osdp.dev/python/getting-started) on
+doc.osdp.dev for the Python binding walkthrough.
+
 To run the samples, you have to install the following python packages:
 
 ```sh
