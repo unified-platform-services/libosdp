@@ -70,7 +70,7 @@ def first_real_event(cp, address, timeout=3):
 def test_an_unsolicited_event_normally_reaches_the_cp(pair):
     # The control for the test below.
     cp, pd = pair()
-    event = events.KeyPress(reader_no=1, data=b"\x0a")
+    event = events.KeyPress(data=b"\x0a")
     assert pd.submit_event(event)
     assert first_real_event(cp, 101) == event
 
@@ -83,7 +83,7 @@ def test_ignore_unsolicited_does_not_suppress_a_known_event(pair):
     # suite covers that side.)
     cp, pd = pair(cp_flags=[LibFlag.IgnoreUnsolicited])
 
-    event = events.KeyPress(reader_no=1, data=b"\x0a")
+    event = events.KeyPress(data=b"\x0a")
     assert pd.submit_event(event)
     assert first_real_event(cp, 101) == event
 

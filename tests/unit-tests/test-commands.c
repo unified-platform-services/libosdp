@@ -344,12 +344,10 @@ static bool test_bio_command(int cmd_id, int event_type, const char *name,
 	g_test_ctx.bio_answer_inline = answer_inline;
 
 	if (cmd_id == OSDP_CMD_BIOREAD) {
-		cmd.bioread.reader = 0;
 		cmd.bioread.type = OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT;
 		cmd.bioread.format = OSDP_BIO_FMT_ANSI_INCITS_378;
 		cmd.bioread.quality = 0x80;
 	} else {
-		cmd.biomatch.reader = 0;
 		cmd.biomatch.type = OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT;
 		cmd.biomatch.format = OSDP_BIO_FMT_ANSI_INCITS_378;
 		cmd.biomatch.quality = 0x80;
@@ -374,10 +372,7 @@ static bool test_bio_command(int cmd_id, int event_type, const char *name,
 		struct osdp_cmd echo = { .id = cmd_id };
 
 		if (cmd_id == OSDP_CMD_BIOREAD) {
-			echo.bioread.reader = 0;
 			echo.bioread.type = OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT;
-		} else {
-			echo.biomatch.reader = 0;
 		}
 		bio_make_reply(&ev, &echo);
 		if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &ev)) {
@@ -452,7 +447,6 @@ static bool test_buzzer_command()
 			.control_code = 1,
 			.on_count = 10,
 			.off_count = 10,
-			.reader = 0,
 			.rep_count = 1,
 		},
 	};
@@ -473,7 +467,6 @@ static bool test_led_command()
 	struct osdp_cmd cmd = {
 		.id = OSDP_CMD_LED,
 		.led = {
-			.reader = 0,
 			.led_number = 0,
 			.temporary = {
 				.control_code = 1,
@@ -672,7 +665,6 @@ static bool test_text_command()
 	struct osdp_cmd cmd = {
 		.id = OSDP_CMD_TEXT,
 		.text = {
-			.reader = 0,
 			.control_code = 1,
 			.temp_time = 30,
 			.offset_row = 1,
@@ -820,7 +812,6 @@ static bool test_led_permanent_command()
 	struct osdp_cmd cmd = {
 		.id = OSDP_CMD_LED,
 		.led = {
-			.reader = 1,
 			.led_number = 0,
 			.permanent = {
 				.control_code = 1,
@@ -1035,7 +1026,6 @@ static bool test_led_unsupported_capability_naks()
 	struct osdp_cmd cmd = {
 		.id = OSDP_CMD_LED,
 		.led = {
-			.reader = 0,
 			.led_number = 5,
 			.temporary = {
 				.control_code = 1,

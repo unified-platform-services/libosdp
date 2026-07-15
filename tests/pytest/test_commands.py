@@ -127,7 +127,6 @@ def test_command_output_ostatr(answer_inline):
 
 def test_command_buzzer():
     test_cmd = commands.Buzzer(
-        reader=0,
         control_code=BuzzerControlCode.Off,
         on_count=10,
         off_count=10,
@@ -138,9 +137,21 @@ def test_command_buzzer():
     assert_command_received(secure_pd, test_cmd)
     cp_check_command_status(CommandId.Buzzer)
 
+def test_command_rejects_unadvertised_reader():
+    """This PD advertises no attached readers (0 is itself), so a command that
+    targets reader 1 is refused at submission and never reaches the wire."""
+    test_cmd = commands.Buzzer(
+        reader=1,
+        control_code=BuzzerControlCode.Off,
+        on_count=10,
+        off_count=10,
+        rep_count=10,
+    )
+    assert cp.is_online(secure_pd_addr)
+    assert cp.submit_command(secure_pd_addr, test_cmd) is False
+
 def test_command_text():
     test_cmd = commands.Text(
-        reader=0,
         control_code=TextControlCode.PermanentNoWrap,
         temp_time=20,
         offset_row=1,
@@ -155,7 +166,6 @@ def test_command_text():
 def test_command_led_temporary():
     """A temporary state flashes for its timer and then reverts."""
     test_cmd = commands.LED(
-        reader=1,
         led_number=0,
         temporary=commands.TemporaryLEDParams(
             control_code=TemporaryLEDControlCode.Set,
@@ -174,7 +184,6 @@ def test_command_led_temporary():
 def test_command_led_permanent():
     """A permanent state persists until something else changes it."""
     test_cmd = commands.LED(
-        reader=1,
         led_number=0,
         permanent=commands.PermanentLEDParams(
             control_code=PermanentLEDControlCode.Set,
@@ -194,7 +203,6 @@ def test_command_led_temporary_and_permanent():
     the LED into a new permanent state. The old flat command could not say
     this; it carried a single control code and a `temporary` boolean."""
     flash = commands.LED(
-        reader=1,
         led_number=0,
         temporary=commands.TemporaryLEDParams(
             on_count=5,
@@ -210,7 +218,6 @@ def test_command_led_temporary_and_permanent():
     cp_check_command_status(CommandId.LED)
 
     cancel_and_set = commands.LED(
-        reader=1,
         led_number=0,
         temporary=commands.TemporaryLEDParams(
             control_code=TemporaryLEDControlCode.Cancel,
@@ -348,7 +355,6 @@ def test_command_bioread(answer_inline):
     """BIOREAD: the PD scans and returns a template. The app may answer from
     within its callback (inline) or later (deferred, riding out on a poll)."""
     reply = events.BioRead(
-        reader=0,
         status=BioStatus.Success,
         type=BioType.RightIndexFingerPrint,
         quality=0xC0,
@@ -369,7 +375,6 @@ def test_command_bioread(answer_inline):
         secure_pd.set_command_handler(cmd_handler)
 
         test_cmd = commands.BioRead(
-            reader=0,
             type=BioType.RightIndexFingerPrint,
             format=BioFormat.AnsiIncits378,
             quality=0x80,
@@ -387,7 +392,7 @@ def test_command_bioread(answer_inline):
 @pytest.mark.parametrize("answer_inline", [False, True])
 def test_command_biomatch(answer_inline):
     """BIOMATCH: the CP sends a template, the PD scans and returns a score."""
-    reply = events.BioMatch(reader=0, status=BioStatus.Success, score=0xFF)
+    reply = events.BioMatch(status=BioStatus.Success, score=0xFF)
 
     def cmd_handler(command):
         assert isinstance(command, commands.BioMatch)
@@ -402,7 +407,6 @@ def test_command_biomatch(answer_inline):
         secure_pd.set_command_handler(cmd_handler)
 
         test_cmd = commands.BioMatch(
-            reader=0,
             type=BioType.RightIndexFingerPrint,
             format=BioFormat.AnsiIncits378,
             quality=0x80,
@@ -431,7 +435,6 @@ def test_command_bioread_nak_unsupported_type():
         secure_pd.set_command_handler(cmd_handler)
 
         test_cmd = commands.BioRead(
-            reader=0,
             type=BioType.LeftRetinaScan,
             format=BioFormat.AnsiIncits378,
             quality=0x80,
@@ -523,7 +526,6 @@ def test_command_status():
 
 soft_nak_commands = [
     (CommandId.LED, commands.LED(
-        reader=1,
         led_number=0,
         temporary=commands.TemporaryLEDParams(
             control_code=TemporaryLEDControlCode.Set,
@@ -535,14 +537,12 @@ soft_nak_commands = [
         ),
     )),
     (CommandId.Buzzer, commands.Buzzer(
-        reader=0,
         control_code=BuzzerControlCode.Off,
         on_count=10,
         off_count=10,
         rep_count=10,
     )),
     (CommandId.Text, commands.Text(
-        reader=0,
         control_code=TextControlCode.PermanentNoWrap,
         temp_time=20,
         offset_row=1,

@@ -1626,6 +1626,13 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		}
 	}
 
+	int reader_no = osdp_cmd_reader_no(cmd);
+	if (reader_no > pd->cap[OSDP_PD_CAP_READERS].num_items) {
+		LOG_ERR("Command targets reader %d but PD advertises only %d",
+			reader_no, pd->cap[OSDP_PD_CAP_READERS].num_items);
+		return -1;
+	}
+
 	if (cmd->id == OSDP_CMD_FILE_TX) {
 		return osdp_file_tx_command(pd, cmd->file_tx.id,
 					    cmd->file_tx.flags);

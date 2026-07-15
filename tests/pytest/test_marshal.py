@@ -48,7 +48,6 @@ ALL_COMMANDS = [
     ),
     # Temporary block only.
     commands.LED(
-        reader=0,
         led_number=0,
         temporary=commands.TemporaryLEDParams(
             on_color=LEDColor.Red,
@@ -77,14 +76,12 @@ ALL_COMMANDS = [
         ),
     ),
     commands.Buzzer(
-        reader=0,
         control_code=BuzzerControlCode.DefaultTone,
         on_count=2,
         off_count=2,
         rep_count=3,
     ),
     commands.Text(
-        reader=0,
         control_code=TextControlCode.PermanentNoWrap,
         offset_row=1,
         offset_col=1,
@@ -95,13 +92,11 @@ ALL_COMMANDS = [
     commands.ComsetDone(address=42, baud_rate=115200),
     commands.Manufacturer(vendor_code=0x00030201, data=b"\x01\x02\x03"),
     commands.BioRead(
-        reader=0,
         type=BioType.RightThumbPrint,
         format=BioFormat.AnsiIncits378,
         quality=200,
     ),
     commands.BioMatch(
-        reader=0,
         type=BioType.LeftIrisScan,
         format=BioFormat.RawPGM,
         quality=100,
@@ -118,7 +113,6 @@ ALL_COMMANDS = [
 
 ALL_EVENTS = [
     events.CardRead(
-        reader_no=0,
         format=CardFormat.Wiegand,
         direction=0,
         data=bytes([0x01, 0x02, 0x03, 0x40]),
@@ -126,21 +120,20 @@ ALL_EVENTS = [
     ),
     events.CardRead(format=CardFormat.Unspecified, data=b"\x01\x02"),
     events.CardRead(format=CardFormat.ASCII, data=b"1234567890"),
-    events.KeyPress(reader_no=0, data=b"1234"),
+    events.KeyPress(data=b"1234"),
     events.ManufacturerReply(vendor_code=0x00030201, data=b"\x01\x02"),
     events.ManufacturerStatus(data=b"\x01\x02"),
     events.ManufacturerStatus(data=b""),
     events.ManufacturerError(data=b"\xff"),
     events.ManufacturerError(data=b""),
     events.BioRead(
-        reader=0,
         status=BioStatus.Success,
         type=BioType.RightThumbPrint,
         quality=200,
         data=b"template",
     ),
     events.BioRead(status=BioStatus.Timeout),
-    events.BioMatch(reader=0, status=BioStatus.Success, score=250),
+    events.BioMatch(status=BioStatus.Success, score=250),
     events.Status(type=StatusReportType.Output, report=bytes([1, 0, 1])),
     events.Notification(
         type=NotificationType.FileTransferDone, arg0=1, arg1=0

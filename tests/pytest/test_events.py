@@ -175,3 +175,20 @@ def test_event_local_rejects_wrong_entry_count():
         report=bytes([0, 1, 0])  # 3 entries > 2
     )
     assert secure_pd.submit_event(event) is False
+
+def test_event_reader_no_within_capability_is_accepted():
+    # The PD advertised 2 readers, so reader 2 (0 is self, 1 the first) fits.
+    event = events.KeyPress(
+        reader_no=2,
+        data=bytes([1, 2, 3]),
+    )
+    secure_pd.submit_event(event)
+    check_event(event)
+
+def test_event_rejects_reader_no_beyond_capability():
+    # The PD advertised 2 readers, so a keypress from reader 3 is refused.
+    event = events.KeyPress(
+        reader_no=3,
+        data=bytes([1, 2, 3]),
+    )
+    assert secure_pd.submit_event(event) is False

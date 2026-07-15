@@ -596,7 +596,8 @@ enum osdp_biometric_status_e {
  */
 struct osdp_cmd_bioread {
 	/**
-	 * 0 = First Reader, 1 = Second Reader, etc.
+	 * Target reader: 0 is this PD, 1 the first attached reader, and so on.
+	 * Must fit within the PD's OSDP_PD_CAP_READERS capability.
 	 */
 	uint8_t reader;
 	/**
@@ -620,7 +621,8 @@ struct osdp_cmd_bioread {
  */
 struct osdp_cmd_biomatch {
 	/**
-	 * 0 = First Reader, 1 = Second Reader, etc.
+	 * Target reader: 0 is this PD, 1 the first attached reader, and so on.
+	 * Must fit within the PD's OSDP_PD_CAP_READERS capability.
 	 */
 	uint8_t reader;
 	/**
@@ -769,7 +771,8 @@ struct osdp_cmd_led_params {
  */
 struct osdp_cmd_led {
 	/**
-	 * Reader number. 0 = First Reader, 1 = Second Reader, etc.
+	 * Target reader: 0 is this PD, 1 the first attached reader, and so on.
+	 * Must fit within the PD's OSDP_PD_CAP_READERS capability.
 	 */
 	uint8_t reader;
 	/**
@@ -805,7 +808,8 @@ enum osdp_cmd_buzzer_control_code_e {
  */
 struct osdp_cmd_buzzer {
 	/**
-	 * Reader number. 0 = First Reader, 1 = Second Reader, etc.
+	 * Target reader: 0 is this PD, 1 the first attached reader, and so on.
+	 * Must fit within the PD's OSDP_PD_CAP_READERS capability.
 	 */
 	uint8_t reader;
 	/**
@@ -850,7 +854,8 @@ enum osdp_cmd_text_control_code_e {
  */
 struct osdp_cmd_text {
 	/**
-	 * Reader number. 0 = First Reader, 1 = Second Reader, etc.
+	 * Target reader: 0 is this PD, 1 the first attached reader, and so on.
+	 * Must fit within the PD's OSDP_PD_CAP_READERS capability.
 	 */
 	uint8_t reader;
 	/**
@@ -1163,7 +1168,8 @@ enum osdp_event_cardread_format_e {
  */
 struct osdp_event_cardread {
 	/**
-	 * Reader number. 0 = First Reader, 1 = Second Reader, etc.
+	 * Target reader: 0 is this PD, 1 the first attached reader, and so on.
+	 * Must fit within the PD's OSDP_PD_CAP_READERS capability.
 	 */
 	int reader_no;
 	/**
@@ -1191,9 +1197,8 @@ struct osdp_event_cardread {
  */
 struct osdp_event_keypress {
 	/**
-	 * Reader number in context of sub-readers attached to current PD; this
-	 * number indicates the number of that reader. This is not supported by
-	 * LibOSDP.
+	 * Target reader: 0 is this PD, 1 the first attached reader, and so on.
+	 * Must fit within the PD's OSDP_PD_CAP_READERS capability.
 	 */
 	int reader_no;
 	/**
@@ -1261,7 +1266,8 @@ struct osdp_event_mfgstat {
  */
 struct osdp_event_bioreadr {
 	/**
-	 * 0 = First Reader, 1 = Second Reader, etc.
+	 * Target reader: 0 is this PD, 1 the first attached reader, and so on.
+	 * Must fit within the PD's OSDP_PD_CAP_READERS capability.
 	 */
 	uint8_t reader;
 	/**
@@ -1296,7 +1302,8 @@ struct osdp_event_bioreadr {
  */
 struct osdp_event_biomatchr {
 	/**
-	 * 0 = First Reader, 1 = Second Reader, etc.
+	 * Target reader: 0 is this PD, 1 the first attached reader, and so on.
+	 * Must fit within the PD's OSDP_PD_CAP_READERS capability.
 	 */
 	uint8_t reader;
 	/**

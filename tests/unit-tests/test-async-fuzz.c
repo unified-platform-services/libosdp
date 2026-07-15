@@ -176,7 +176,6 @@ static bool test_async_startup_order(enum async_order order)
 	struct osdp_cmd cmd = {
 		.id = OSDP_CMD_BUZZER,
 		.buzzer = {
-			.reader = 0,
 			.control_code = 1,
 			.on_count = 3,
 			.off_count = 3,
@@ -281,7 +280,6 @@ retry_recovery:
 	struct osdp_cmd cmd = {
 		.id = OSDP_CMD_BUZZER,
 		.buzzer = {
-			.reader = 0,
 			.control_code = 1,
 			.on_count = 3,
 			.off_count = 3,

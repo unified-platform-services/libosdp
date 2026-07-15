@@ -297,6 +297,15 @@ static bool validate_command(struct osdp_pd *pd, struct osdp_cmd *cmd)
 		break;
 	}
 
+	/*
+	 * A command may target a sub-reader (0 is this reader, 1 the first
+	 * attached reader, and so on). Reject a CP that addresses a reader
+	 * beyond what we advertised via the READERS capability.
+	 */
+	if (osdp_cmd_reader_no(cmd) > pd->cap[OSDP_PD_CAP_READERS].num_items) {
+		result = false;
+	}
+
 	if (!result) {
 		LOG_ERR("Command validation failed!");
 	}
@@ -1838,6 +1847,19 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 				event->status.nr_entries, cap);
 			return -1;
 		}
+	}
+
+	/*
+	 * An event that names a sub-reader (0 is this reader, 1 the first
+	 * attached reader, ...) must fit within the READERS capability we
+	 * advertised; reject a report for a reader we do not support.
+	 */
+	if (osdp_event_reader_no(event) >
+	    pd->cap[OSDP_PD_CAP_READERS].num_items) {
+		LOG_ERR("Event targets reader %d but PD advertises only %d",
+			osdp_event_reader_no(event),
+			pd->cap[OSDP_PD_CAP_READERS].num_items);
+		return -1;
 	}
 
 	return pd_event_enqueue(pd, event);

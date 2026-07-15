@@ -71,7 +71,7 @@ def test_a_command_reaches_only_the_pd_it_is_addressed_to(bus_of_three):
     cp, pds = bus_of_three
 
     # Every PD sees this command go by on the wire; only 102 may act on it.
-    command = commands.Buzzer(reader=0, on_count=3, off_count=4, rep_count=5)
+    command = commands.Buzzer(on_count=3, off_count=4, rep_count=5)
     assert cp.submit_command(102, command)
     assert_command_received(pds[102], command)
 
@@ -101,7 +101,7 @@ def test_an_event_arrives_tagged_with_the_pd_that_sent_it(bus_of_three):
     cp, pds = bus_of_three
 
     for address in ADDRESSES:
-        event = events.KeyPress(reader_no=1, data=bytes([address & 0xFF]))
+        event = events.KeyPress(data=bytes([address & 0xFF]))
         assert pds[address].submit_event(event)
 
         received = None
@@ -132,6 +132,6 @@ def test_one_pd_going_quiet_leaves_the_others_alone(bus_of_three):
         assert cp.is_online(address), f"PD-{address} went down with PD-102"
 
     # ...and the survivors still answer.
-    command = commands.Buzzer(reader=0, on_count=1, off_count=1, rep_count=1)
+    command = commands.Buzzer(on_count=1, off_count=1, rep_count=1)
     assert cp.submit_command(101, command)
     assert_command_received(pds[101], command, timeout=5)

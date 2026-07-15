@@ -615,6 +615,10 @@ uint16_t osdp_compute_crc16(const uint8_t *buf, size_t len);
 const char *osdp_cmd_name(int cmd_id);
 const char *osdp_reply_name(int reply_id);
 
+/* Targeted reader number for commands/events that carry one, else -1. */
+int osdp_cmd_reader_no(const struct osdp_cmd *cmd);
+int osdp_event_reader_no(const struct osdp_event *event);
+
 int osdp_rb_push(struct osdp_rb *p, uint8_t data);
 int osdp_rb_push_buf(struct osdp_rb *p, uint8_t *buf, int len);
 int osdp_rb_pop(struct osdp_rb *p, uint8_t *data);

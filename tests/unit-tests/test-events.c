@@ -149,7 +149,6 @@ static bool test_cardread_event()
 	struct osdp_event event = {
 		.type = OSDP_EVENT_CARDREAD,
 		.cardread = {
-			.reader_no = 1,
 			.format = OSDP_CARD_FMT_RAW_WIEGAND,
 			.direction = 0,
 			.length = 32,
@@ -191,7 +190,6 @@ static bool test_keypress_event()
 	struct osdp_event event = {
 		.type = OSDP_EVENT_KEYPRESS,
 		.keypress = {
-			.reader_no = 1,
 			.length = 4,
 		},
 	};

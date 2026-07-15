@@ -392,7 +392,7 @@ def test_submit_event_needs_an_event_id(pd):
 
 def test_submit_event_reports_the_missing_key(pd):
     cause = submit_event_cause(
-        pd, {"event": _sys.EVENT_KEYPRESS, "reader_no": 1}
+        pd, {"event": _sys.EVENT_KEYPRESS, "reader_no": 0}
     )
     assert isinstance(cause, KeyError)
     assert "data" in str(cause)
@@ -403,7 +403,7 @@ def test_submit_event_rejects_a_card_read_whose_bits_exceed_its_data(pd):
         pd,
         {
             "event": _sys.EVENT_CARDREAD,
-            "reader_no": 1,
+            "reader_no": 0,
             "format": _sys.CARD_FMT_RAW_WIEGAND,
             "direction": 0,
             "length": 200,

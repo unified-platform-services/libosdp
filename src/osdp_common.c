@@ -245,6 +245,40 @@ const char *osdp_reply_name(int reply_id)
 	return name;
 }
 
+int osdp_cmd_reader_no(const struct osdp_cmd *cmd)
+{
+	switch (cmd->id) {
+	case OSDP_CMD_LED:
+		return cmd->led.reader;
+	case OSDP_CMD_BUZZER:
+		return cmd->buzzer.reader;
+	case OSDP_CMD_TEXT:
+		return cmd->text.reader;
+	case OSDP_CMD_BIOREAD:
+		return cmd->bioread.reader;
+	case OSDP_CMD_BIOMATCH:
+		return cmd->biomatch.reader;
+	default:
+		return -1;
+	}
+}
+
+int osdp_event_reader_no(const struct osdp_event *event)
+{
+	switch (event->type) {
+	case OSDP_EVENT_CARDREAD:
+		return event->cardread.reader_no;
+	case OSDP_EVENT_KEYPRESS:
+		return event->keypress.reader_no;
+	case OSDP_EVENT_BIOREADR:
+		return event->bioreadr.reader;
+	case OSDP_EVENT_BIOMATCHR:
+		return event->biomatchr.reader;
+	default:
+		return -1;
+	}
+}
+
 int osdp_rb_push(struct osdp_rb *p, uint8_t data)
 {
 	size_t next;

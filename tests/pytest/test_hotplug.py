@@ -107,7 +107,6 @@ def test_hotplug_command_blocking():
     assert cp.is_pd_enabled(secure_pd_addr) == True
 
     cmd = commands.Buzzer(
-        reader=0,
         control_code=BuzzerControlCode.Off,
         on_count=1,
         off_count=1,
