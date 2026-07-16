@@ -110,6 +110,10 @@ ALL_COMMANDS = [
     commands.Notification(
         type=NotificationType.Command, arg0=int(CommandId.LED), arg1=0
     ),
+    commands.Notification(
+        type=NotificationType.MultipartDone, mp_type=1, object_id=1,
+        total=3200, offset=3200, outcome=0,
+    ),
 ]
 
 ALL_EVENTS = [
@@ -138,6 +142,14 @@ ALL_EVENTS = [
     events.Status(type=StatusReportType.Output, report=bytes([1, 0, 1])),
     events.Notification(
         type=NotificationType.PeripheralDeviceStatus, arg0=1, arg1=0
+    ),
+    events.Notification(
+        type=NotificationType.MultipartStart, mp_type=1, object_id=1,
+        total=3200,
+    ),
+    events.Notification(
+        type=NotificationType.MultipartDone, mp_type=1, object_id=1,
+        total=3200, offset=3200, outcome=0,
     ),
 ]
 

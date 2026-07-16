@@ -111,6 +111,29 @@ def _decode_led(payload: Payload) -> c.LED:
     )
 
 
+_MP_NOTIFICATION_TYPES = frozenset({
+    NotificationType.MultipartStart,
+    NotificationType.MultipartProgress,
+    NotificationType.MultipartDone,
+})
+
+
+def _notification_payload(x) -> Payload:
+    """Multipart notifications marshal the structured mp fields (the C codec
+    requires them and carries no arg0/arg1); every other type marshals the
+    flat arg0/arg1 pair."""
+    if x.type in _MP_NOTIFICATION_TYPES:
+        return {
+            "type": x.type,
+            "mp_type": x.mp_type,
+            "object_id": x.object_id,
+            "total": x.total,
+            "offset": x.offset,
+            "outcome": x.outcome,
+        }
+    return {"type": x.type, "arg0": x.arg0, "arg1": x.arg1}
+
+
 _COMMAND_ENCODERS: dict[type, Callable[[Any], Payload]] = {
     c.Output: lambda x: {
         "command": CommandId.Output,
@@ -192,9 +215,7 @@ _COMMAND_ENCODERS: dict[type, Callable[[Any], Payload]] = {
     },
     c.Notification: lambda x: {
         "command": CommandId.Notification,
-        "type": x.type,
-        "arg0": x.arg0,
-        "arg1": x.arg1,
+        **_notification_payload(x),
     },
 }
 
@@ -260,6 +281,7 @@ _COMMAND_DECODERS: dict[CommandId, Callable[[Payload], c.Command]] = {
     CommandId.Notification: lambda p: c.Notification(
         type=NotificationType(p["type"]),
         arg0=p.get("arg0", 0), arg1=p.get("arg1", 0),
+        mp_type=p.get("mp_type", 0),
         object_id=p.get("object_id", 0), total=p.get("total", 0),
         offset=p.get("offset", 0), outcome=p.get("outcome", 0),
     ),
@@ -354,9 +376,7 @@ _EVENT_ENCODERS: dict[type, Callable[[Any], Payload]] = {
     },
     e.Notification: lambda x: {
         "event": EventId.Notification,
-        "type": x.type,
-        "arg0": x.arg0,
-        "arg1": x.arg1,
+        **_notification_payload(x),
     },
 }
 
@@ -388,6 +408,7 @@ _EVENT_DECODERS: dict[EventId, Callable[[Payload], e.Event]] = {
     EventId.Notification: lambda p: e.Notification(
         type=NotificationType(p["type"]),
         arg0=p.get("arg0", 0), arg1=p.get("arg1", 0),
+        mp_type=p.get("mp_type", 0),
         object_id=p.get("object_id", 0), total=p.get("total", 0),
         offset=p.get("offset", 0), outcome=p.get("outcome", 0),
     ),

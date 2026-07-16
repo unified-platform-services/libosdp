@@ -370,6 +370,10 @@ class Notification:
     arg1: int = 0
     """Second argument; its meaning depends on `type`."""
 
+    mp_type: int = 0
+    """Multipart family (C enum osdp_mp_msg_type; 1 = file transfer). Only
+    for NotificationType.Multipart*."""
+
     object_id: int = 0
     """File id for a multipart transfer. Only for NotificationType.Multipart*."""
 
