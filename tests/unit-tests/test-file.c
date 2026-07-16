@@ -8,6 +8,7 @@
 
 #include <osdp.h>
 #include "test.h"
+#include "osdp_file.h"
 
 #define SEND_FILE "test-file-tx-send.txt"
 #define REC_FILE "test-file-tx-receive.txt"
@@ -417,6 +418,154 @@ void run_file_tx_intermittent_tests(struct test *t)
 	};
 
 	TEST_REPORT(t, run_one_file_tx_case(t, &opts));
+}
+
+/* Wire status codes, mirroring the private ones in osdp_file.c. */
+#define KA_STATUS_ACK			0
+#define KA_STATUS_CONTENTS_PROCESSED	1
+#define KA_STATUS_KEEP_ALIVE		3
+
+static uint32_t g_ka_size;
+static bool g_ka_read_at_eof;
+
+/* Sender read that flags any read attempt at or past EOF — the exact
+ * regression the PD-requested keep-alive branch must avoid. */
+static int ka_fops_read(void *arg, void *buf, uint32_t size, uint32_t offset)
+{
+	struct test_data *t = arg;
+
+	if (offset >= g_ka_size) {
+		g_ka_read_at_eof = true;
+		return 0;
+	}
+	return (int)pread(t->fd, buf, (size_t)size, (size_t)offset);
+}
+
+static void ka_make_stat(uint8_t *b, int status)
+{
+	b[0] = 0x01; /* control */
+	b[1] = 0;
+	b[2] = 0; /* delay */
+	b[3] = (uint8_t)status;
+	b[4] = 0; /* status */
+	b[5] = 0;
+	b[6] = 0; /* rx_size */
+}
+
+/*
+ * Directly exercises the sender-side PD-requested keep-alive branch of
+ * osdp_file_cmd_tx_build. At completion a PD may reply KEEP_ALIVE to keep the
+ * channel warm; the sender must then emit header-only pings WITHOUT invoking
+ * the app read() at offset==total and WITHOUT consuming its retry budget.
+ * libosdp's PD never emits KEEP_ALIVE on the wire, so the loopback harness
+ * cannot reach this path — it is pinned here by driving the codec directly.
+ */
+void run_file_tx_pd_keep_alive_tests(struct test *t)
+{
+	bool result = false;
+	osdp_t *cp_ctx = NULL, *pd_ctx = NULL;
+	struct osdp_pd *pd;
+	struct osdp_file *f;
+	uint8_t buf[512];
+	uint8_t stat[7];
+	int n;
+
+	printf("\nBegin file transfer test: PD-requested keep-alive (sender)\n");
+
+	memset(&sender_data, 0, sizeof(sender_data));
+	sender_data.is_cp = true;
+	g_ka_read_at_eof = false;
+	g_ka_size = FILE_CONTENT_REPS * FILE_CONTENT_CHUNK_LEN;
+
+	struct osdp_file_ops sender_ops = {
+		.arg = (void *)&sender_data,
+		.open = test_fops_open,
+		.read = ka_fops_read,
+		.write = test_fops_write,
+		.close = test_fops_close
+	};
+
+	if (test_setup_devices_ext(t, &cp_ctx, &pd_ctx,
+				   OSDP_FLAG_ENABLE_NOTIFICATION, 0)) {
+		printf(SUB_1 "Failed to setup devices!\n");
+		goto done;
+	}
+	unlink(REC_FILE);
+	if (test_create_file())
+		goto teardown;
+
+	osdp_file_register_ops(cp_ctx, 0, &sender_ops);
+	pd = osdp_to_pd((struct osdp *)cp_ctx, 0);
+	f = TO_FILE(pd);
+
+	if (osdp_file_tx_command(pd, 1, 0)) {
+		printf(SUB_1 "keep-alive: tx_command failed\n");
+		goto teardown;
+	}
+
+	/* Drive the transfer, replying KEEP_ALIVE to the frame that lands the
+	 * final byte instead of the usual completion ack. */
+	while (osdp_file_tx_is_active(pd) && f->mp.offset != f->mp.total) {
+		bool last;
+
+		n = osdp_file_cmd_tx_build(pd, buf, sizeof(buf));
+		if (n < 0) {
+			printf(SUB_1 "keep-alive: tx_build failed\n");
+			goto teardown;
+		}
+		last = (f->mp.offset + (uint32_t)f->mp.last_len) >= f->mp.total;
+		ka_make_stat(stat, last ? KA_STATUS_KEEP_ALIVE : KA_STATUS_ACK);
+		if (osdp_file_cmd_stat_decode(pd, stat, sizeof(stat)) < 0) {
+			printf(SUB_1 "keep-alive: stat_decode failed\n");
+			goto teardown;
+		}
+	}
+
+	/* KEEP_ALIVE must have kept the transfer active, parked at EOF. */
+	if (!osdp_file_tx_is_active(pd) || f->mp.offset != f->mp.total) {
+		printf(SUB_1 "keep-alive: transfer not parked at EOF\n");
+		goto teardown;
+	}
+
+	/* The keep-alive ping: header-only, no read at offset==total. */
+	n = osdp_file_cmd_tx_build(pd, buf, sizeof(buf));
+	if (n != 1 + OSDP_MP_HDR_SIZE(OSDP_MP_W32)) {
+		printf(SUB_1 "keep-alive: ping not header-only (n=%d)\n", n);
+		goto teardown;
+	}
+	if (g_ka_read_at_eof) {
+		printf(SUB_1 "keep-alive: read() invoked at offset==total\n");
+		goto teardown;
+	}
+	if (buf[0] != 1) {
+		printf(SUB_1 "keep-alive: wrong type byte %d\n", buf[0]);
+		goto teardown;
+	}
+	if (!osdp_file_tx_is_active(pd)) {
+		printf(SUB_1 "keep-alive: ping ended the transfer\n");
+		goto teardown;
+	}
+
+	/* PD finally accepts: transfer completes cleanly. */
+	ka_make_stat(stat, KA_STATUS_CONTENTS_PROCESSED);
+	if (osdp_file_cmd_stat_decode(pd, stat, sizeof(stat)) < 0) {
+		printf(SUB_1 "keep-alive: final stat_decode failed\n");
+		goto teardown;
+	}
+	if (osdp_file_tx_is_active(pd)) {
+		printf(SUB_1 "keep-alive: transfer did not complete\n");
+		goto teardown;
+	}
+	result = true;
+	printf(SUB_1 "PD-requested keep-alive: succeeded\n");
+
+teardown:
+	unlink(SEND_FILE);
+	unlink(REC_FILE);
+	osdp_cp_teardown(cp_ctx);
+	osdp_pd_teardown(pd_ctx);
+done:
+	TEST_REPORT(t, result);
 }
 
 void run_file_tx_permanent_busy_tests(struct test *t)

@@ -1101,6 +1101,7 @@ static void run_file_tx_suite(struct test *t)
 	run_file_tx_tests(t, false);
 	run_file_tx_intermittent_tests(t);
 	run_file_tx_permanent_busy_tests(t);
+	run_file_tx_pd_keep_alive_tests(t);
 }
 
 int main(int argc, char *argv[])
@@ -1122,6 +1123,7 @@ int main(int argc, char *argv[])
 		{ "commands", run_command_tests },
 		{ "events", run_event_tests },
 		{ "bio", run_bio_tests },
+		{ "multipart", run_multipart_tests },
 		{ "hotplug", run_hotplug_tests },
 		{ "notifications", run_notification_tests },
 		{ "async_fuzz", run_async_fuzz_tests },
