@@ -82,9 +82,9 @@ static void file_transition_done(struct osdp_pd *pd,
 {
 	struct osdp_file *f = TO_FILE(pd);
 
-	/* If START was deferred and a terminal is reached before the first
-	 * osdp_file_tx_get_command() flushed it (e.g. an abort on the CP going
-	 * offline), emit it now so DONE never precedes START. No-op otherwise. */
+	/* If a terminal is reached before the first osdp_file_tx_get_command()
+	 * tick emitted START (e.g. an abort on the CP going offline), emit it
+	 * now so DONE never precedes START. No-op otherwise. */
 	osdp_mp_emit_start(&f->mp);
 
 	/* Fire MP_DONE(outcome) once (both roles), while the engine still has
@@ -139,17 +139,14 @@ int osdp_file_cmd_tx_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		LOG_WRN("TX_Build: Ignoring plaintext file transfer request");
 	}
 
-	/* PD-requested post-completion keep-alive: file is fully sent, PD
-	 * just wants the channel kept warm. No read attempt (the engine would
-	 * read at offset==total) and no errors++, so a PD-driven keep-alive
-	 * can ping indefinitely. Emit a header-only ping directly. */
+	/* PD-requested post-completion keep-alive (FTSTAT status 3): file is
+	 * fully sent, PD just wants the channel kept warm. An idle frame
+	 * makes no read attempt and no errors++, so a PD-driven keep-alive
+	 * can ping indefinitely. */
 	if (f->mp.state == OSDP_MP_WAIT && f->mp.offset == f->mp.total) {
 		LOG_DBG("TX_Build: keep-alive (PD requested)");
-		f->mp.last_len = 0;
 		buf[0] = (uint8_t)f->file_id;
-		osdp_mp_hdr_write(OSDP_MP_W32, f->mp.total, f->mp.offset, 0,
-				  buf + 1);
-		return 1 + OSDP_MP_HDR_SIZE(OSDP_MP_W32);
+		return 1 + osdp_mp_tx_build_idle(&f->mp, buf + 1);
 	}
 
 	/**
@@ -259,7 +256,7 @@ int osdp_file_cmd_stat_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 	}
 
 	if (stat.status == OSDP_FILE_TX_STATUS_KEEP_ALIVE) {
-		f->mp.state = OSDP_MP_WAIT;
+		osdp_mp_park(&f->mp);
 		LOG_INF("Stat_Decode: File transfer done; keep alive");
 		return 0;
 	}
@@ -343,6 +340,7 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 		osdp_mp_set_identity(&f->mp, OSDP_MP_MSG_FILE_TRANSFER, type);
 		/* Pass the peeked size so MP_START reports the real total. */
 		osdp_mp_rx_init(&f->mp, OSDP_MP_W32, total);
+		osdp_mp_emit_start(&f->mp);
 		opened_now = true;
 	}
 
@@ -542,10 +540,9 @@ int osdp_file_tx_command(struct osdp_pd *pd, int file_id, uint32_t flags)
 	f->file_id = file_id;
 	f->is_open = true;
 	osdp_mp_set_identity(&f->mp, OSDP_MP_MSG_FILE_TRANSFER, file_id);
-	/* This runs inline on the osdp_cp_submit_command() stack. Defer START so
-	 * it fires from osdp_cp_refresh() (osdp_file_tx_get_command) like the
-	 * other phases, keeping every notification on the refresh context. */
-	osdp_mp_defer_start(&f->mp);
+	/* This runs inline on the osdp_cp_submit_command() stack. START is
+	 * not emitted here; osdp_file_tx_get_command() emits it from the
+	 * osdp_cp_refresh() context like every other phase. */
 	osdp_mp_tx_init(&f->mp, size, OSDP_MP_W32);
 	return 0;
 }

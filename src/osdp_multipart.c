@@ -135,10 +135,8 @@ int osdp_mp_tx_init(struct osdp_multipart *mp, uint32_t total,
 	mp->offset = 0;
 	mp->last_len = 0;
 	mp->errors = 0;
+	mp->start_emitted = false;
 	mp->state = OSDP_MP_INPROG;
-	if (!mp->start_deferred) {
-		mp_emit(mp, OSDP_MP_PHASE_START);
-	}
 	return 0;
 }
 
@@ -174,6 +172,12 @@ int osdp_mp_tx_build(struct osdp_multipart *mp, uint8_t *buf, int max_len)
 	return hdr + n;
 }
 
+int osdp_mp_tx_build_idle(struct osdp_multipart *mp, uint8_t *buf)
+{
+	mp->last_len = 0; /* commit stays a no-op */
+	return osdp_mp_hdr_write(mp->width, mp->total, mp->offset, 0, buf);
+}
+
 void osdp_mp_tx_commit(struct osdp_multipart *mp)
 {
 	bool advanced = mp->last_len > 0;
@@ -194,8 +198,8 @@ int osdp_mp_rx_init(struct osdp_multipart *mp, enum osdp_mp_width w,
 	mp->last_len = 0;
 	mp->last_off = 0;
 	mp->errors = 0;
+	mp->start_emitted = false;
 	mp->state = OSDP_MP_INPROG;
-	mp_emit(mp, OSDP_MP_PHASE_START);
 	return 0;
 }
 
@@ -299,17 +303,15 @@ void osdp_mp_set_wait(struct osdp_multipart *mp, uint32_t ms)
 	mp->tstamp = osdp_millis_now();
 }
 
-void osdp_mp_defer_start(struct osdp_multipart *mp)
+void osdp_mp_park(struct osdp_multipart *mp)
 {
-	mp->start_deferred = true;
+	mp->state = OSDP_MP_WAIT;
 }
 
-/* Emit a deferred START exactly once. No-op unless osdp_mp_defer_start() was
- * called before osdp_mp_tx_init(); safe to call every processing tick. */
 void osdp_mp_emit_start(struct osdp_multipart *mp)
 {
-	if (mp->start_deferred) {
-		mp->start_deferred = false;
+	if (!mp->start_emitted) {
+		mp->start_emitted = true;
 		mp_emit(mp, OSDP_MP_PHASE_START);
 	}
 }

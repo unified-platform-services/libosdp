@@ -451,7 +451,8 @@ static int test_mp_lifecycle_on_complete(void)
 	osdp_mp_bind_buffer(&tx, src, sizeof(src));
 	osdp_mp_set_event_cb(&tx, mp_event_probe_fn, &probe);
 	osdp_mp_set_identity(&tx, 7, 42);
-	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16);   /* fires START */
+	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16);
+	osdp_mp_emit_start(&tx);
 	(void)drive_tx_to_buffer(&tx, out, 64);
 	if (probe.start != 1 || probe.done != 0) {        /* no auto-DONE */
 		return -1;
@@ -465,7 +466,7 @@ static int test_mp_lifecycle_on_complete(void)
 	return 0;
 }
 
-static int test_mp_defer_start(void)
+static int test_mp_start_latch(void)
 {
 	struct osdp_multipart tx;
 	struct mp_event_probe probe = { 0 };
@@ -474,16 +475,15 @@ static int test_mp_defer_start(void)
 	osdp_mp_reset(&tx);
 	osdp_mp_bind_buffer(&tx, src, sizeof(src));
 	osdp_mp_set_event_cb(&tx, mp_event_probe_fn, &probe);
-	osdp_mp_defer_start(&tx);
-	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16); /* START suppressed */
+	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16);
 	if (probe.start != 0) {
-		printf(SUB_1 "defer: START fired at init\n");
+		printf(SUB_1 "latch: START fired at init\n");
 		return -1;
 	}
-	osdp_mp_emit_start(&tx); /* now it fires */
+	osdp_mp_emit_start(&tx); /* consumer picks the context */
 	osdp_mp_emit_start(&tx); /* second call is a no-op */
 	if (probe.start != 1) {
-		printf(SUB_1 "defer: start=%d (want 1)\n", probe.start);
+		printf(SUB_1 "latch: start=%d (want 1)\n", probe.start);
 		return -1;
 	}
 	return 0;
@@ -579,6 +579,7 @@ static int test_mp_rx_init_with_total_hint(void)
 	osdp_mp_set_event_cb(&rx, mp_event_probe_fn, &probe);
 	/* Consumer peeked the size (8) before rx_init: START must carry it. */
 	osdp_mp_rx_init(&rx, OSDP_MP_W16, 8);
+	osdp_mp_emit_start(&rx);
 	if (probe.start != 1 || probe.start_total != 8) {
 		printf(SUB_1 "hint: START total=%u (want 8)\n",
 		       probe.start_total);
@@ -694,7 +695,7 @@ void run_multipart_tests(struct test *t)
 	result &= (test_mp_rx_retry() == 0);
 	result &= (test_mp_tx_keepalive_on_busy() == 0);
 	result &= (test_mp_lifecycle_on_complete() == 0);
-	result &= (test_mp_defer_start() == 0);
+	result &= (test_mp_start_latch() == 0);
 	result &= (test_mp_finish_outcome() == 0);
 	result &= (test_mp_tx_next_action() == 0);
 	result &= (test_mp_finish_idempotent() == 0);

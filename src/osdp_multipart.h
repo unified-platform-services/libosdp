@@ -97,7 +97,7 @@ struct osdp_multipart {
 	int msg_type;      /* opaque relay: multipart family */
 	int object_id;     /* opaque relay: consumer id */
 	int done_outcome;  /* relayed at DONE */
-	bool start_deferred; /* tx_init skips START; consumer emits it later */
+	bool start_emitted; /* START fires at most once per transfer */
 	uint32_t wait_time_ms; /* sender throttle (set by consumer)   */
 	tick_t tstamp;
 	int errors;
@@ -122,6 +122,10 @@ bool osdp_mp_is_active(const struct osdp_multipart *mp);
 int osdp_mp_tx_init(struct osdp_multipart *mp, uint32_t total,
 		    enum osdp_mp_width w);
 int osdp_mp_tx_build(struct osdp_multipart *mp, uint8_t *buf, int max_len);
+/* Header-only frame at the committed offset, bypassing the data plane: the
+ * FILETRANSFER idle keep-alive (OSDP 2.2 §7.25) or, once offset reaches
+ * total, a W16 early-termination frame (§5.10.2). Returns the header size. */
+int osdp_mp_tx_build_idle(struct osdp_multipart *mp, uint8_t *buf);
 void osdp_mp_tx_commit(struct osdp_multipart *mp);
 
 /* --- RX --- */
@@ -140,12 +144,16 @@ void osdp_mp_set_event_cb(struct osdp_multipart *mp, osdp_mp_event_fn fn,
 void osdp_mp_set_identity(struct osdp_multipart *mp, int msg_type,
 			  int object_id);
 void osdp_mp_set_wait(struct osdp_multipart *mp, uint32_t ms);
+/* Park the transfer in WAIT: nothing to move right now (e.g. FILETRANSFER
+ * completion held open by FTSTAT status 3). Only osdp_mp_finish() ends a
+ * transfer. */
+void osdp_mp_park(struct osdp_multipart *mp);
 void osdp_mp_finish(struct osdp_multipart *mp, int outcome);
 
-/* Defer the START notification: call BEFORE osdp_mp_tx_init so init sets up
- * state without emitting START, then osdp_mp_emit_start() fires it later (e.g.
- * from the consumer's own processing loop rather than the submit call). */
-void osdp_mp_defer_start(struct osdp_multipart *mp);
+/* Emit the START notification exactly once per transfer. Inits never emit it
+ * themselves; the consumer calls this from whichever context should deliver
+ * it (e.g. the CP refresh loop rather than the submit call). Safe to call on
+ * every processing tick. */
 void osdp_mp_emit_start(struct osdp_multipart *mp);
 enum osdp_mp_action osdp_mp_tx_next(struct osdp_multipart *mp);
 
