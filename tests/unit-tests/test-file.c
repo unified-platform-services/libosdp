@@ -716,6 +716,122 @@ done:
 	TEST_REPORT(t, result);
 }
 
+/*
+ * Receiver error paths around engine frame rejection:
+ *  - a malformed FIRST frame that passes the pre-open length bound (so the
+ *    app open() has already run) must tear the just-opened transfer back
+ *    down — no dangling open file / INPROG engine state;
+ *  - a malformed MID-TRANSFER frame must leave the transfer open so the CP
+ *    can retry, and the transfer must still complete afterwards.
+ */
+void run_file_rx_reject_paths_tests(struct test *t)
+{
+	bool result = false;
+	osdp_t *cp_ctx = NULL, *pd_ctx = NULL;
+	struct osdp_pd *pd;
+	struct osdp_file *f;
+	uint8_t frame[64], stat[16], data[16];
+	const uint32_t total = 32;
+	const int hdr = OSDP_MP_HDR_SIZE(OSDP_MP_W32);
+	int n;
+
+	printf("\nBegin file transfer test: receiver reject paths\n");
+
+	memset(&receiver_data, 0, sizeof(receiver_data));
+	receiver_data.is_cp = false;
+
+	struct osdp_file_ops recv_ops = {
+		.arg = (void *)&receiver_data,
+		.open = test_fops_open,
+		.read = test_fops_read,
+		.write = test_fops_write,
+		.close = test_fops_close
+	};
+
+	if (test_setup_devices(t, &cp_ctx, &pd_ctx)) {
+		printf(SUB_1 "Failed to setup devices!\n");
+		goto done;
+	}
+	unlink(REC_FILE);
+	osdp_file_register_ops(pd_ctx, 0, &recv_ops);
+	pd = osdp_to_pd((struct osdp *)pd_ctx, 0);
+	f = TO_FILE(pd);
+	memset(data, 0x5A, sizeof(data));
+
+	/* Malformed first frame: forward gap (off=4 on the opening frame).
+	 * The pre-open length bound passes, open() runs, the engine rejects
+	 * — the transfer must not stay half-open. */
+	frame[0] = 1;
+	osdp_mp_hdr_write(OSDP_MP_W32, total, 4, 4, frame + 1);
+	memcpy(frame + 1 + hdr, data, 4);
+	if (osdp_file_cmd_tx_decode(pd, frame, 1 + hdr + 4) == 0) {
+		printf(SUB_1 "reject: gapped first frame accepted\n");
+		goto teardown;
+	}
+	if (osdp_file_tx_is_active(pd) || receiver_data.fd != 0) {
+		printf(SUB_1 "reject: dangling transfer (active=%d fd=%d)\n",
+		       osdp_file_tx_is_active(pd), receiver_data.fd);
+		goto teardown;
+	}
+
+	/* Fresh transfer: good first frame. */
+	frame[0] = 1;
+	osdp_mp_hdr_write(OSDP_MP_W32, total, 0, 16, frame + 1);
+	memcpy(frame + 1 + hdr, data, 16);
+	if (osdp_file_cmd_tx_decode(pd, frame, 1 + hdr + 16) < 0) {
+		printf(SUB_1 "reject: good first frame refused\n");
+		goto teardown;
+	}
+	n = osdp_file_cmd_stat_build(pd, stat, sizeof(stat));
+	if (n < 0 || stat_reply_status(stat) != KA_STATUS_ACK ||
+	    f->mp.offset != 16) {
+		printf(SUB_1 "reject: first ack off=%u\n", f->mp.offset);
+		goto teardown;
+	}
+
+	/* Mid-transfer frame with a differing total: rejected, but the
+	 * transfer stays open at the committed offset. */
+	frame[0] = 1;
+	osdp_mp_hdr_write(OSDP_MP_W32, total + 1, 16, 4, frame + 1);
+	memcpy(frame + 1 + hdr, data, 4);
+	if (osdp_file_cmd_tx_decode(pd, frame, 1 + hdr + 4) == 0) {
+		printf(SUB_1 "reject: mismatched-total frame accepted\n");
+		goto teardown;
+	}
+	if (!osdp_file_tx_is_active(pd) || f->mp.offset != 16) {
+		printf(SUB_1 "reject: mid-transfer reject closed transfer "
+		       "(active=%d off=%u)\n",
+		       osdp_file_tx_is_active(pd), f->mp.offset);
+		goto teardown;
+	}
+
+	/* CP retries correctly: the transfer still completes. */
+	frame[0] = 1;
+	osdp_mp_hdr_write(OSDP_MP_W32, total, 16, 16, frame + 1);
+	memcpy(frame + 1 + hdr, data, 16);
+	if (osdp_file_cmd_tx_decode(pd, frame, 1 + hdr + 16) < 0) {
+		printf(SUB_1 "reject: final frame refused\n");
+		goto teardown;
+	}
+	n = osdp_file_cmd_stat_build(pd, stat, sizeof(stat));
+	if (n < 0 ||
+	    stat_reply_status(stat) != KA_STATUS_CONTENTS_PROCESSED ||
+	    osdp_file_tx_is_active(pd)) {
+		printf(SUB_1 "reject: completion n=%d status=%d active=%d\n",
+		       n, stat_reply_status(stat), osdp_file_tx_is_active(pd));
+		goto teardown;
+	}
+	result = true;
+	printf(SUB_1 "receiver reject paths: succeeded\n");
+
+teardown:
+	unlink(REC_FILE);
+	osdp_cp_teardown(cp_ctx);
+	osdp_pd_teardown(pd_ctx);
+done:
+	TEST_REPORT(t, result);
+}
+
 void run_file_tx_permanent_busy_tests(struct test *t)
 {
 	/* CP host never returns data. libosdp must keep the link alive

@@ -567,6 +567,104 @@ static int test_mp_rx_first_frame_error_keeps_total_clean(void)
 	return 0;
 }
 
+/* A frame whose declared DATA_LEN exceeds the bytes actually present must be
+ * rejected before it reaches the data plane. */
+static int test_mp_rx_reject_truncated(void)
+{
+	struct osdp_multipart rx;
+	uint8_t dst[8], frame[16];
+	int flen;
+
+	osdp_mp_reset(&rx);
+	osdp_mp_bind_buffer(&rx, dst, sizeof(dst));
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 0);
+	/* Declares 4 data bytes but only 2 are present. */
+	flen = osdp_mp_hdr_write(OSDP_MP_W16, 8, 0, 4, frame);
+	frame[flen++] = 0x11;
+	frame[flen++] = 0x22;
+	if (osdp_mp_rx_consume(&rx, frame, flen) != OSDP_MP_RC_ERR) {
+		return -1;
+	}
+	return 0;
+}
+
+/* A resend of an already-committed chunk (lost reply recovery) is accepted:
+ * the offset stays put and PROGRESS does not fire twice. */
+static int test_mp_rx_retransmit_tolerated(void)
+{
+	struct osdp_multipart rx;
+	struct mp_event_probe probe = { 0 };
+	uint8_t dst[8], frame[16];
+	int flen;
+
+	osdp_mp_reset(&rx);
+	osdp_mp_bind_buffer(&rx, dst, sizeof(dst));
+	osdp_mp_set_event_cb(&rx, mp_event_probe_fn, &probe);
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 0);
+	flen = osdp_mp_hdr_write(OSDP_MP_W16, 8, 0, 4, frame);
+	frame[flen++] = 1;
+	frame[flen++] = 2;
+	frame[flen++] = 3;
+	frame[flen++] = 4;
+	if (osdp_mp_rx_consume(&rx, frame, flen) != OSDP_MP_RC_MORE) {
+		return -1;
+	}
+	osdp_mp_rx_commit(&rx);
+	if (rx.offset != 4 || probe.progress != 1) {
+		return -1;
+	}
+	/* The sender missed our reply and re-sends the same frame. */
+	if (osdp_mp_rx_consume(&rx, frame, flen) != OSDP_MP_RC_MORE) {
+		printf(SUB_1 "retransmit: resend rejected\n");
+		return -1;
+	}
+	osdp_mp_rx_commit(&rx);
+	if (rx.offset != 4 || probe.progress != 1) {
+		printf(SUB_1 "retransmit: off=%u progress=%d\n", rx.offset,
+		       probe.progress);
+		return -1;
+	}
+	/* And the transfer still completes. */
+	flen = osdp_mp_hdr_write(OSDP_MP_W16, 8, 4, 4, frame);
+	frame[flen++] = 5;
+	frame[flen++] = 6;
+	frame[flen++] = 7;
+	frame[flen++] = 8;
+	if (osdp_mp_rx_consume(&rx, frame, flen) != OSDP_MP_RC_DONE) {
+		return -1;
+	}
+	osdp_mp_rx_commit(&rx);
+	if (rx.offset != 8) {
+		return -1;
+	}
+	return 0;
+}
+
+/* PROGRESS fires per committed mid-transfer fragment and stays silent on the
+ * final one — the terminal is DONE, delivered via osdp_mp_finish. */
+static int test_mp_tx_progress_counts(void)
+{
+	struct osdp_multipart tx;
+	struct mp_event_probe probe = { 0 };
+	uint8_t src[10] = { 0 };
+	uint8_t out[128];
+
+	osdp_mp_reset(&tx);
+	osdp_mp_bind_buffer(&tx, src, sizeof(src));
+	osdp_mp_set_event_cb(&tx, mp_event_probe_fn, &probe);
+	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16);
+	/* 3 frames (4 + 4 + 2): PROGRESS only for the first two commits. */
+	if (drive_tx_to_buffer(&tx, out, 6 + 4) < 0) {
+		return -1;
+	}
+	if (probe.progress != 2 || probe.done != 0) {
+		printf(SUB_1 "progress=%d done=%d (want 2, 0)\n",
+		       probe.progress, probe.done);
+		return -1;
+	}
+	return 0;
+}
+
 static int test_mp_rx_init_with_total_hint(void)
 {
 	struct osdp_multipart rx;
@@ -691,6 +789,9 @@ void run_multipart_tests(struct test *t)
 	result &= (test_mp_rx_reject_differing_total() == 0);
 	result &= (test_mp_rx_first_frame_error_keeps_total_clean() == 0);
 	result &= (test_mp_rx_init_with_total_hint() == 0);
+	result &= (test_mp_rx_reject_truncated() == 0);
+	result &= (test_mp_rx_retransmit_tolerated() == 0);
+	result &= (test_mp_tx_progress_counts() == 0);
 	result &= (test_mp_stream_roundtrip() == 0);
 	result &= (test_mp_rx_retry() == 0);
 	result &= (test_mp_tx_keepalive_on_busy() == 0);

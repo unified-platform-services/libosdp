@@ -159,6 +159,7 @@ void run_file_tx_intermittent_tests(struct test *t);
 void run_file_tx_permanent_busy_tests(struct test *t);
 void run_file_tx_pd_keep_alive_tests(struct test *t);
 void run_file_rx_idle_frame_tests(struct test *t);
+void run_file_rx_reject_paths_tests(struct test *t);
 void run_multipart_tests(struct test *t);
 void run_command_tests(struct test *t);
 void run_event_tests(struct test *t);
