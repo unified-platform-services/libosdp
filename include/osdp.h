@@ -1035,19 +1035,21 @@ enum osdp_notification_type {
 	 */
 	OSDP_NOTIFICATION_PD_STATUS,
 	/**
-	 * File transfer terminated (CP only).
-	 *
-	 * arg0: file ID that was being transferred
-	 * arg1: outcome -- see enum osdp_file_tx_outcome
-	 *
-	 * Fires exactly once per transfer, on any terminal state (success,
-	 * local abort, or a negative status reported by the PD).
+	 * Multipart transfer opened. `mp` carries mp_type/object_id/total.
 	 */
-	OSDP_NOTIFICATION_FILE_TX_DONE,
+	OSDP_NOTIFICATION_MP_START,
+	/**
+	 * Multipart fragment committed. `mp.offset`/`mp.total` advance.
+	 */
+	OSDP_NOTIFICATION_MP_PROGRESS,
+	/**
+	 * Multipart transfer terminated. `mp.outcome` is set.
+	 */
+	OSDP_NOTIFICATION_MP_DONE,
 };
 
 /**
- * @brief Outcome reported by OSDP_NOTIFICATION_FILE_TX_DONE
+ * @brief Outcome reported by OSDP_NOTIFICATION_MP_DONE
  */
 enum osdp_file_tx_outcome {
 	OSDP_FILE_TX_OUTCOME_OK = 0,           /**< Contents processed by PD */
@@ -1055,6 +1057,27 @@ enum osdp_file_tx_outcome {
 	OSDP_FILE_TX_OUTCOME_ABORTED = 2,      /**< Transfer aborted (local or remote) */
 	OSDP_FILE_TX_OUTCOME_UNRECOGNIZED = 3, /**< PD did not recognize file contents */
 	OSDP_FILE_TX_OUTCOME_INVALID = 4,      /**< PD rejected file data as malformed */
+};
+
+/**
+ * @brief Which multipart message family a transfer belongs to.
+ */
+enum osdp_mp_msg_type {
+	OSDP_MP_MSG_FILE_TRANSFER = 1, /**< File transfer */
+	OSDP_MP_MSG_PIV,               /**< PIV data (reserved) */
+	OSDP_MP_MSG_GENAUTH,           /**< General auth (reserved) */
+	OSDP_MP_MSG_CRAUTH,            /**< Challenge/response auth (reserved) */
+};
+
+/**
+ * @brief Structured payload for OSDP_NOTIFICATION_MP_* notifications.
+ */
+struct osdp_mp_notification {
+	enum osdp_mp_msg_type mp_type; /**< Multipart family */
+	int object_id;                 /**< File id for file transfer; 0 reserved */
+	uint32_t total;                /**< Full payload length */
+	uint32_t offset;                /**< Bytes transferred so far */
+	int outcome;                   /**< Meaningful at MP_DONE */
 };
 
 /**
@@ -1067,8 +1090,13 @@ enum osdp_file_tx_outcome {
  */
 struct osdp_notification {
 	enum osdp_notification_type type;  /**< Notification type */
-	int arg0;                          /**< Additional data member */
-	int arg1;                          /**< Additional data member */
+	union {
+		struct {
+			int arg0;          /**< Additional data member */
+			int arg1;          /**< Additional data member */
+		};
+		struct osdp_mp_notification mp; /**< For OSDP_NOTIFICATION_MP_* */
+	};
 };
 
 /**

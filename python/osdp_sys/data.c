@@ -454,12 +454,75 @@ static const struct pyosdp_field cmd_status_fields[] = {
 	END_OF_FIELDS,
 };
 
-static const struct pyosdp_field notification_fields[] = {
-	INT_FIELD_(struct osdp_notification, type),
-	INT_FIELD_(struct osdp_notification, arg0),
-	INT_FIELD_(struct osdp_notification, arg1),
-	END_OF_FIELDS,
-};
+/*
+ * A notification's payload is a union: MP_* types carry the structured
+ * osdp_mp_notification (mp_type/object_id/total/offset/outcome), everything
+ * else carries the flat arg0/arg1 pair that aliases its first two ints. Emit
+ * whichever the type selects so the outcome (5th mp field, past arg0/arg1)
+ * survives the round trip.
+ */
+static bool notif_type_is_mp(int type)
+{
+	return type == OSDP_NOTIFICATION_MP_START ||
+	       type == OSDP_NOTIFICATION_MP_PROGRESS ||
+	       type == OSDP_NOTIFICATION_MP_DONE;
+}
+
+static int pyosdp_make_dict_notification(PyObject *obj, const void *payload)
+{
+	const struct osdp_notification *n = payload;
+
+	if (pyosdp_dict_add_int(obj, "type", n->type))
+		return -1;
+	if (notif_type_is_mp(n->type)) {
+		if (pyosdp_dict_add_int(obj, "mp_type", n->mp.mp_type) ||
+		    pyosdp_dict_add_int(obj, "object_id", n->mp.object_id) ||
+		    pyosdp_dict_add_int(obj, "total", (int)n->mp.total) ||
+		    pyosdp_dict_add_int(obj, "offset", (int)n->mp.offset) ||
+		    pyosdp_dict_add_int(obj, "outcome", n->mp.outcome))
+			return -1;
+		return 0;
+	}
+	if (pyosdp_dict_add_int(obj, "arg0", n->arg0) ||
+	    pyosdp_dict_add_int(obj, "arg1", n->arg1))
+		return -1;
+	return 0;
+}
+
+static int pyosdp_make_struct_notification(void *payload, PyObject *dict)
+{
+	struct osdp_notification *n = payload;
+	int type, val;
+
+	if (pyosdp_dict_get_int(dict, "type", &type))
+		return -1;
+	n->type = (enum osdp_notification_type)type;
+	if (notif_type_is_mp(type)) {
+		if (pyosdp_dict_get_int(dict, "mp_type", &val))
+			return -1;
+		n->mp.mp_type = (enum osdp_mp_msg_type)val;
+		if (pyosdp_dict_get_int(dict, "object_id", &val))
+			return -1;
+		n->mp.object_id = val;
+		if (pyosdp_dict_get_int(dict, "total", &val))
+			return -1;
+		n->mp.total = (uint32_t)val;
+		if (pyosdp_dict_get_int(dict, "offset", &val))
+			return -1;
+		n->mp.offset = (uint32_t)val;
+		if (pyosdp_dict_get_int(dict, "outcome", &val))
+			return -1;
+		n->mp.outcome = val;
+		return 0;
+	}
+	if (pyosdp_dict_get_int(dict, "arg0", &val))
+		return -1;
+	n->arg0 = val;
+	if (pyosdp_dict_get_int(dict, "arg1", &val))
+		return -1;
+	n->arg1 = val;
+	return 0;
+}
 
 /* ------------------------------- */
 /*             EVENTS              */
@@ -635,7 +698,10 @@ static const struct pyosdp_translator command_translator[OSDP_CMD_SENTINEL] = {
 	[OSDP_CMD_BIOMATCH] = { .fields = cmd_biomatch_fields },
 	[OSDP_CMD_FILE_TX] = { .fields = cmd_file_tx_fields },
 	[OSDP_CMD_STATUS] = { .fields = cmd_status_fields },
-	[OSDP_CMD_NOTIFICATION] = { .fields = notification_fields },
+	[OSDP_CMD_NOTIFICATION] = {
+		.to_dict = pyosdp_make_dict_notification,
+		.to_struct = pyosdp_make_struct_notification,
+	},
 };
 
 static const struct pyosdp_translator event_translator[OSDP_EVENT_SENTINEL] = {
@@ -650,7 +716,10 @@ static const struct pyosdp_translator event_translator[OSDP_EVENT_SENTINEL] = {
 	[OSDP_EVENT_BIOREADR] = { .fields = event_bioreadr_fields },
 	[OSDP_EVENT_BIOMATCHR] = { .fields = event_biomatchr_fields },
 	[OSDP_EVENT_STATUS] = { .fields = event_status_fields },
-	[OSDP_EVENT_NOTIFICATION] = { .fields = notification_fields },
+	[OSDP_EVENT_NOTIFICATION] = {
+		.to_dict = pyosdp_make_dict_notification,
+		.to_struct = pyosdp_make_struct_notification,
+	},
 };
 
 static int translate_to_dict(const struct pyosdp_translator *t, PyObject *obj,

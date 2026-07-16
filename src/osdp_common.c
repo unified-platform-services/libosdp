@@ -13,6 +13,8 @@
 #include <string.h>
 
 #include "osdp_common.h"
+#include "osdp_multipart.h"
+#include "osdp_metrics.h"
 
 #include <utils/crc16.h>
 
@@ -442,4 +444,48 @@ void osdp_get_status_mask(const osdp_t *ctx, uint8_t *bitmask)
 			*mask |= 1 << pos;
 		}
 	}
+}
+
+void osdp_mp_pd_notify(void *arg, enum osdp_mp_phase phase,
+		       const struct osdp_mp_progress *p)
+{
+	static const enum osdp_notification_type ph2t[] = {
+		[OSDP_MP_PHASE_START]    = OSDP_NOTIFICATION_MP_START,
+		[OSDP_MP_PHASE_PROGRESS] = OSDP_NOTIFICATION_MP_PROGRESS,
+		[OSDP_MP_PHASE_DONE]     = OSDP_NOTIFICATION_MP_DONE,
+	};
+	struct osdp_pd *pd = arg;
+	struct osdp_notification notif;
+
+	if (!is_notifications_enabled(pd)) {
+		return;
+	}
+	notif.type = ph2t[phase];
+	notif.mp.mp_type = (enum osdp_mp_msg_type)p->msg_type;
+	notif.mp.object_id = p->object_id;
+	notif.mp.total = p->total;
+	notif.mp.offset = p->offset;
+	notif.mp.outcome = p->outcome;
+
+	if (is_cp_mode(pd)) {
+		struct osdp *ctx = pd_to_osdp(pd);
+		struct osdp_event evt;
+
+		if (!ctx->event_callback) {
+			return;
+		}
+		evt.type = OSDP_EVENT_NOTIFICATION;
+		evt.notif = notif;
+		ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
+	} else {
+		struct osdp_cmd cmd;
+
+		if (!pd->command_callback) {
+			return;
+		}
+		cmd.id = OSDP_CMD_NOTIFICATION;
+		cmd.notif = notif;
+		(void)pd->command_callback(pd->command_callback_arg, &cmd);
+	}
+	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 }

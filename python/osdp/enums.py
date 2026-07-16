@@ -269,8 +269,9 @@ class NotificationType(IntEnum):
     PeripheralDeviceStatus = _sys.NOTIFICATION_PD_STATUS
     """PD reachability changed. arg0 is 1 when online."""
 
-    FileTransferDone = _sys.NOTIFICATION_FILE_TX_DONE
-    """A file transfer ended. arg0 is the file id, arg1 is a FileTxOutcome."""
+    MultipartStart = _sys.NOTIFICATION_MP_START
+    MultipartProgress = _sys.NOTIFICATION_MP_PROGRESS
+    MultipartDone = _sys.NOTIFICATION_MP_DONE
 
 
 class FileTxFlag(IntFlag):

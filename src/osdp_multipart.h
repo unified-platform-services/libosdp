@@ -28,6 +28,7 @@ enum osdp_mp_rc {
 	OSDP_MP_RC_DONE,
 	OSDP_MP_RC_EARLY_TERM,
 	OSDP_MP_RC_ERR,
+	OSDP_MP_RC_RETRY,   /* receiver transient failure; do not advance */
 };
 
 enum osdp_mp_action {
@@ -37,8 +38,18 @@ enum osdp_mp_action {
 	OSDP_MP_ACT_ABORT, /* unrecoverable; tear down         */
 };
 
-/* Offset-addressed data plane. Signatures mirror struct osdp_file_ops so a
- * file transfer binds its public ops directly (no wrapper). */
+/* Receiver data-plane return convention (engine-internal). A bound write hook
+ * returns one of these; it does NOT return a byte count. */
+enum osdp_mp_rx_status {
+	OSDP_MP_RX_OK    =  0,  /* chunk consumed; advance */
+	OSDP_MP_RX_RETRY = -1,  /* transient; keep offset, receiver re-obtains chunk */
+	OSDP_MP_RX_ABORT = -2,  /* fatal; tear the transfer down */
+};
+
+/* Offset-addressed data plane. Signatures mirror struct osdp_file_ops; file
+ * transfer binds through a thin adapter that only bridges write's return
+ * convention. read returns a byte count (0 = temporarily empty); write returns
+ * an enum osdp_mp_rx_status. */
 struct osdp_mp_ops {
 	int (*read)(void *arg, void *buf, uint32_t size, uint32_t offset);
 	int (*write)(void *arg, const void *buf, uint32_t size,
@@ -46,7 +57,25 @@ struct osdp_mp_ops {
 	void *arg;
 };
 
-typedef void (*osdp_mp_done_fn)(void *arg, enum osdp_mp_rc outcome);
+/* Lifecycle phases reported to the consumer's event callback. */
+enum osdp_mp_phase {
+	OSDP_MP_PHASE_START,     /* transfer opened (tx_init / rx_init) */
+	OSDP_MP_PHASE_PROGRESS,  /* a data fragment just committed */
+	OSDP_MP_PHASE_DONE,      /* terminal; outcome is meaningful */
+};
+
+/* Progress record handed to the callback. msg_type/object_id are opaque relay
+ * values set via osdp_mp_set_identity(); the engine never interprets them. */
+struct osdp_mp_progress {
+	int msg_type;
+	int object_id;
+	uint32_t total;
+	uint32_t offset;
+	int outcome;   /* meaningful at DONE */
+};
+
+typedef void (*osdp_mp_event_fn)(void *arg, enum osdp_mp_phase phase,
+				 const struct osdp_mp_progress *p);
 
 struct osdp_multipart {
 	enum osdp_mp_state state;
@@ -58,8 +87,12 @@ struct osdp_multipart {
 	struct osdp_mp_ops ops;
 	uint8_t *buf; /* non-NULL when buffer-bound          */
 	uint32_t buf_len;
-	osdp_mp_done_fn on_done;
-	void *on_done_arg;
+	osdp_mp_event_fn event_cb;
+	void *event_arg;
+	int msg_type;      /* opaque relay: multipart family */
+	int object_id;     /* opaque relay: consumer id */
+	int done_outcome;  /* relayed at DONE */
+	bool start_deferred; /* tx_init skips START; consumer emits it later */
 	uint32_t wait_time_ms; /* sender throttle (set by consumer)   */
 	tick_t tstamp;
 	int errors;
@@ -93,10 +126,23 @@ enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
 void osdp_mp_rx_commit(struct osdp_multipart *mp);
 
 /* --- Control / scheduling --- */
-void osdp_mp_set_done_cb(struct osdp_multipart *mp, osdp_mp_done_fn fn,
-			 void *arg);
+void osdp_mp_set_event_cb(struct osdp_multipart *mp, osdp_mp_event_fn fn,
+			  void *arg);
+void osdp_mp_set_identity(struct osdp_multipart *mp, int msg_type,
+			  int object_id);
 void osdp_mp_set_wait(struct osdp_multipart *mp, uint32_t ms);
-void osdp_mp_abort(struct osdp_multipart *mp);
+void osdp_mp_finish(struct osdp_multipart *mp, int outcome);
+
+/* Defer the START notification: call BEFORE osdp_mp_tx_init so init sets up
+ * state without emitting START, then osdp_mp_emit_start() fires it later (e.g.
+ * from the consumer's own processing loop rather than the submit call). */
+void osdp_mp_defer_start(struct osdp_multipart *mp);
+void osdp_mp_emit_start(struct osdp_multipart *mp);
 enum osdp_mp_action osdp_mp_tx_next(struct osdp_multipart *mp);
+
+/* Shared bridge: turns an engine phase into an OSDP notification on `pd`
+ * (arg = struct osdp_pd *). Implemented in osdp_common.c (pd-aware). */
+void osdp_mp_pd_notify(void *arg, enum osdp_mp_phase phase,
+		       const struct osdp_mp_progress *p);
 
 #endif /* _OSDP_MULTIPART_H_ */

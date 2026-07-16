@@ -179,6 +179,8 @@ err:
 
 struct file_tx_notification {
 	int count;
+	int start;
+	int progress;
 	int type;
 	int arg0;
 	int arg1;
@@ -194,13 +196,17 @@ static int event_callback(void *arg, int pd, struct osdp_event *ev)
 	if (ev->type != OSDP_EVENT_NOTIFICATION) {
 		return 0;
 	}
-	if (ev->notif.type != OSDP_NOTIFICATION_FILE_TX_DONE) {
+	if (ev->notif.type == OSDP_NOTIFICATION_MP_START)
+		g_notif.start++;
+	else if (ev->notif.type == OSDP_NOTIFICATION_MP_PROGRESS)
+		g_notif.progress++;
+	else if (ev->notif.type == OSDP_NOTIFICATION_MP_DONE) {
+		g_notif.count++;
+		g_notif.type = ev->notif.type;
+		g_notif.arg0 = ev->notif.mp.object_id;
+		g_notif.arg1 = ev->notif.mp.outcome;
+	} else
 		return 0;
-	}
-	g_notif.count++;
-	g_notif.type = ev->notif.type;
-	g_notif.arg0 = ev->notif.arg0;
-	g_notif.arg1 = ev->notif.arg1;
 	return 0;
 }
 
@@ -332,7 +338,7 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 		       g_notif.count);
 		goto error;
 	}
-	if (g_notif.type != OSDP_NOTIFICATION_FILE_TX_DONE) {
+	if (g_notif.type != OSDP_NOTIFICATION_MP_DONE) {
 		printf(SUB_1 "unexpected notification type: %d\n", g_notif.type);
 		goto error;
 	}
@@ -353,6 +359,12 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 	}
 
 	if (opts->verify_content) {
+		if (g_notif.start != 1 || g_notif.progress < 1) {
+			printf(SUB_1 "unexpected lifecycle: start=%d progress=%d "
+			       "(want start==1, progress>=1)\n",
+			       g_notif.start, g_notif.progress);
+			goto error;
+		}
 		result = test_check_rec_file();
 		printf(SUB_1 "%s: %s (empty_reads=%d)\n", opts->label,
 		       result ? "succeeded" : "failed",
@@ -363,6 +375,13 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 		 * empty read — libosdp has to keep the link alive across
 		 * several busy ticks before giving up. */
 		const int min_retries = 5;
+		/* START is delivered even when no fragment ever commits, so a
+		 * DONE never arrives without a preceding START. */
+		if (g_notif.start != 1) {
+			printf(SUB_1 "aborted transfer: start=%d (want 1)\n",
+			       g_notif.start);
+			goto error;
+		}
 		if (sender_data.empty_read_count < min_retries) {
 			printf(SUB_1 "%s: aborted after only %d empty reads "
 			       "(want >= %d) — retry budget too small\n",
@@ -498,6 +517,11 @@ void run_file_tx_pd_keep_alive_tests(struct test *t)
 	pd = osdp_to_pd((struct osdp *)cp_ctx, 0);
 	f = TO_FILE(pd);
 
+	/* Capture lifecycle notifications so completion is verified by the
+	 * MP_DONE event, not merely by the engine's offset/state. */
+	memset(&g_notif, 0, sizeof(g_notif));
+	osdp_cp_set_event_callback(cp_ctx, event_callback, NULL);
+
 	if (osdp_file_tx_command(pd, 1, 0)) {
 		printf(SUB_1 "keep-alive: tx_command failed\n");
 		goto teardown;
@@ -524,6 +548,13 @@ void run_file_tx_pd_keep_alive_tests(struct test *t)
 	/* KEEP_ALIVE must have kept the transfer active, parked at EOF. */
 	if (!osdp_file_tx_is_active(pd) || f->mp.offset != f->mp.total) {
 		printf(SUB_1 "keep-alive: transfer not parked at EOF\n");
+		goto teardown;
+	}
+
+	/* Reaching offset==total is NOT terminal: MP_DONE must not have fired
+	 * while the transfer is parked in keep-alive. */
+	if (g_notif.count != 0) {
+		printf(SUB_1 "keep-alive: MP_DONE fired while parked at EOF\n");
 		goto teardown;
 	}
 
@@ -554,6 +585,14 @@ void run_file_tx_pd_keep_alive_tests(struct test *t)
 	}
 	if (osdp_file_tx_is_active(pd)) {
 		printf(SUB_1 "keep-alive: transfer did not complete\n");
+		goto teardown;
+	}
+	/* Completion delivers exactly one MP_DONE with the OK outcome. */
+	if (g_notif.count != 1 || g_notif.type != OSDP_NOTIFICATION_MP_DONE ||
+	    g_notif.arg1 != OSDP_FILE_TX_OUTCOME_OK) {
+		printf(SUB_1 "keep-alive: MP_DONE not delivered on completion "
+		       "(count=%d type=%d outcome=%d)\n",
+		       g_notif.count, g_notif.type, g_notif.arg1);
 		goto teardown;
 	}
 	result = true;

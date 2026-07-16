@@ -242,18 +242,18 @@ def _wait_file_tx_done(cp, expected_outcome, timeout=5.0):
             continue
         if not isinstance(e, events.Notification):
             continue
-        if e.type != NotificationType.FileTransferDone:
+        if e.type != NotificationType.MultipartDone:
             continue
         assert e.file_id == FILE_ID
         assert e.file_tx_outcome == expected_outcome, \
             f"outcome={e.file_tx_outcome}, want {expected_outcome}"
         return e
-    pytest.fail(f"FileTransferDone({expected_outcome}) not received")
+    pytest.fail(f"MultipartDone({expected_outcome}) not received")
 
 
 def test_cp_file_tx_aborts_on_disable_pd():
     """CP side: disabling a PD mid-transfer must abort the file_tx and
-    fire FILE_TX_DONE/ABORTED, matching test_cp_file_tx_abort_on_disable
+    fire MP_DONE/ABORTED, matching test_cp_file_tx_abort_on_disable
     in the C suite."""
     cp, pd = _fresh_pair("notif-fabort-cp")
     try:
@@ -275,7 +275,7 @@ def test_cp_file_tx_aborts_on_disable_pd():
             "file_tx never reached 'in progress' on CP side"
 
         # Disabling the PD drives OSDP_CP_STATE_DISABLED, which must
-        # call osdp_file_tx_abort() and fire FILE_TX_DONE/ABORTED.
+        # call osdp_file_tx_abort() and fire MP_DONE/ABORTED.
         assert cp.disable_pd(PD_ADDR), "disable_pd failed"
 
         _wait_file_tx_done(cp, FileTxOutcome.Aborted, timeout=5.0)

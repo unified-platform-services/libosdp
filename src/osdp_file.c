@@ -24,11 +24,33 @@
 #define OSDP_FILE_TX_FLAG_PLAIN_TEXT 0x02000000
 #define OSDP_FILE_TX_FLAG_POLL_RESP  0x04000000
 
-static inline void file_state_reset(struct osdp_file *f)
+/* The engine shares one arg across read+write. Route both through the file so
+ * write can map the app's byte-return to the engine's status convention while
+ * read passes the byte count through unchanged. */
+static int file_mp_read(void *arg, void *buf, uint32_t size, uint32_t offset)
 {
-	struct osdp_mp_ops ops = { .read = f->ops.read,
-				   .write = f->ops.write,
-				   .arg = f->ops.arg };
+	struct osdp_file *f = arg;
+
+	return f->ops.read(f->ops.arg, buf, size, offset);
+}
+
+static int file_mp_write(void *arg, const void *buf, uint32_t size,
+			 uint32_t offset)
+{
+	struct osdp_file *f = arg;
+	int n = f->ops.write(f->ops.arg, buf, size, offset);
+
+	/* Preserve today's behavior: a short write aborts. File transfer does
+	 * not use RETRY. */
+	return (n == (int)size) ? OSDP_MP_RX_OK : OSDP_MP_RX_ABORT;
+}
+
+static inline void file_state_reset(struct osdp_pd *pd)
+{
+	struct osdp_file *f = TO_FILE(pd);
+	struct osdp_mp_ops ops = { .read = file_mp_read,
+				   .write = file_mp_write,
+				   .arg = f };
 	f->flags = 0;
 	f->errors = 0;
 	f->outcome = OSDP_FILE_TX_OUTCOME_OK;
@@ -38,6 +60,7 @@ static inline void file_state_reset(struct osdp_file *f)
 	f->cancel_req = false;
 	osdp_mp_reset(&f->mp);
 	osdp_mp_bind_ops(&f->mp, &ops);
+	osdp_mp_set_event_cb(&f->mp, osdp_mp_pd_notify, pd);
 }
 
 static inline void file_close_if_open(struct osdp_pd *pd)
@@ -52,25 +75,27 @@ static inline void file_close_if_open(struct osdp_pd *pd)
 	}
 }
 
-/* Converge every terminal path here: close the file, emit the
- * notification (CP only), reset to IDLE. */
+/* Converge every terminal path here: fire MP_DONE, close the file,
+ * reset to IDLE. */
 static void file_transition_done(struct osdp_pd *pd,
 				 enum osdp_file_tx_outcome outcome)
 {
 	struct osdp_file *f = TO_FILE(pd);
-	int file_id = f->file_id;
 
+	/* If START was deferred and a terminal is reached before the first
+	 * osdp_file_tx_get_command() flushed it (e.g. an abort on the CP going
+	 * offline), emit it now so DONE never precedes START. No-op otherwise. */
+	osdp_mp_emit_start(&f->mp);
+
+	/* Fire MP_DONE(outcome) once (both roles), while the engine still has
+	 * state, then tear down. */
+	osdp_mp_finish(&f->mp, (int)outcome);
 	file_close_if_open(pd);
 	f->outcome = outcome;
-
-	if (is_cp_mode(pd)) {
-		if (outcome == OSDP_FILE_TX_OUTCOME_OK_REBOOTING) {
-			make_request(pd, CP_REQ_OFFLINE);
-		}
-		osdp_file_tx_notify_done(pd, file_id, outcome);
+	if (is_cp_mode(pd) && outcome == OSDP_FILE_TX_OUTCOME_OK_REBOOTING) {
+		make_request(pd, CP_REQ_OFFLINE);
 	}
-
-	file_state_reset(f); /* resets the embedded engine to IDLE */
+	file_state_reset(pd);
 }
 
 static enum osdp_file_tx_outcome file_outcome_from_wire_status(int16_t status)
@@ -312,9 +337,10 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 
 		LOG_INF("TX_Decode: Starting file transfer of size: %" PRIu32,
 			total);
-		file_state_reset(f);
+		file_state_reset(pd);
 		f->file_id = type;
 		f->is_open = true;
+		osdp_mp_set_identity(&f->mp, OSDP_MP_MSG_FILE_TRANSFER, type);
 		osdp_mp_rx_init(&f->mp, OSDP_MP_W32);
 		opened_now = true;
 	}
@@ -387,10 +413,10 @@ int osdp_file_cmd_stat_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		f->mp.total);
 
 	/*
-	 * EOF is decided on offset/total, NOT on mp.state: rx_commit may have
-	 * already set state=DONE at completion, and file_transition_done is
-	 * the only place that tears down + resets. Testing state here would
-	 * skip completion. A legitimately retransmitted chunk (lost FTSTAT)
+	 * EOF is decided on offset/total, NOT on mp.state: only osdp_mp_finish
+	 * (via file_transition_done) sets state=DONE now, and that is the only
+	 * place that tears down + resets. Testing state here would skip
+	 * completion. A legitimately retransmitted chunk (lost FTSTAT)
 	 * re-drives the running offset without overshooting; the write-side
 	 * bound in the engine is the real guard.
 	 */
@@ -434,6 +460,10 @@ int osdp_file_tx_get_command(struct osdp_pd *pd)
 	if (!osdp_file_tx_is_active(pd)) {
 		return 0;
 	}
+
+	/* Flush a START deferred by osdp_file_tx_command(): we are now on the
+	 * refresh context, before any fragment (PROGRESS) or terminal (DONE). */
+	osdp_mp_emit_start(&f->mp);
 
 	if (f->errors > OSDP_FILE_ERROR_RETRY_MAX || f->cancel_req) {
 		LOG_ERR("Aborting transfer of file fd:%d", f->file_id);
@@ -496,10 +526,15 @@ int osdp_file_tx_command(struct osdp_pd *pd, int file_id, uint32_t flags)
 
 	LOG_INF("TX_init: Starting file transfer of size: %" PRIu32, size);
 
-	file_state_reset(f);
+	file_state_reset(pd);
 	f->flags = flags;
 	f->file_id = file_id;
 	f->is_open = true;
+	osdp_mp_set_identity(&f->mp, OSDP_MP_MSG_FILE_TRANSFER, file_id);
+	/* This runs inline on the osdp_cp_submit_command() stack. Defer START so
+	 * it fires from osdp_cp_refresh() (osdp_file_tx_get_command) like the
+	 * other phases, keeping every notification on the refresh context. */
+	osdp_mp_defer_start(&f->mp);
 	osdp_mp_tx_init(&f->mp, size, OSDP_MP_W32);
 	return 0;
 }
@@ -545,7 +580,7 @@ int osdp_file_register_ops(osdp_t *ctx, int pd_idx,
 	}
 
 	memcpy(&pd->file->ops, ops, sizeof(struct osdp_file_ops));
-	file_state_reset(pd->file);
+	file_state_reset(pd);
 	return 0;
 }
 

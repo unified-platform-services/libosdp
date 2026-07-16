@@ -258,7 +258,10 @@ _COMMAND_DECODERS: dict[CommandId, Callable[[Payload], c.Command]] = {
         type=StatusReportType(p["type"]), report=p["report"]
     ),
     CommandId.Notification: lambda p: c.Notification(
-        type=NotificationType(p["type"]), arg0=p["arg0"], arg1=p["arg1"]
+        type=NotificationType(p["type"]),
+        arg0=p.get("arg0", 0), arg1=p.get("arg1", 0),
+        object_id=p.get("object_id", 0), total=p.get("total", 0),
+        offset=p.get("offset", 0), outcome=p.get("outcome", 0),
     ),
 }
 
@@ -383,7 +386,10 @@ _EVENT_DECODERS: dict[EventId, Callable[[Payload], e.Event]] = {
         type=StatusReportType(p["type"]), report=p["report"]
     ),
     EventId.Notification: lambda p: e.Notification(
-        type=NotificationType(p["type"]), arg0=p["arg0"], arg1=p["arg1"]
+        type=NotificationType(p["type"]),
+        arg0=p.get("arg0", 0), arg1=p.get("arg1", 0),
+        object_id=p.get("object_id", 0), total=p.get("total", 0),
+        offset=p.get("offset", 0), outcome=p.get("outcome", 0),
     ),
 }
 

@@ -86,14 +86,20 @@ def drain_events(address):
 
 def wait_for_file_tx_done(address, expected_outcome, timeout=10.0,
                           dupe_window=0.3):
-    """Wait for a FileTransferDone notification, then briefly check for dupes.
+    """Wait for the terminal MultipartDone notification, then check for dupes.
 
-    The short post-receipt window (`dupe_window`) pins the "notification fires
-    exactly once" guarantee from the refactor without stretching the test's
-    wall-clock by the full `timeout`.
+    File transfer now rides the multipart lifecycle: MP_START, one-or-more
+    MP_PROGRESS, then exactly one terminal MP_DONE. MP_START is delivered from
+    the CP refresh loop (not the submit_command that queued the transfer), so
+    it must still arrive before the first MP_PROGRESS and the MP_DONE; the FIFO
+    event queue lets us assert that ordering. The short post-receipt window
+    (`dupe_window`) pins the "terminal fires exactly once" guarantee without
+    stretching the test's wall-clock by the full `timeout`.
     """
     deadline = time.monotonic() + timeout
     notif = None
+    saw_start = False
+    saw_progress = False
     while time.monotonic() < deadline:
         remaining = deadline - time.monotonic()
         e = cp.get_event(address, timeout=max(0.05, remaining))
@@ -101,15 +107,25 @@ def wait_for_file_tx_done(address, expected_outcome, timeout=10.0,
             continue
         if not isinstance(e, events.Notification):
             continue
-        if e.type != NotificationType.FileTransferDone:
+        if e.type == NotificationType.MultipartStart:
+            saw_start = True
+            continue
+        if e.type == NotificationType.MultipartProgress:
+            assert saw_start, "MP_PROGRESS arrived before MP_START"
+            saw_progress = True
+            continue
+        if e.type != NotificationType.MultipartDone:
             continue
         notif = e
         break
-    assert notif is not None, "FileTransferDone notification not received"
-    assert notif.arg0 == FILE_ID, \
-        f"unexpected file_id in notification: {notif.arg0}"
-    assert notif.arg1 == expected_outcome, \
-        f"unexpected outcome: got {notif.arg1}, want {expected_outcome}"
+    assert notif is not None, "MultipartDone notification not received"
+    assert notif.file_id == FILE_ID, \
+        f"unexpected file_id in notification: {notif.file_id}"
+    assert notif.file_tx_outcome == expected_outcome, \
+        f"unexpected outcome: got {notif.file_tx_outcome}, want {expected_outcome}"
+    assert saw_start, "MultipartStart notification not received"
+    if expected_outcome == FileTxOutcome.Ok:
+        assert saw_progress, "MultipartProgress notification not received"
 
     # Pin "fires exactly once" — drain for a short window and fail on any dupe
     dupe_deadline = time.monotonic() + dupe_window
@@ -118,8 +134,8 @@ def wait_for_file_tx_done(address, expected_outcome, timeout=10.0,
         if e is None:
             continue
         if isinstance(e, events.Notification) and \
-           e.type == NotificationType.FileTransferDone:
-            raise AssertionError("FileTransferDone fired more than once")
+           e.type == NotificationType.MultipartDone:
+            raise AssertionError("MultipartDone fired more than once")
     return notif
 
 @pytest.fixture(scope='module', autouse=True)

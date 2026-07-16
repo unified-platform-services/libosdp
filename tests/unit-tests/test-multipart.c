@@ -65,13 +65,15 @@ static int test_mp_hdr_read_short(void)
 }
 
 /* Build all frames of a buffer-backed transfer into `out`, committing each,
- * until DONE. Returns total bytes emitted, or -1. */
+ * until every byte is sent (EOF). The sender parks in WAIT at EOF rather than
+ * self-terminating, so drive on bytes-remaining. Returns total bytes emitted,
+ * or -1. */
 static int drive_tx_to_buffer(struct osdp_multipart *mp, uint8_t *out,
 			      int per_frame_max)
 {
 	int total = 0, n;
 
-	while (osdp_mp_is_active(mp)) {
+	while (mp->offset < mp->total) {
 		n = osdp_mp_tx_build(mp, out + total, per_frame_max);
 		if (n < 0) {
 			return -1;
@@ -102,7 +104,7 @@ static int test_mp_tx_single_frame(void)
 		printf(SUB_1 "tx single frame n=%d\n", n);
 		return -1;
 	}
-	if (mp.state != OSDP_MP_DONE) {
+	if (mp.offset != sizeof(src)) {
 		return -1;
 	}
 	return 0;
@@ -133,7 +135,7 @@ static int test_mp_tx_multi_frame(void)
 		printf(SUB_1 "tx frame1 offset=%d\n", out[10 + 2]);
 		return -1;
 	}
-	if (mp.state != OSDP_MP_DONE) {
+	if (mp.offset != mp.total) {
 		return -1;
 	}
 	return 0;
@@ -275,13 +277,13 @@ static int stream_write(void *arg, const void *buf, uint32_t size,
 	struct mp_stream_dst *d = arg;
 
 	if (offset + size > sizeof(d->data)) {
-		return -1;
+		return OSDP_MP_RX_ABORT;
 	}
 	memcpy(d->data + offset, buf, size);
 	if (offset + size > d->len) {
 		d->len = offset + size;
 	}
-	return (int)size;
+	return OSDP_MP_RX_OK;
 }
 
 static int test_mp_stream_roundtrip(void)
@@ -306,8 +308,11 @@ static int test_mp_stream_roundtrip(void)
 	osdp_mp_bind_ops(&rx, &rx_ops);
 	osdp_mp_rx_init(&rx, OSDP_MP_W32);
 
-	/* Pipe each TX frame straight into RX; 8 chunk bytes per frame. */
-	while (osdp_mp_is_active(&tx)) {
+	/* Pipe each TX frame straight into RX; 8 chunk bytes per frame. Drive
+	 * until every byte is sent: the sender parks in WAIT (keep-alive) at
+	 * EOF rather than self-terminating, so loop on bytes-remaining, not on
+	 * liveness. */
+	while (tx.offset < tx.total) {
 		n = osdp_mp_tx_build(&tx, frame,
 				     OSDP_MP_HDR_SIZE(OSDP_MP_W32) + 8);
 		if (n < 0) {
@@ -323,6 +328,47 @@ static int test_mp_stream_roundtrip(void)
 	if (rc != OSDP_MP_RC_DONE || dst.len != sizeof(payload) ||
 	    memcmp(dst.data, payload, sizeof(payload)) != 0) {
 		printf(SUB_1 "stream rt rc=%d len=%u\n", rc, dst.len);
+		return -1;
+	}
+	return 0;
+}
+
+static int g_retry_writes;
+
+static int retry_once_write(void *arg, const void *src, uint32_t size,
+			    uint32_t offset)
+{
+	(void)arg; (void)src; (void)size; (void)offset;
+	/* First write asks for retry, second accepts. */
+	return (g_retry_writes++ == 0) ? OSDP_MP_RX_RETRY : OSDP_MP_RX_OK;
+}
+
+static int test_mp_rx_retry(void)
+{
+	struct osdp_multipart rx;
+	struct osdp_mp_ops ops = { .read = NULL, .write = retry_once_write,
+				   .arg = NULL };
+	uint8_t frame[16];
+	int flen;
+
+	g_retry_writes = 0;
+	osdp_mp_reset(&rx);
+	osdp_mp_bind_ops(&rx, &ops);
+	osdp_mp_rx_init(&rx, OSDP_MP_W16);
+	/* total=4, off=0, dlen=4 */
+	flen = osdp_mp_hdr_write(OSDP_MP_W16, 4, 0, 4, frame);
+	frame[flen++] = 1; frame[flen++] = 2; frame[flen++] = 3; frame[flen++] = 4;
+	/* First consume: write returns RETRY -> RC_RETRY, offset frozen. */
+	if (osdp_mp_rx_consume(&rx, frame, flen) != OSDP_MP_RC_RETRY ||
+	    rx.offset != 0) {
+		return -1;
+	}
+	/* Resend same frame: write returns OK -> DONE, offset advances. */
+	if (osdp_mp_rx_consume(&rx, frame, flen) != OSDP_MP_RC_DONE) {
+		return -1;
+	}
+	osdp_mp_rx_commit(&rx);
+	if (rx.offset != 4) {
 		return -1;
 	}
 	return 0;
@@ -364,57 +410,101 @@ static int test_mp_tx_keepalive_on_busy(void)
 	return 0;
 }
 
-struct mp_done_probe {
-	int calls;
-	enum osdp_mp_rc last;
+struct mp_event_probe {
+	int start;
+	int progress;
+	int done;
+	int last_outcome;
+	uint32_t last_offset;
 };
 
-static void on_done_probe(void *arg, enum osdp_mp_rc outcome)
+static void mp_event_probe_fn(void *arg, enum osdp_mp_phase phase,
+			      const struct osdp_mp_progress *p)
 {
-	struct mp_done_probe *p = arg;
+	struct mp_event_probe *e = arg;
 
-	p->calls++;
-	p->last = outcome;
+	switch (phase) {
+	case OSDP_MP_PHASE_START:
+		e->start++;
+		break;
+	case OSDP_MP_PHASE_PROGRESS:
+		e->progress++;
+		e->last_offset = p->offset;
+		break;
+	case OSDP_MP_PHASE_DONE:
+		e->done++;
+		e->last_outcome = p->outcome;
+		break;
+	}
 }
 
-static int test_mp_done_cb_on_complete(void)
+static int test_mp_lifecycle_on_complete(void)
 {
 	struct osdp_multipart tx;
-	struct mp_done_probe probe = { 0 };
+	struct mp_event_probe probe = { 0 };
 	uint8_t src[4] = { 1, 2, 3, 4 };
 	uint8_t out[64];
 
 	osdp_mp_reset(&tx);
 	osdp_mp_bind_buffer(&tx, src, sizeof(src));
-	osdp_mp_set_done_cb(&tx, on_done_probe, &probe);
-	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16);
+	osdp_mp_set_event_cb(&tx, mp_event_probe_fn, &probe);
+	osdp_mp_set_identity(&tx, 7, 42);
+	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16);   /* fires START */
 	(void)drive_tx_to_buffer(&tx, out, 64);
-	if (probe.calls != 1 || probe.last != OSDP_MP_RC_DONE) {
-		printf(SUB_1 "done cb calls=%d last=%d\n", probe.calls,
-		       probe.last);
+	if (probe.start != 1 || probe.done != 0) {        /* no auto-DONE */
+		return -1;
+	}
+	osdp_mp_finish(&tx, 0);
+	if (probe.done != 1 || probe.last_outcome != 0) {
+		printf(SUB_1 "lifecycle start=%d done=%d outcome=%d\n",
+		       probe.start, probe.done, probe.last_outcome);
 		return -1;
 	}
 	return 0;
 }
 
-static int test_mp_abort_fires_cb(void)
+static int test_mp_defer_start(void)
 {
 	struct osdp_multipart tx;
-	struct mp_done_probe probe = { 0 };
+	struct mp_event_probe probe = { 0 };
+	uint8_t src[4] = { 1, 2, 3, 4 };
+
+	osdp_mp_reset(&tx);
+	osdp_mp_bind_buffer(&tx, src, sizeof(src));
+	osdp_mp_set_event_cb(&tx, mp_event_probe_fn, &probe);
+	osdp_mp_defer_start(&tx);
+	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16); /* START suppressed */
+	if (probe.start != 0) {
+		printf(SUB_1 "defer: START fired at init\n");
+		return -1;
+	}
+	osdp_mp_emit_start(&tx); /* now it fires */
+	osdp_mp_emit_start(&tx); /* second call is a no-op */
+	if (probe.start != 1) {
+		printf(SUB_1 "defer: start=%d (want 1)\n", probe.start);
+		return -1;
+	}
+	return 0;
+}
+
+static int test_mp_finish_outcome(void)
+{
+	struct osdp_multipart tx;
+	struct mp_event_probe probe = { 0 };
 	uint8_t src[10] = { 0 };
 
 	osdp_mp_reset(&tx);
 	osdp_mp_bind_buffer(&tx, src, sizeof(src));
-	osdp_mp_set_done_cb(&tx, on_done_probe, &probe);
+	osdp_mp_set_event_cb(&tx, mp_event_probe_fn, &probe);
 	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16);
-	osdp_mp_abort(&tx);
-	if (osdp_mp_is_active(&tx) || probe.calls != 1 ||
-	    probe.last != OSDP_MP_RC_ERR) {
+	osdp_mp_finish(&tx, -2);
+	if (osdp_mp_is_active(&tx) || probe.done != 1 ||
+	    probe.last_outcome != -2) {
 		return -1;
 	}
-	/* Second abort is a no-op (not active). */
-	osdp_mp_abort(&tx);
-	if (probe.calls != 1) {
+	/* Second finish is a no-op. */
+	osdp_mp_finish(&tx, -2);
+	if (probe.done != 1) {
 		return -1;
 	}
 	return 0;
@@ -490,7 +580,7 @@ static int test_mp_tx_next_action(void)
 	if (osdp_mp_tx_next(&tx) != OSDP_MP_ACT_WAIT) {
 		return -1;
 	}
-	osdp_mp_abort(&tx);
+	osdp_mp_finish(&tx, -2);
 	if (osdp_mp_tx_next(&tx) != OSDP_MP_ACT_DONE) {
 		return -1;
 	}
@@ -500,24 +590,45 @@ static int test_mp_tx_next_action(void)
 static int test_mp_finish_idempotent(void)
 {
 	struct osdp_multipart tx;
-	struct mp_done_probe probe = { 0 };
+	struct mp_event_probe probe = { 0 };
 	uint8_t src[4] = { 1, 2, 3, 4 };
 	uint8_t out[64];
 
 	osdp_mp_reset(&tx);
 	osdp_mp_bind_buffer(&tx, src, sizeof(src));
-	osdp_mp_set_done_cb(&tx, on_done_probe, &probe);
+	osdp_mp_set_event_cb(&tx, mp_event_probe_fn, &probe);
 	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16);
 	(void)drive_tx_to_buffer(&tx, out, 64);
-	if (probe.calls != 1 || probe.last != OSDP_MP_RC_DONE) {
+	osdp_mp_finish(&tx, 0);
+	osdp_mp_finish(&tx, 0);            /* second call: no re-fire */
+	if (probe.done != 1 || tx.state != OSDP_MP_DONE) {
+		printf(SUB_1 "finish not idempotent done=%d state=%d\n",
+		       probe.done, tx.state);
 		return -1;
 	}
-	/* A second commit re-enters mp_finish (offset already >= total);
-	 * only the internal guard prevents a second callback fire. */
-	osdp_mp_tx_commit(&tx);
-	if (probe.calls != 1 || tx.state != OSDP_MP_DONE) {
-		printf(SUB_1 "finish not idempotent calls=%d state=%d\n",
-		       probe.calls, tx.state);
+	return 0;
+}
+
+static int test_mp_notification_union(void)
+{
+	struct osdp_notification n;
+
+	/* Existing callers keep arg0/arg1 unaffected. */
+	n.type = OSDP_NOTIFICATION_PD_STATUS;
+	n.arg0 = 1;
+	n.arg1 = 0;
+	if (n.arg0 != 1 || n.arg1 != 0) {
+		return -1;
+	}
+	/* MP_* callers read the structured member. */
+	n.type = OSDP_NOTIFICATION_MP_PROGRESS;
+	n.mp.mp_type = OSDP_MP_MSG_FILE_TRANSFER;
+	n.mp.object_id = 42;
+	n.mp.total = 1000;
+	n.mp.offset = 256;
+	n.mp.outcome = 0;
+	if (n.mp.mp_type != OSDP_MP_MSG_FILE_TRANSFER || n.mp.object_id != 42 ||
+	    n.mp.total != 1000 || n.mp.offset != 256) {
 		return -1;
 	}
 	return 0;
@@ -541,11 +652,14 @@ void run_multipart_tests(struct test *t)
 	result &= (test_mp_rx_reject_differing_total() == 0);
 	result &= (test_mp_rx_first_frame_error_keeps_total_clean() == 0);
 	result &= (test_mp_stream_roundtrip() == 0);
+	result &= (test_mp_rx_retry() == 0);
 	result &= (test_mp_tx_keepalive_on_busy() == 0);
-	result &= (test_mp_done_cb_on_complete() == 0);
-	result &= (test_mp_abort_fires_cb() == 0);
+	result &= (test_mp_lifecycle_on_complete() == 0);
+	result &= (test_mp_defer_start() == 0);
+	result &= (test_mp_finish_outcome() == 0);
 	result &= (test_mp_tx_next_action() == 0);
 	result &= (test_mp_finish_idempotent() == 0);
+	result &= (test_mp_notification_union() == 0);
 
 	printf(SUB_1 "Multipart engine tests %s\n",
 	       result ? "succeeded" : "failed");

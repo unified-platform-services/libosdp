@@ -8,17 +8,21 @@
 
 #include <string.h>
 
-/* Shared completion path: both TX and RX commits, and abort, route their
- * DONE transition through here so the done callback fires exactly once. */
-static void mp_finish(struct osdp_multipart *mp, enum osdp_mp_rc outcome)
+/* Fill a progress record from engine state + relayed identity and fire the
+ * consumer callback for `phase`. No-op when no callback is registered. */
+static void mp_emit(struct osdp_multipart *mp, enum osdp_mp_phase phase)
 {
-	if (mp->state == OSDP_MP_DONE) {
+	struct osdp_mp_progress p;
+
+	if (!mp->event_cb) {
 		return;
 	}
-	mp->state = OSDP_MP_DONE;
-	if (mp->on_done) {
-		mp->on_done(mp->on_done_arg, outcome);
-	}
+	p.msg_type = mp->msg_type;
+	p.object_id = mp->object_id;
+	p.total = mp->total;
+	p.offset = mp->offset;
+	p.outcome = mp->done_outcome;
+	mp->event_cb(mp->event_arg, phase, &p);
 }
 
 static void mp_write_wide(enum osdp_mp_width w, uint32_t val, uint8_t *buf,
@@ -87,10 +91,10 @@ static int mp_buf_write(void *arg, const void *src, uint32_t size,
 	struct osdp_multipart *mp = arg;
 
 	if (offset + size > mp->buf_len) {
-		return -1;
+		return OSDP_MP_RX_ABORT;
 	}
 	memcpy(mp->buf + offset, src, size);
-	return (int)size;
+	return OSDP_MP_RX_OK;
 }
 
 void osdp_mp_reset(struct osdp_multipart *mp)
@@ -132,6 +136,9 @@ int osdp_mp_tx_init(struct osdp_multipart *mp, uint32_t total,
 	mp->last_len = 0;
 	mp->errors = 0;
 	mp->state = OSDP_MP_INPROG;
+	if (!mp->start_deferred) {
+		mp_emit(mp, OSDP_MP_PHASE_START);
+	}
 	return 0;
 }
 
@@ -169,10 +176,12 @@ int osdp_mp_tx_build(struct osdp_multipart *mp, uint8_t *buf, int max_len)
 
 void osdp_mp_tx_commit(struct osdp_multipart *mp)
 {
+	bool advanced = mp->last_len > 0;
+
 	mp->offset += (uint32_t)mp->last_len;
 	mp->last_len = 0;
-	if (mp->offset >= mp->total) {
-		mp_finish(mp, OSDP_MP_RC_DONE);
+	if (advanced && mp->offset < mp->total) {
+		mp_emit(mp, OSDP_MP_PHASE_PROGRESS);
 	}
 }
 
@@ -185,6 +194,7 @@ int osdp_mp_rx_init(struct osdp_multipart *mp, enum osdp_mp_width w)
 	mp->last_off = 0;
 	mp->errors = 0;
 	mp->state = OSDP_MP_INPROG;
+	mp_emit(mp, OSDP_MP_PHASE_START);
 	return 0;
 }
 
@@ -194,7 +204,6 @@ enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
 	int hdr = OSDP_MP_HDR_SIZE(mp->width);
 	uint32_t total, off, cur_total;
 	uint16_t dlen;
-	int n;
 
 	if (osdp_mp_hdr_read(mp->width, buf, len, &total, &off, &dlen) < 0) {
 		return OSDP_MP_RC_ERR;
@@ -235,9 +244,12 @@ enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
 	}
 
 	if (dlen > 0) {
-		n = mp->ops.write(mp->ops.arg, buf + hdr, dlen, off);
-		if (n != (int)dlen) {
-			return OSDP_MP_RC_ERR;
+		int st = mp->ops.write(mp->ops.arg, buf + hdr, dlen, off);
+		if (st == OSDP_MP_RX_RETRY) {
+			return OSDP_MP_RC_RETRY; /* offset/last_len unchanged */
+		}
+		if (st != OSDP_MP_RX_OK) {
+			return OSDP_MP_RC_ERR;   /* ABORT or unexpected */
 		}
 	}
 	mp->total = cur_total; /* all ERR checks passed: commit total */
@@ -253,21 +265,29 @@ enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
 void osdp_mp_rx_commit(struct osdp_multipart *mp)
 {
 	uint32_t end = mp->last_off + (uint32_t)mp->last_len;
+	bool advanced = mp->last_len > 0 && end > mp->offset;
 
 	if (end > mp->offset) {
 		mp->offset = end;
 	}
 	mp->last_len = 0;
-	if (mp->offset >= mp->total && mp->total != 0) {
-		mp_finish(mp, OSDP_MP_RC_DONE);
+	if (advanced && mp->offset < mp->total) {
+		mp_emit(mp, OSDP_MP_PHASE_PROGRESS);
 	}
 }
 
-void osdp_mp_set_done_cb(struct osdp_multipart *mp, osdp_mp_done_fn fn,
-			 void *arg)
+void osdp_mp_set_event_cb(struct osdp_multipart *mp, osdp_mp_event_fn fn,
+			  void *arg)
 {
-	mp->on_done = fn;
-	mp->on_done_arg = arg;
+	mp->event_cb = fn;
+	mp->event_arg = arg;
+}
+
+void osdp_mp_set_identity(struct osdp_multipart *mp, int msg_type,
+			  int object_id)
+{
+	mp->msg_type = msg_type;
+	mp->object_id = object_id;
 }
 
 void osdp_mp_set_wait(struct osdp_multipart *mp, uint32_t ms)
@@ -276,11 +296,32 @@ void osdp_mp_set_wait(struct osdp_multipart *mp, uint32_t ms)
 	mp->tstamp = osdp_millis_now();
 }
 
-void osdp_mp_abort(struct osdp_multipart *mp)
+void osdp_mp_defer_start(struct osdp_multipart *mp)
 {
-	if (osdp_mp_is_active(mp)) {
-		mp_finish(mp, OSDP_MP_RC_ERR);
+	mp->start_deferred = true;
+}
+
+/* Emit a deferred START exactly once. No-op unless osdp_mp_defer_start() was
+ * called before osdp_mp_tx_init(); safe to call every processing tick. */
+void osdp_mp_emit_start(struct osdp_multipart *mp)
+{
+	if (mp->start_deferred) {
+		mp->start_deferred = false;
+		mp_emit(mp, OSDP_MP_PHASE_START);
 	}
+}
+
+/* Consumer-driven terminal. Idempotent: fires DONE(outcome) exactly once for a
+ * transfer that actually started. Reaching offset==total is NOT terminal on its
+ * own (sender keep-alive parks at EOF), so only this call ends the transfer. */
+void osdp_mp_finish(struct osdp_multipart *mp, int outcome)
+{
+	if (mp->state == OSDP_MP_DONE || mp->state == OSDP_MP_IDLE) {
+		return;
+	}
+	mp->done_outcome = outcome;
+	mp->state = OSDP_MP_DONE;
+	mp_emit(mp, OSDP_MP_PHASE_DONE);
 }
 
 enum osdp_mp_action osdp_mp_tx_next(struct osdp_multipart *mp)

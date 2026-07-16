@@ -668,6 +668,18 @@ class Notification:
     arg1: int = 0
     """Second argument; its meaning depends on `type`."""
 
+    object_id: int = 0
+    """File id for a multipart transfer. Only for NotificationType.Multipart*."""
+
+    total: int = 0
+    """Full payload length. Only for NotificationType.Multipart*."""
+
+    offset: int = 0
+    """Bytes transferred so far. Only for NotificationType.Multipart*."""
+
+    outcome: int = 0
+    """Terminal outcome. Only meaningful at NotificationType.MultipartDone."""
+
 
 Command: TypeAlias = (
     Output

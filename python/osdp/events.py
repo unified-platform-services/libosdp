@@ -370,6 +370,18 @@ class Notification:
     arg1: int = 0
     """Second argument; its meaning depends on `type`."""
 
+    object_id: int = 0
+    """File id for a multipart transfer. Only for NotificationType.Multipart*."""
+
+    total: int = 0
+    """Full payload length. Only for NotificationType.Multipart*."""
+
+    offset: int = 0
+    """Bytes transferred so far. Only for NotificationType.Multipart*."""
+
+    outcome: int = 0
+    """Terminal outcome. Only meaningful at NotificationType.MultipartDone."""
+
     @property
     def command_id(self) -> CommandId:
         """Which command completed. Only for NotificationType.Command."""
@@ -400,16 +412,22 @@ class Notification:
     def file_id(self) -> int:
         """Which file was transferred.
 
-        Only for NotificationType.FileTransferDone.
+        For NotificationType.MultipartDone reads object_id; for other
+        notification types reads arg0.
         """
+        if self.type == NotificationType.MultipartDone:
+            return self.object_id
         return self.arg0
 
     @property
     def file_tx_outcome(self) -> FileTxOutcome:
         """How the transfer ended.
 
-        Only for NotificationType.FileTransferDone.
+        For NotificationType.MultipartDone reads outcome; for other
+        notification types reads arg1.
         """
+        if self.type == NotificationType.MultipartDone:
+            return FileTxOutcome(self.outcome)
         return FileTxOutcome(self.arg1)
 
 

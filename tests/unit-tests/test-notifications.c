@@ -34,6 +34,7 @@ struct notif_ctx {
 	struct notif_record pd_pd_status;
 	struct notif_record pd_sc_status;
 	struct notif_record cp_file_tx_done;
+	struct notif_record pd_file_tx_done;
 
 	struct {
 		bool is_cp;
@@ -72,6 +73,11 @@ static int pd_cmd_cb(void *arg, struct osdp_cmd *cmd)
 		notif_record_update(&nx->pd_sc_status, cmd->notif.type,
 				    cmd->notif.arg0, cmd->notif.arg1);
 		break;
+	case OSDP_NOTIFICATION_MP_DONE:
+		notif_record_update(&nx->pd_file_tx_done, cmd->notif.type,
+				    cmd->notif.mp.object_id,
+				    cmd->notif.mp.outcome);
+		break;
 	default: break;
 	}
 	pthread_mutex_unlock(&nx->lock);
@@ -88,9 +94,9 @@ static int cp_event_cb(void *arg, int pd, struct osdp_event *ev)
 		return 0;
 	}
 	pthread_mutex_lock(&nx->lock);
-	if (ev->notif.type == OSDP_NOTIFICATION_FILE_TX_DONE) {
+	if (ev->notif.type == OSDP_NOTIFICATION_MP_DONE) {
 		notif_record_update(&nx->cp_file_tx_done, ev->notif.type,
-				    ev->notif.arg0, ev->notif.arg1);
+				    ev->notif.mp.object_id, ev->notif.mp.outcome);
 	}
 	pthread_mutex_unlock(&nx->lock);
 	return 0;
@@ -340,7 +346,7 @@ static bool test_cp_file_tx_abort_on_disable(void)
 	}
 
 	/* Disabling the PD drives OSDP_CP_STATE_DISABLED, which must now
-	 * call osdp_file_tx_abort() and fire FILE_TX_DONE/ABORTED. */
+	 * call osdp_file_tx_abort() and fire MP_DONE/ABORTED. */
 	pthread_mutex_lock(&g_nx.lock);
 	memset(&g_nx.cp_file_tx_done, 0, sizeof(g_nx.cp_file_tx_done));
 	pthread_mutex_unlock(&g_nx.lock);
@@ -351,7 +357,7 @@ static bool test_cp_file_tx_abort_on_disable(void)
 	}
 
 	if (!wait_for_notif(&g_nx.cp_file_tx_done, 3000)) {
-		printf(SUB_2 "file-tx: FILE_TX_DONE not seen after disable\n");
+		printf(SUB_2 "file-tx: MP_DONE not seen after disable\n");
 		goto err;
 	}
 	if (g_nx.cp_file_tx_done.last_arg1 != OSDP_FILE_TX_OUTCOME_ABORTED) {
@@ -458,6 +464,89 @@ err:
 	return false;
 }
 
+/* A clean transfer must deliver the terminal MP_DONE to BOTH roles: the CP
+ * (sender) via its event callback and the PD (receiver) via its command
+ * callback (synthesized OSDP_CMD_NOTIFICATION). */
+static bool test_file_tx_notifies_both_roles(void)
+{
+	struct osdp_cmd cmd = {
+		.id = OSDP_CMD_FILE_TX,
+		.file_tx = { .id = 1, .flags = 0 },
+	};
+	struct osdp_file_ops send_ops = {
+		.arg = &g_nx.sender,
+		.open = notif_fops_open, .read = notif_fops_read,
+		.write = notif_fops_write, .close = notif_fops_close,
+	};
+	struct osdp_file_ops recv_ops = {
+		.arg = &g_nx.receiver,
+		.open = notif_fops_open, .read = notif_fops_read,
+		.write = notif_fops_write, .close = notif_fops_close,
+	};
+
+	printf(SUB_2 "clean transfer notifies both CP and PD\n");
+
+	g_nx.sender.is_cp = true;
+	g_nx.receiver.is_cp = false;
+
+	if (setup_env() != 0) {
+		printf(SUB_2 "both-roles: failed to setup env\n");
+		return false;
+	}
+	if (notif_create_file()) {
+		printf(SUB_2 "both-roles: failed to create source file\n");
+		teardown_env();
+		return false;
+	}
+	if (osdp_file_register_ops(g_nx.cp_ctx, 0, &send_ops) ||
+	    osdp_file_register_ops(g_nx.pd_ctx, 0, &recv_ops)) {
+		printf(SUB_2 "both-roles: register ops failed\n");
+		goto err;
+	}
+
+	pthread_mutex_lock(&g_nx.lock);
+	memset(&g_nx.cp_file_tx_done, 0, sizeof(g_nx.cp_file_tx_done));
+	memset(&g_nx.pd_file_tx_done, 0, sizeof(g_nx.pd_file_tx_done));
+	pthread_mutex_unlock(&g_nx.lock);
+
+	if (osdp_cp_submit_command(g_nx.cp_ctx, 0, &cmd)) {
+		printf(SUB_2 "both-roles: submit failed\n");
+		goto err;
+	}
+
+	if (!wait_for_notif(&g_nx.cp_file_tx_done, 5000)) {
+		printf(SUB_2 "both-roles: CP never saw MP_DONE\n");
+		goto err;
+	}
+	if (!wait_for_notif(&g_nx.pd_file_tx_done, 5000)) {
+		printf(SUB_2 "both-roles: PD never saw MP_DONE\n");
+		goto err;
+	}
+	if (g_nx.cp_file_tx_done.last_arg1 != OSDP_FILE_TX_OUTCOME_OK ||
+	    g_nx.pd_file_tx_done.last_arg1 != OSDP_FILE_TX_OUTCOME_OK) {
+		printf(SUB_2 "both-roles: outcome cp=%d pd=%d, want OK=%d\n",
+		       g_nx.cp_file_tx_done.last_arg1,
+		       g_nx.pd_file_tx_done.last_arg1, OSDP_FILE_TX_OUTCOME_OK);
+		goto err;
+	}
+	if (g_nx.cp_file_tx_done.last_arg0 != 1 ||
+	    g_nx.pd_file_tx_done.last_arg0 != 1) {
+		printf(SUB_2 "both-roles: file_id cp=%d pd=%d, want 1\n",
+		       g_nx.cp_file_tx_done.last_arg0,
+		       g_nx.pd_file_tx_done.last_arg0);
+		goto err;
+	}
+	teardown_env();
+	unlink(NOTIF_FILE_SEND);
+	unlink(NOTIF_FILE_RECV);
+	return true;
+err:
+	teardown_env();
+	unlink(NOTIF_FILE_SEND);
+	unlink(NOTIF_FILE_RECV);
+	return false;
+}
+
 void run_notification_tests(struct test *t)
 {
 	bool ok = true;
@@ -477,8 +566,9 @@ void run_notification_tests(struct test *t)
 	ok &= test_pd_offline_on_cp_silence();
 	teardown_env();
 
-	/* Group B: file_tx abort on offline (separate envs so each test
+	/* Group B: file_tx notifications (separate envs so each test
 	 * starts from a freshly-online link) */
+	ok &= test_file_tx_notifies_both_roles();
 	ok &= test_cp_file_tx_abort_on_disable();
 	ok &= test_pd_file_tx_abort_on_offline();
 

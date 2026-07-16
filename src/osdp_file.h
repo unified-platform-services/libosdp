@@ -60,8 +60,4 @@ int osdp_file_tx_command(struct osdp_pd *pd, int file_id, uint32_t flags);
 int osdp_file_tx_get_command(struct osdp_pd *pd);
 void osdp_file_tx_abort(struct osdp_pd *pd);
 
-/* Implemented in osdp_cp.c; called by osdp_file.c only on CP-mode PDs. */
-void osdp_file_tx_notify_done(struct osdp_pd *pd, int file_id,
-			      enum osdp_file_tx_outcome outcome);
-
 #endif /* _OSDP_FILE_H_ */

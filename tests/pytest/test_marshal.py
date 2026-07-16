@@ -137,7 +137,7 @@ ALL_EVENTS = [
     events.BioMatch(status=BioStatus.Success, score=250),
     events.Status(type=StatusReportType.Output, report=bytes([1, 0, 1])),
     events.Notification(
-        type=NotificationType.FileTransferDone, arg0=1, arg1=0
+        type=NotificationType.PeripheralDeviceStatus, arg0=1, arg1=0
     ),
 ]
 
