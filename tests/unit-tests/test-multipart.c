@@ -162,7 +162,7 @@ static int test_mp_rx_roundtrip(void)
 	memset(dst, 0, sizeof(dst));
 	osdp_mp_reset(&rx);
 	osdp_mp_bind_buffer(&rx, dst, sizeof(dst));
-	osdp_mp_rx_init(&rx, OSDP_MP_W16);
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 0);
 	while (pos < wlen) {
 		uint32_t total, off;
 		uint16_t dlen;
@@ -193,7 +193,7 @@ static int test_mp_rx_reject_gap(void)
 
 	osdp_mp_reset(&rx);
 	osdp_mp_bind_buffer(&rx, dst, sizeof(dst));
-	osdp_mp_rx_init(&rx, OSDP_MP_W16);
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 0);
 	/* First frame declares offset 4 (should be 0) -> forward gap -> ERR. */
 	flen = osdp_mp_hdr_write(OSDP_MP_W16, 10, 4, 2, frame);
 	frame[flen++] = 0x11;
@@ -212,7 +212,7 @@ static int test_mp_rx_reject_oversize(void)
 
 	osdp_mp_reset(&rx);
 	osdp_mp_bind_buffer(&rx, dst, sizeof(dst)); /* cap 4 */
-	osdp_mp_rx_init(&rx, OSDP_MP_W16);
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 0);
 	/* total 10 > cap 4 -> ERR. */
 	flen = osdp_mp_hdr_write(OSDP_MP_W16, 10, 0, 2, frame);
 	frame[flen++] = 0x11;
@@ -231,7 +231,7 @@ static int test_mp_rx_early_terminate(void)
 
 	osdp_mp_reset(&rx);
 	osdp_mp_bind_buffer(&rx, dst, sizeof(dst));
-	osdp_mp_rx_init(&rx, OSDP_MP_W16);
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 0);
 	/* offset(10) >= total(10), dlen 0 -> EARLY_TERM. */
 	flen = osdp_mp_hdr_write(OSDP_MP_W16, 10, 10, 0, frame);
 	if (osdp_mp_rx_consume(&rx, frame, flen) != OSDP_MP_RC_EARLY_TERM) {
@@ -306,7 +306,7 @@ static int test_mp_stream_roundtrip(void)
 
 	osdp_mp_reset(&rx);
 	osdp_mp_bind_ops(&rx, &rx_ops);
-	osdp_mp_rx_init(&rx, OSDP_MP_W32);
+	osdp_mp_rx_init(&rx, OSDP_MP_W32, 0);
 
 	/* Pipe each TX frame straight into RX; 8 chunk bytes per frame. Drive
 	 * until every byte is sent: the sender parks in WAIT (keep-alive) at
@@ -354,7 +354,7 @@ static int test_mp_rx_retry(void)
 	g_retry_writes = 0;
 	osdp_mp_reset(&rx);
 	osdp_mp_bind_ops(&rx, &ops);
-	osdp_mp_rx_init(&rx, OSDP_MP_W16);
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 0);
 	/* total=4, off=0, dlen=4 */
 	flen = osdp_mp_hdr_write(OSDP_MP_W16, 4, 0, 4, frame);
 	frame[flen++] = 1; frame[flen++] = 2; frame[flen++] = 3; frame[flen++] = 4;
@@ -416,6 +416,7 @@ struct mp_event_probe {
 	int done;
 	int last_outcome;
 	uint32_t last_offset;
+	uint32_t start_total;
 };
 
 static void mp_event_probe_fn(void *arg, enum osdp_mp_phase phase,
@@ -426,6 +427,7 @@ static void mp_event_probe_fn(void *arg, enum osdp_mp_phase phase,
 	switch (phase) {
 	case OSDP_MP_PHASE_START:
 		e->start++;
+		e->start_total = p->total;
 		break;
 	case OSDP_MP_PHASE_PROGRESS:
 		e->progress++;
@@ -518,7 +520,7 @@ static int test_mp_rx_reject_differing_total(void)
 
 	osdp_mp_reset(&rx);
 	osdp_mp_bind_buffer(&rx, dst, sizeof(dst));
-	osdp_mp_rx_init(&rx, OSDP_MP_W16);
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 0);
 	/* frame 0: total=8, off=0, dlen=4 -> MORE */
 	flen = osdp_mp_hdr_write(OSDP_MP_W16, 8, 0, 4, frame);
 	frame[flen++] = 1;
@@ -549,7 +551,7 @@ static int test_mp_rx_first_frame_error_keeps_total_clean(void)
 
 	osdp_mp_reset(&rx);
 	osdp_mp_bind_buffer(&rx, dst, sizeof(dst)); /* cap 4 */
-	osdp_mp_rx_init(&rx, OSDP_MP_W16);
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 0);
 	/* First frame declares total 10 > cap 4 -> ERR; mp->total must stay 0
 	 * so it is not poisoned for a subsequent corrected first frame. */
 	flen = osdp_mp_hdr_write(OSDP_MP_W16, 10, 0, 2, frame);
@@ -560,6 +562,42 @@ static int test_mp_rx_first_frame_error_keeps_total_clean(void)
 	}
 	if (rx.total != 0) {
 		printf(SUB_1 "rx total poisoned: %u\n", rx.total);
+		return -1;
+	}
+	return 0;
+}
+
+static int test_mp_rx_init_with_total_hint(void)
+{
+	struct osdp_multipart rx;
+	struct mp_event_probe probe = { 0 };
+	uint8_t dst[8], frame[16];
+	int flen;
+
+	osdp_mp_reset(&rx);
+	osdp_mp_bind_buffer(&rx, dst, sizeof(dst));
+	osdp_mp_set_event_cb(&rx, mp_event_probe_fn, &probe);
+	/* Consumer peeked the size (8) before rx_init: START must carry it. */
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 8);
+	if (probe.start != 1 || probe.start_total != 8) {
+		printf(SUB_1 "hint: START total=%u (want 8)\n",
+		       probe.start_total);
+		return -1;
+	}
+	/* A frame disagreeing with the hint is rejected outright. */
+	flen = osdp_mp_hdr_write(OSDP_MP_W16, 9, 0, 4, frame);
+	memset(frame + flen, 0xAA, 4);
+	if (osdp_mp_rx_consume(&rx, frame, flen + 4) != OSDP_MP_RC_ERR) {
+		return -1;
+	}
+	/* A matching frame proceeds normally. */
+	flen = osdp_mp_hdr_write(OSDP_MP_W16, 8, 0, 4, frame);
+	memset(frame + flen, 0xAA, 4);
+	if (osdp_mp_rx_consume(&rx, frame, flen + 4) != OSDP_MP_RC_MORE) {
+		return -1;
+	}
+	osdp_mp_rx_commit(&rx);
+	if (rx.offset != 4 || rx.total != 8) {
 		return -1;
 	}
 	return 0;
@@ -651,6 +689,7 @@ void run_multipart_tests(struct test *t)
 	result &= (test_mp_rx_early_terminate() == 0);
 	result &= (test_mp_rx_reject_differing_total() == 0);
 	result &= (test_mp_rx_first_frame_error_keeps_total_clean() == 0);
+	result &= (test_mp_rx_init_with_total_hint() == 0);
 	result &= (test_mp_stream_roundtrip() == 0);
 	result &= (test_mp_rx_retry() == 0);
 	result &= (test_mp_tx_keepalive_on_busy() == 0);

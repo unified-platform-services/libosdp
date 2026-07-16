@@ -185,10 +185,11 @@ void osdp_mp_tx_commit(struct osdp_multipart *mp)
 	}
 }
 
-int osdp_mp_rx_init(struct osdp_multipart *mp, enum osdp_mp_width w)
+int osdp_mp_rx_init(struct osdp_multipart *mp, enum osdp_mp_width w,
+		    uint32_t total)
 {
 	mp->width = w;
-	mp->total = 0;
+	mp->total = total;
 	mp->offset = 0;
 	mp->last_len = 0;
 	mp->last_off = 0;
@@ -212,10 +213,12 @@ enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
 		return OSDP_MP_RC_ERR;
 	}
 
-	/* First frame fixes total; later frames must agree. Validate against a
-	 * LOCAL total and only commit mp->total once every ERR check has
-	 * passed, so a rejected first frame does not poison mp->total for the
-	 * next attempt. */
+	/* mp->total == 0 means the length is not yet fixed (rx_init got no
+	 * hint and no frame has committed): the first frame fixes it. Once
+	 * fixed — by rx_init or by a prior frame — every frame must agree.
+	 * Validate against a LOCAL total and only commit mp->total once every
+	 * ERR check has passed, so a rejected first frame does not poison
+	 * mp->total for the next attempt. */
 	if (mp->offset == 0 && mp->last_len == 0 && mp->total == 0) {
 		cur_total = total;
 	} else {

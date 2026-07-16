@@ -120,7 +120,11 @@ int osdp_mp_tx_build(struct osdp_multipart *mp, uint8_t *buf, int max_len);
 void osdp_mp_tx_commit(struct osdp_multipart *mp);
 
 /* --- RX --- */
-int osdp_mp_rx_init(struct osdp_multipart *mp, enum osdp_mp_width w);
+/* total: declared payload length when the consumer already knows it (e.g.
+ * peeked from the first frame's header), so START reports a real size; 0 to
+ * learn it from the first consumed frame. */
+int osdp_mp_rx_init(struct osdp_multipart *mp, enum osdp_mp_width w,
+		    uint32_t total);
 enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
 				   const uint8_t *buf, int len);
 void osdp_mp_rx_commit(struct osdp_multipart *mp);

@@ -35,6 +35,8 @@ struct notif_ctx {
 	struct notif_record pd_sc_status;
 	struct notif_record cp_file_tx_done;
 	struct notif_record pd_file_tx_done;
+	struct notif_record pd_mp_start; /* arg0 = mp.total */
+	bool pd_done_before_start;
 
 	struct {
 		bool is_cp;
@@ -73,7 +75,15 @@ static int pd_cmd_cb(void *arg, struct osdp_cmd *cmd)
 		notif_record_update(&nx->pd_sc_status, cmd->notif.type,
 				    cmd->notif.arg0, cmd->notif.arg1);
 		break;
+	case OSDP_NOTIFICATION_MP_START:
+		notif_record_update(&nx->pd_mp_start, cmd->notif.type,
+				    (int)cmd->notif.mp.total,
+				    cmd->notif.mp.object_id);
+		break;
 	case OSDP_NOTIFICATION_MP_DONE:
+		if (nx->pd_mp_start.count == 0) {
+			nx->pd_done_before_start = true;
+		}
 		notif_record_update(&nx->pd_file_tx_done, cmd->notif.type,
 				    cmd->notif.mp.object_id,
 				    cmd->notif.mp.outcome);
@@ -507,6 +517,8 @@ static bool test_file_tx_notifies_both_roles(void)
 	pthread_mutex_lock(&g_nx.lock);
 	memset(&g_nx.cp_file_tx_done, 0, sizeof(g_nx.cp_file_tx_done));
 	memset(&g_nx.pd_file_tx_done, 0, sizeof(g_nx.pd_file_tx_done));
+	memset(&g_nx.pd_mp_start, 0, sizeof(g_nx.pd_mp_start));
+	g_nx.pd_done_before_start = false;
 	pthread_mutex_unlock(&g_nx.lock);
 
 	if (osdp_cp_submit_command(g_nx.cp_ctx, 0, &cmd)) {
@@ -534,6 +546,20 @@ static bool test_file_tx_notifies_both_roles(void)
 		printf(SUB_2 "both-roles: file_id cp=%d pd=%d, want 1\n",
 		       g_nx.cp_file_tx_done.last_arg0,
 		       g_nx.pd_file_tx_done.last_arg0);
+		goto err;
+	}
+	/* PD receiver lifecycle: exactly one MP_START, before MP_DONE, and
+	 * carrying the declared file size (peeked from the first frame). */
+	if (g_nx.pd_mp_start.count != 1 || g_nx.pd_done_before_start) {
+		printf(SUB_2 "both-roles: PD start count=%d done-first=%d\n",
+		       g_nx.pd_mp_start.count, g_nx.pd_done_before_start);
+		goto err;
+	}
+	if (g_nx.pd_mp_start.last_arg0 !=
+	    NOTIF_FILE_REPS * NOTIF_FILE_CHUNK_LEN) {
+		printf(SUB_2 "both-roles: PD START total=%d, want %d\n",
+		       g_nx.pd_mp_start.last_arg0,
+		       NOTIF_FILE_REPS * NOTIF_FILE_CHUNK_LEN);
 		goto err;
 	}
 	teardown_env();

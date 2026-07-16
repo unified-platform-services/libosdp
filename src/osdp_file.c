@@ -341,7 +341,8 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 		f->file_id = type;
 		f->is_open = true;
 		osdp_mp_set_identity(&f->mp, OSDP_MP_MSG_FILE_TRANSFER, type);
-		osdp_mp_rx_init(&f->mp, OSDP_MP_W32);
+		/* Pass the peeked size so MP_START reports the real total. */
+		osdp_mp_rx_init(&f->mp, OSDP_MP_W32, total);
 		opened_now = true;
 	}
 
