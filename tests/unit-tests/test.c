@@ -1102,6 +1102,7 @@ static void run_file_tx_suite(struct test *t)
 	run_file_tx_intermittent_tests(t);
 	run_file_tx_permanent_busy_tests(t);
 	run_file_tx_pd_keep_alive_tests(t);
+	run_file_rx_idle_frame_tests(t);
 }
 
 int main(int argc, char *argv[])

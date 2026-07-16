@@ -607,6 +607,115 @@ done:
 	TEST_REPORT(t, result);
 }
 
+static int16_t stat_reply_status(const uint8_t *stat)
+{
+	return (int16_t)(stat[3] | ((uint16_t)stat[4] << 8));
+}
+
+/*
+ * Exercises the receiver-side idle-frame path directly: a header-only frame
+ * with offset >= total is the keep-alive a CP sends after FTSTAT status 3
+ * ("finishing", OSDP 2.2 §7.25). The PD must ACK it without advancing the
+ * offset and without tearing the transfer down — in the FILETRANSFER family
+ * this encoding is NOT the §5.10.2 early termination.
+ */
+void run_file_rx_idle_frame_tests(struct test *t)
+{
+	bool result = false;
+	osdp_t *cp_ctx = NULL, *pd_ctx = NULL;
+	struct osdp_pd *pd;
+	struct osdp_file *f;
+	uint8_t frame[64], stat[16], data[16];
+	const uint32_t total = 32;
+	const int hdr = OSDP_MP_HDR_SIZE(OSDP_MP_W32);
+	int n;
+
+	printf("\nBegin file transfer test: receiver idle frame\n");
+
+	memset(&receiver_data, 0, sizeof(receiver_data));
+	receiver_data.is_cp = false;
+
+	struct osdp_file_ops recv_ops = {
+		.arg = (void *)&receiver_data,
+		.open = test_fops_open,
+		.read = test_fops_read,
+		.write = test_fops_write,
+		.close = test_fops_close
+	};
+
+	if (test_setup_devices(t, &cp_ctx, &pd_ctx)) {
+		printf(SUB_1 "Failed to setup devices!\n");
+		goto done;
+	}
+	unlink(REC_FILE);
+	osdp_file_register_ops(pd_ctx, 0, &recv_ops);
+	pd = osdp_to_pd((struct osdp *)pd_ctx, 0);
+	f = TO_FILE(pd);
+	memset(data, 0xA5, sizeof(data));
+
+	/* First data frame opens the transfer: total=32, off=0, dlen=16. */
+	frame[0] = 1;
+	osdp_mp_hdr_write(OSDP_MP_W32, total, 0, 16, frame + 1);
+	memcpy(frame + 1 + hdr, data, 16);
+	if (osdp_file_cmd_tx_decode(pd, frame, 1 + hdr + 16) < 0) {
+		printf(SUB_1 "idle: first frame rejected\n");
+		goto teardown;
+	}
+	n = osdp_file_cmd_stat_build(pd, stat, sizeof(stat));
+	if (n < 0 || stat_reply_status(stat) != KA_STATUS_ACK ||
+	    f->mp.offset != 16) {
+		printf(SUB_1 "idle: first ack n=%d status=%d off=%u\n", n,
+		       stat_reply_status(stat), f->mp.offset);
+		goto teardown;
+	}
+
+	/* Idle frame: off == total, zero length. Must be ACKed with no
+	 * offset movement and no teardown. */
+	frame[0] = 1;
+	osdp_mp_hdr_write(OSDP_MP_W32, total, total, 0, frame + 1);
+	if (osdp_file_cmd_tx_decode(pd, frame, 1 + hdr) < 0) {
+		printf(SUB_1 "idle: idle frame rejected\n");
+		goto teardown;
+	}
+	if (!osdp_file_tx_is_active(pd) || f->mp.offset != 16) {
+		printf(SUB_1 "idle: idle frame ended/advanced transfer\n");
+		goto teardown;
+	}
+	n = osdp_file_cmd_stat_build(pd, stat, sizeof(stat));
+	if (n < 0 || stat_reply_status(stat) != KA_STATUS_ACK ||
+	    f->mp.offset != 16 || !osdp_file_tx_is_active(pd)) {
+		printf(SUB_1 "idle: ping ack n=%d status=%d off=%u\n", n,
+		       stat_reply_status(stat), f->mp.offset);
+		goto teardown;
+	}
+
+	/* Final data frame completes the transfer normally. */
+	frame[0] = 1;
+	osdp_mp_hdr_write(OSDP_MP_W32, total, 16, 16, frame + 1);
+	memcpy(frame + 1 + hdr, data, 16);
+	if (osdp_file_cmd_tx_decode(pd, frame, 1 + hdr + 16) < 0) {
+		printf(SUB_1 "idle: final frame rejected\n");
+		goto teardown;
+	}
+	n = osdp_file_cmd_stat_build(pd, stat, sizeof(stat));
+	if (n < 0 ||
+	    stat_reply_status(stat) != KA_STATUS_CONTENTS_PROCESSED ||
+	    osdp_file_tx_is_active(pd)) {
+		printf(SUB_1 "idle: completion n=%d status=%d active=%d\n", n,
+		       stat_reply_status(stat), osdp_file_tx_is_active(pd));
+		goto teardown;
+	}
+	result = true;
+	printf(SUB_1 "receiver idle frame: succeeded\n");
+
+teardown:
+	unlink(REC_FILE);
+	osdp_cp_teardown(cp_ctx);
+	osdp_pd_teardown(pd_ctx);
+done:
+	TEST_REPORT(t, result);
+}
+
 void run_file_tx_permanent_busy_tests(struct test *t)
 {
 	/* CP host never returns data. libosdp must keep the link alive

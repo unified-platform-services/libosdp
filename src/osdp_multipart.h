@@ -26,6 +26,11 @@ enum osdp_mp_state {
 enum osdp_mp_rc {
 	OSDP_MP_RC_MORE = 0,
 	OSDP_MP_RC_DONE,
+	/* Header-only frame with offset >= total. The engine only classifies;
+	 * meaning is family-specific and the consumer must decide: W16
+	 * multi-part receivers shall treat it as early termination of the
+	 * transfer (OSDP 2.2 §5.10.2), while FILETRANSFER receivers treat it
+	 * as the CP's idle keep-alive sent after FTSTAT status 3 (§7.25). */
 	OSDP_MP_RC_EARLY_TERM,
 	OSDP_MP_RC_ERR,
 	OSDP_MP_RC_RETRY,   /* receiver transient failure; do not advance */

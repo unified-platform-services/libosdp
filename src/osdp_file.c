@@ -365,9 +365,19 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 		return -1;
 	}
 
-	/* CP keep-alive ping (zero-length frame): the engine left offset
-	 * unchanged. stat_build will reply ACK without ERR_INVALID once it
-	 * sees the flag. */
+	/* Idle frame (offset >= total, zero length): for FILETRANSFER this is
+	 * NOT a termination — it is the keep-alive the CP sends after an
+	 * FTSTAT status 3 ("finishing", OSDP 2.2 §7.25) while the PD is still
+	 * processing. ACK it without advancing. */
+	if (mrc == OSDP_MP_RC_EARLY_TERM) {
+		LOG_DBG("TX_Decode: idle frame (keep-alive at EOF)");
+		f->keep_alive_pending = true;
+		return 0;
+	}
+
+	/* CP keep-alive ping (zero-length frame mid-transfer): the engine
+	 * left offset unchanged. stat_build will reply ACK without
+	 * ERR_INVALID once it sees the flag. */
 	if (f->mp.last_len == 0) {
 		LOG_DBG("TX_Decode: keep-alive ping");
 		f->keep_alive_pending = true;
