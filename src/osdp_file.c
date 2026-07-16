@@ -8,37 +8,36 @@
 
 #include "osdp_file.h"
 
-#define FILE_TRANSFER_HEADER_SIZE     11
-#define FILE_TRANSFER_STAT_SIZE       7
+#define FILE_TRANSFER_HEADER_SIZE 11
+#define FILE_TRANSFER_STAT_SIZE	  7
 
 /* Wire-protocol status codes carried in struct osdp_cmd_file_stat::status */
-#define OSDP_FILE_TX_STATUS_ACK                0
+#define OSDP_FILE_TX_STATUS_ACK		       0
 #define OSDP_FILE_TX_STATUS_CONTENTS_PROCESSED 1
-#define OSDP_FILE_TX_STATUS_PD_RESET           2
-#define OSDP_FILE_TX_STATUS_KEEP_ALIVE         3
-#define OSDP_FILE_TX_STATUS_ERR_ABORT         -1
-#define OSDP_FILE_TX_STATUS_ERR_UNKNOWN       -2
-#define OSDP_FILE_TX_STATUS_ERR_INVALID       -3
+#define OSDP_FILE_TX_STATUS_PD_RESET	       2
+#define OSDP_FILE_TX_STATUS_KEEP_ALIVE	       3
+#define OSDP_FILE_TX_STATUS_ERR_ABORT	       -1
+#define OSDP_FILE_TX_STATUS_ERR_UNKNOWN	       -2
+#define OSDP_FILE_TX_STATUS_ERR_INVALID	       -3
 
-#define OSDP_FILE_TX_FLAG_EXCLUSIVE            0x01000000
-#define OSDP_FILE_TX_FLAG_PLAIN_TEXT           0x02000000
-#define OSDP_FILE_TX_FLAG_POLL_RESP            0x04000000
+#define OSDP_FILE_TX_FLAG_EXCLUSIVE  0x01000000
+#define OSDP_FILE_TX_FLAG_PLAIN_TEXT 0x02000000
+#define OSDP_FILE_TX_FLAG_POLL_RESP  0x04000000
 
 static inline void file_state_reset(struct osdp_file *f)
 {
+	struct osdp_mp_ops ops = { .read = f->ops.read,
+				   .write = f->ops.write,
+				   .arg = f->ops.arg };
 	f->flags = 0;
-	f->offset = 0;
-	f->length = 0;
 	f->errors = 0;
-	f->size = 0;
-	f->state = OSDP_FILE_TX_STATE_IDLE;
 	f->outcome = OSDP_FILE_TX_OUTCOME_OK;
 	f->is_open = false;
 	f->keep_alive_pending = false;
 	f->file_id = 0;
-	f->tstamp = 0;
-	f->wait_time_ms = 0;
 	f->cancel_req = false;
+	osdp_mp_reset(&f->mp);
+	osdp_mp_bind_ops(&f->mp, &ops);
 }
 
 static inline void file_close_if_open(struct osdp_pd *pd)
@@ -63,7 +62,6 @@ static void file_transition_done(struct osdp_pd *pd,
 
 	file_close_if_open(pd);
 	f->outcome = outcome;
-	f->state = OSDP_FILE_TX_STATE_DONE;
 
 	if (is_cp_mode(pd)) {
 		if (outcome == OSDP_FILE_TX_OUTCOME_OK_REBOOTING) {
@@ -72,7 +70,7 @@ static void file_transition_done(struct osdp_pd *pd,
 		osdp_file_tx_notify_done(pd, file_id, outcome);
 	}
 
-	file_state_reset(f);
+	file_state_reset(f); /* resets the embedded engine to IDLE */
 }
 
 static enum osdp_file_tx_outcome file_outcome_from_wire_status(int16_t status)
@@ -94,32 +92,21 @@ static enum osdp_file_tx_outcome file_outcome_from_wire_status(int16_t status)
 
 /* --- Sender CMD/RESP Handers --- */
 
-static void write_file_tx_header(struct osdp_file *f, uint8_t *buf)
-{
-	int len = 0;
-
-	bwrite_u8(f->file_id, buf, &len);
-	bwrite_u32_le(f->size, buf, &len);
-	bwrite_u32_le(f->offset, buf, &len);
-	bwrite_u16_le(f->length, buf, &len);
-	assert(len == FILE_TRANSFER_HEADER_SIZE);
-}
-
 int osdp_file_cmd_tx_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 {
-	int buf_available;
 	struct osdp_file *f = TO_FILE(pd);
-	uint8_t *data = buf + FILE_TRANSFER_HEADER_SIZE;
+	int hdr =
+		1 + OSDP_MP_HDR_SIZE(OSDP_MP_W32); /* type + engine hdr = 11 */
+	int engine_max, n;
 
 	/* Reached only once a transfer is live; osdp_file_tx_get_command()
 	 * has already gated on pd->file and state. */
 	assert(f != NULL);
-	assert(f->state == OSDP_FILE_TX_STATE_INPROG ||
-	       f->state == OSDP_FILE_TX_STATE_WAIT);
+	assert(osdp_mp_is_active(&f->mp));
 
-	if ((size_t)max_len <= FILE_TRANSFER_HEADER_SIZE) {
-		LOG_ERR("TX_Build: insufficient space; need:%d have:%d",
-			FILE_TRANSFER_HEADER_SIZE, max_len);
+	if (max_len <= hdr) {
+		LOG_ERR("TX_Build: insufficient space; need:%d have:%d", hdr,
+			max_len);
 		goto reply_abort;
 	}
 
@@ -128,14 +115,16 @@ int osdp_file_cmd_tx_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	}
 
 	/* PD-requested post-completion keep-alive: file is fully sent, PD
-	 * just wants the channel kept warm. No read attempt; emit a
-	 * header-only ping and let the PD drive completion via its next
-	 * stat reply. */
-	if (f->state == OSDP_FILE_TX_STATE_WAIT && f->offset == f->size) {
+	 * just wants the channel kept warm. No read attempt (the engine would
+	 * read at offset==total) and no errors++, so a PD-driven keep-alive
+	 * can ping indefinitely. Emit a header-only ping directly. */
+	if (f->mp.state == OSDP_MP_WAIT && f->mp.offset == f->mp.total) {
 		LOG_DBG("TX_Build: keep-alive (PD requested)");
-		f->length = 0;
-		write_file_tx_header(f, buf);
-		return FILE_TRANSFER_HEADER_SIZE;
+		f->mp.last_len = 0;
+		buf[0] = (uint8_t)f->file_id;
+		osdp_mp_hdr_write(OSDP_MP_W32, f->mp.total, f->mp.offset, 0,
+				  buf + 1);
+		return 1 + OSDP_MP_HDR_SIZE(OSDP_MP_W32);
 	}
 
 	/**
@@ -145,53 +134,42 @@ int osdp_file_cmd_tx_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	 * the overhead due to encryption if a secure channel is active. For
 	 * now 16 is choosen based on crude observation.
 	 *
+	 * The engine writes its header at buf+1; the type byte occupies
+	 * buf[0].
+	 *
 	 * TODO: Try to add smarts here later.
 	 */
-	buf_available = max_len - FILE_TRANSFER_HEADER_SIZE - 16;
-
-	/* The header check above does not account for the encryption
-	 * headroom, so the subtraction can still go negative. size is
-	 * unsigned in the read handler; a negative count must not reach it. */
-	if (buf_available <= 0) {
+	engine_max = (max_len - 1) - 16;
+	if (engine_max <= OSDP_MP_HDR_SIZE(OSDP_MP_W32)) {
 		LOG_ERR("TX_Build: insufficient space; need:%d have:%d",
-			FILE_TRANSFER_HEADER_SIZE + 16, max_len);
+			hdr + 16, max_len);
 		goto reply_abort;
 	}
 
-	f->length = f->ops.read(f->ops.arg, data, (uint32_t)buf_available,
-				f->offset);
-	if (f->length < 0) {
-		LOG_ERR("TX_Build: user read failed! rc:%d len:%d off:%" PRIu32,
-			f->length, buf_available, f->offset);
+	n = osdp_mp_tx_build(&f->mp, buf + 1, engine_max);
+	if (n < 0) {
+		LOG_ERR("TX_Build: engine build failed off:%" PRIu32,
+			f->mp.offset);
 		goto reply_abort;
 	}
-	if (f->length == 0) {
-		/* App has no data ready right now. Park in WAIT and emit a
-		 * header-only keep-alive instead of tearing the transfer
-		 * down. The empty-read counter bounds the retry budget via
-		 * osdp_file_tx_get_command()'s OSDP_FILE_ERROR_RETRY_MAX
-		 * check, so a permanently-stuck app eventually still
-		 * aborts cleanly. */
-		f->errors++;
-		f->state = OSDP_FILE_TX_STATE_WAIT;
-		LOG_DBG("TX_Build: app busy; keep-alive (errors=%d)",
-			f->errors);
-		write_file_tx_header(f, buf);
-		return FILE_TRANSFER_HEADER_SIZE;
-	}
+	buf[0] =
+		(uint8_t)f->file_id; /* type byte prefix, ahead of engine hdr */
 
-	/* Got data: resume INPROG if we were waiting and clear the
-	 * empty-read retry budget. */
-	if (f->state == OSDP_FILE_TX_STATE_WAIT) {
-		LOG_DBG("TX_Build: app recovered; resuming");
-		f->state = OSDP_FILE_TX_STATE_INPROG;
+	if (f->mp.last_len == 0) {
+		/* App has no data ready right now (read returned 0): the engine
+		 * parked in WAIT and emitted a header-only keep-alive. The
+		 * empty-read counter bounds the retry budget via
+		 * osdp_file_tx_get_command()'s OSDP_FILE_ERROR_RETRY_MAX check,
+		 * so a permanently-stuck app eventually still aborts cleanly. */
+		if (f->mp.state == OSDP_MP_WAIT) {
+			f->errors++;
+			LOG_DBG("TX_Build: app busy; keep-alive (errors=%d)",
+				f->errors);
+		}
+		return 1 + n; /* type + header-only frame */
 	}
 	f->errors = 0;
-
-	/* fill the packet buffer (layout: struct osdp_cmd_file_xfer) */
-	write_file_tx_header(f, buf);
-
-	return FILE_TRANSFER_HEADER_SIZE + f->length;
+	return 1 + n;
 
 reply_abort:
 	LOG_ERR("TX_Build: Aborting file transfer due to unrecoverable error!");
@@ -210,15 +188,14 @@ int osdp_file_cmd_stat_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 		return -1;
 	}
 
-	if (f->state != OSDP_FILE_TX_STATE_INPROG &&
-	    f->state != OSDP_FILE_TX_STATE_WAIT) {
+	if (!osdp_mp_is_active(&f->mp)) {
 		LOG_ERR("Stat_Decode: File transfer is not in progress!");
 		return -1;
 	}
 
 	if ((size_t)len < sizeof(struct osdp_cmd_file_stat)) {
-		LOG_ERR("Stat_Decode: invalid decode len:%d exp:%zu",
-			len, sizeof(struct osdp_cmd_file_stat));
+		LOG_ERR("Stat_Decode: invalid decode len:%d exp:%zu", len,
+			sizeof(struct osdp_cmd_file_stat));
 		return -1;
 	}
 
@@ -228,38 +205,36 @@ int osdp_file_cmd_stat_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 	stat.status = bread_u16_le(buf, &pos);
 	stat.rx_size = bread_u16_le(buf, &pos);
 	assert(pos == len);
-	assert(f->offset + f->length <= f->size);
 
 	/* Collect control flags */
 	SET_FLAG_V(f, OSDP_FILE_TX_FLAG_EXCLUSIVE, !(stat.control & 0x01))
 	SET_FLAG_V(f, OSDP_FILE_TX_FLAG_PLAIN_TEXT, stat.control & 0x02)
 	SET_FLAG_V(f, OSDP_FILE_TX_FLAG_POLL_RESP, stat.control & 0x04)
 
-	/* If the prior tx was a host-busy keep-alive (length == 0), keep
-	 * the empty-read counter intact so a permanently-busy app still
-	 * hits OSDP_FILE_ERROR_RETRY_MAX. Successful data chunks clear it
-	 * in tx_build. */
-	f->offset += f->length;
-	f->wait_time_ms = stat.delay;
-	f->tstamp = osdp_millis_now();
-	f->length = 0;
+	/* Commit the just-acked chunk (advances mp.offset by last_len). A
+	 * prior host-busy keep-alive had last_len == 0, so this is a no-op
+	 * there and the empty-read counter stays intact — a permanently-busy
+	 * app still hits OSDP_FILE_ERROR_RETRY_MAX. Successful data chunks
+	 * clear the counter in tx_build. */
+	osdp_mp_tx_commit(&f->mp);
+	osdp_mp_set_wait(&f->mp, stat.delay);
 
 	if (stat.status < 0) {
 		LOG_ERR("Stat_Decode: File transfer error; "
 			"status:%d offset:%" PRIu32,
-			stat.status, f->offset);
-		file_transition_done(pd,
-				     file_outcome_from_wire_status(stat.status));
+			stat.status, f->mp.offset);
+		file_transition_done(
+			pd, file_outcome_from_wire_status(stat.status));
 		return -1;
 	}
 
-	if (f->offset != f->size) {
+	if (f->mp.offset != f->mp.total) {
 		/* Transfer still in progress. */
 		return 0;
 	}
 
 	if (stat.status == OSDP_FILE_TX_STATUS_KEEP_ALIVE) {
-		f->state = OSDP_FILE_TX_STATE_WAIT;
+		f->mp.state = OSDP_MP_WAIT;
 		LOG_INF("Stat_Decode: File transfer done; keep alive");
 		return 0;
 	}
@@ -273,12 +248,11 @@ int osdp_file_cmd_stat_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 
 int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 {
-	int rc;
-	int pos = 0;
 	struct osdp_file *f = TO_FILE(pd);
-	struct osdp_cmd_file_xfer xfer;
+	uint8_t type;
+	enum osdp_mp_rc mrc;
 	struct osdp_cmd cmd;
-	uint8_t *data = buf + FILE_TRANSFER_HEADER_SIZE;
+	bool opened_now = false;
 
 	if (f == NULL) {
 		LOG_ERR("TX_Decode: File ops not registered!");
@@ -287,86 +261,89 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 
 	/* A header-only frame (zero-length data) is the CP keep-alive
 	 * ping. Accept it; reject only frames that are short of the
-	 * fixed header. */
-	if ((size_t)len < sizeof(struct osdp_cmd_file_xfer)) {
-		LOG_ERR("TX_Decode: invalid decode len:%d exp>=%zu",
-			len, sizeof(struct osdp_cmd_file_xfer));
+	 * fixed header (type + engine W32 header). */
+	if (len < 1 + OSDP_MP_HDR_SIZE(OSDP_MP_W32)) {
+		LOG_ERR("TX_Decode: invalid decode len:%d exp>=%d", len,
+			1 + OSDP_MP_HDR_SIZE(OSDP_MP_W32));
 		return -1;
 	}
+	type = buf[0];
 
-	xfer.type = buf[pos++];
-	xfer.size = bread_u32_le(buf, &pos);
-	xfer.offset = bread_u32_le(buf, &pos);
-	xfer.length = bread_u16_le(buf, &pos);
-	assert(pos == sizeof(struct osdp_cmd_file_xfer));
+	if (!osdp_mp_is_active(&f->mp)) {
+		/* Peek the engine header to learn the declared file size so
+		 * the app's open() sees it, exactly as before the migration. */
+		uint32_t total = 0, off = 0;
+		uint16_t dlen = 0;
 
-	if (xfer.length > (uint16_t)(len - FILE_TRANSFER_HEADER_SIZE)) {
-		LOG_ERR("TX_Decode: declared length %d exceeds %d bytes present",
-			xfer.length, len - FILE_TRANSFER_HEADER_SIZE);
-		return -1;
-	}
+		if (osdp_mp_hdr_read(OSDP_MP_W32, buf + 1, len - 1, &total,
+				     &off, &dlen) < 0) {
+			LOG_ERR("TX_Decode: invalid header");
+			return -1;
+		}
 
-	if (f->state == OSDP_FILE_TX_STATE_IDLE) {
+		/* Reject a lying declared length BEFORE open(): the receiver
+		 * open() is O_CREAT|O_WRONLY, so opening on a malformed first
+		 * frame would truncate the destination. This mirrors the
+		 * original pre-open bound exactly. */
+		if ((int)dlen > len - 1 - OSDP_MP_HDR_SIZE(OSDP_MP_W32)) {
+			LOG_ERR("TX_Decode: declared length %d exceeds %d bytes present",
+				dlen, len - 1 - OSDP_MP_HDR_SIZE(OSDP_MP_W32));
+			return -1;
+		}
+
 		if (pd->command_callback) {
 			/* Notify app of this command and make sure we can
 			 * proceed */
 			cmd.id = OSDP_CMD_FILE_TX;
 			cmd.file_tx.flags = f->flags;
-			cmd.file_tx.id = xfer.type;
-			rc = pd->command_callback(pd->command_callback_arg, &cmd);
-			if (rc < 0) {
+			cmd.file_tx.id = type;
+			if (pd->command_callback(pd->command_callback_arg,
+						 &cmd) < 0) {
 				return -1;
 			}
 		}
 
 		/* new file write request */
-		uint32_t size = xfer.size;
-		if (f->ops.open(f->ops.arg, xfer.type, &size) < 0) {
-			LOG_ERR("TX_Decode: Open failed! fd:%d", xfer.type);
+		uint32_t size = total;
+		if (f->ops.open(f->ops.arg, type, &size) < 0) {
+			LOG_ERR("TX_Decode: Open failed! fd:%d", type);
 			return -1;
 		}
 
 		LOG_INF("TX_Decode: Starting file transfer of size: %" PRIu32,
-			xfer.size);
+			total);
 		file_state_reset(f);
-		f->file_id = xfer.type;
-		f->size = xfer.size;
+		f->file_id = type;
 		f->is_open = true;
-		f->state = OSDP_FILE_TX_STATE_INPROG;
+		osdp_mp_rx_init(&f->mp, OSDP_MP_W32);
+		opened_now = true;
 	}
 
-	if (f->state != OSDP_FILE_TX_STATE_INPROG) {
-		LOG_ERR("TX_Decode: File transfer is not in progress!");
-		return -1;
-	}
-
-	/* CP keep-alive ping (zero-length frame): skip the user write
-	 * callback entirely and leave offset unchanged. stat_build will
-	 * reply ACK without ERR_INVALID once it sees the flag. */
-	if (xfer.length == 0) {
-		LOG_DBG("TX_Decode: keep-alive ping at off:%" PRIu32,
-			xfer.offset);
-		f->keep_alive_pending = true;
-		f->length = 0;
-		return 0;
-	}
-
-	/* Bound the wire offset and length against the declared file size
-	 * before handing them to the write handler, so a peer cannot make it
-	 * write outside the file it announced. */
-	if ((uint64_t)xfer.offset + xfer.length > f->size) {
-		LOG_ERR("TX_Decode: chunk off:%" PRIu32
-			" len:%d exceeds size:%" PRIu32,
-			xfer.offset, xfer.length, f->size);
-		return -1;
-	}
-
-	f->length = f->ops.write(f->ops.arg, data, xfer.length, xfer.offset);
-	if (f->length != xfer.length) {
-		LOG_ERR("TX_Decode: user write failed! rc:%d len:%d off:%" PRIu32,
-			f->length, xfer.length, xfer.offset);
+	/* Hand the frame to the engine: it writes the chunk via f->ops.write
+	 * at the frame's declared offset and enforces the offset/length
+	 * bounds against the declared total (Step 0 overflow-safe checks). */
+	mrc = osdp_mp_rx_consume(&f->mp, buf + 1, len - 1);
+	if (mrc == OSDP_MP_RC_ERR) {
+		LOG_ERR("TX_Decode: engine rejected frame at off:%" PRIu32,
+			f->mp.offset);
 		f->errors++;
+		/* If this same call opened the transfer, a malformed first
+		 * frame must not leave a dangling open/INPROG transfer behind:
+		 * tear it back down (the original rejected such frames before
+		 * open()). A mid-transfer rejection legitimately stays open so
+		 * the CP can retry. */
+		if (opened_now) {
+			file_transition_done(pd, OSDP_FILE_TX_OUTCOME_ABORTED);
+		}
 		return -1;
+	}
+
+	/* CP keep-alive ping (zero-length frame): the engine left offset
+	 * unchanged. stat_build will reply ACK without ERR_INVALID once it
+	 * sees the flag. */
+	if (f->mp.last_len == 0) {
+		LOG_DBG("TX_Decode: keep-alive ping");
+		f->keep_alive_pending = true;
 	}
 
 	return 0;
@@ -386,7 +363,7 @@ int osdp_file_cmd_stat_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		return -1;
 	}
 
-	if (f->state != OSDP_FILE_TX_STATE_INPROG) {
+	if (!osdp_mp_is_active(&f->mp)) {
 		LOG_ERR("Stat_Build: File transfer is not in progress!");
 		return -1;
 	}
@@ -401,22 +378,23 @@ int osdp_file_cmd_stat_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		/* CP-side keep-alive ping: ACK without advancing offset so
 		 * the CP can retry the same chunk once its app recovers. */
 		f->keep_alive_pending = false;
-	} else if (f->length > 0) {
-		f->offset += f->length;
+	} else if (f->mp.last_len > 0) {
+		osdp_mp_rx_commit(&f->mp); /* advance by the acked chunk */
 	} else {
 		stat.status = OSDP_FILE_TX_STATUS_ERR_INVALID;
 	}
-	LOG_DBG("length: %d offset: %" PRIu32 " size: %" PRIu32, f->length,
-		f->offset, f->size);
-	f->length = 0;
+	LOG_DBG("offset: %" PRIu32 " size: %" PRIu32, f->mp.offset,
+		f->mp.total);
 
 	/*
-	 * Don't assert f->offset:w <= f->size: a legitimately retransmitted
-	 * chunk (lost FTSTAT) re-drives the running offset and can transiently
-	 * overshoot. The write-side bound in tx_decode is the real guard.
+	 * EOF is decided on offset/total, NOT on mp.state: rx_commit may have
+	 * already set state=DONE at completion, and file_transition_done is
+	 * the only place that tears down + resets. Testing state here would
+	 * skip completion. A legitimately retransmitted chunk (lost FTSTAT)
+	 * re-drives the running offset without overshooting; the write-side
+	 * bound in the engine is the real guard.
 	 */
-
-	if (f->offset == f->size) { /* EOF */
+	if (f->mp.offset == f->mp.total && f->mp.total != 0) { /* EOF */
 		stat.status = OSDP_FILE_TX_STATUS_CONTENTS_PROCESSED;
 		LOG_INF("TX_Decode: File receive complete");
 		file_transition_done(pd, OSDP_FILE_TX_OUTCOME_OK);
@@ -463,16 +441,16 @@ int osdp_file_tx_get_command(struct osdp_pd *pd)
 		return CMD_ABORT;
 	}
 
-	if (f->wait_time_ms &&
-	    osdp_millis_since(f->tstamp) < f->wait_time_ms) {
+	switch (osdp_mp_tx_next(&f->mp)) {
+	case OSDP_MP_ACT_WAIT:
 		return ISSET_FLAG(f, OSDP_FILE_TX_FLAG_EXCLUSIVE) ? -1 : 0;
+	case OSDP_MP_ACT_DATA:
+		return ISSET_FLAG(f, OSDP_FILE_TX_FLAG_POLL_RESP) ?
+			       CMD_POLL :
+			       CMD_FILETRANSFER;
+	default:
+		return 0;
 	}
-
-	if (ISSET_FLAG(f, OSDP_FILE_TX_FLAG_POLL_RESP)) {
-		return CMD_POLL;
-	}
-
-	return CMD_FILETRANSFER;
 }
 
 /**
@@ -521,9 +499,8 @@ int osdp_file_tx_command(struct osdp_pd *pd, int file_id, uint32_t flags)
 	file_state_reset(f);
 	f->flags = flags;
 	f->file_id = file_id;
-	f->size = size;
 	f->is_open = true;
-	f->state = OSDP_FILE_TX_STATE_INPROG;
+	osdp_mp_tx_init(&f->mp, size, OSDP_MP_W32);
 	return 0;
 }
 
@@ -553,7 +530,8 @@ int osdp_file_register_ops(osdp_t *ctx, int pd_idx,
 #ifdef OPT_OSDP_STATIC
 		pd->file = file_static_slot_get(pd_idx);
 		if (pd->file == NULL) {
-			LOG_PRINT("No static osdp_file slot for pd_idx=%d", pd_idx);
+			LOG_PRINT("No static osdp_file slot for pd_idx=%d",
+				  pd_idx);
 			return -1;
 		}
 		memset(pd->file, 0, sizeof(struct osdp_file));
@@ -571,19 +549,18 @@ int osdp_file_register_ops(osdp_t *ctx, int pd_idx,
 	return 0;
 }
 
-int osdp_get_file_tx_status(const osdp_t *ctx, int pd_idx,
-			    uint32_t *size, uint32_t *offset)
+int osdp_get_file_tx_status(const osdp_t *ctx, int pd_idx, uint32_t *size,
+			    uint32_t *offset)
 {
 	input_check(ctx, pd_idx);
 	struct osdp_file *f = TO_FILE(osdp_to_pd(ctx, pd_idx));
 
-	if (!f || (f->state != OSDP_FILE_TX_STATE_INPROG &&
-		   f->state != OSDP_FILE_TX_STATE_WAIT)) {
+	if (!f || !osdp_mp_is_active(&f->mp)) {
 		LOG_PRINT("File TX not in progress");
 		return -1;
 	}
 
-	*size = f->size;
-	*offset = f->offset;
+	*size = f->mp.total;
+	*offset = f->mp.offset;
 	return 0;
 }

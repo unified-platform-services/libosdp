@@ -8,6 +8,7 @@
 #define _OSDP_FILE_H_
 
 #include "osdp_common.h"
+#include "osdp_multipart.h"
 
 #define TO_FILE(pd) (pd)->file
 
@@ -15,8 +16,8 @@
  * @brief OSDP specified file transfer command payload.
  */
 PACK(struct osdp_cmd_file_xfer {
-	uint8_t type;   /**< File transfer type: 1=opaque, 2..127 reserved, 128..255 private use. */
-	uint32_t size;  /**< File size in little-endian format. */
+	uint8_t type; /**< File transfer type: 1=opaque, 2..127 reserved, 128..255 private use. */
+	uint32_t size; /**< File size in little-endian format. */
 	uint32_t offset; /**< Offset in the file for the current message. */
 	uint16_t length; /**< Length of the data section in this command. */
 	uint8_t data[]; /**< Variable-length file contents. */
@@ -32,27 +33,15 @@ PACK(struct osdp_cmd_file_stat {
 	uint16_t rx_size; /**< Alternate maximum CMD_FILETRANSFER size, or 0 to keep the current value. */
 });
 
-enum osdp_file_tx_state {
-	OSDP_FILE_TX_STATE_IDLE,   /* no active transfer */
-	OSDP_FILE_TX_STATE_INPROG, /* data being exchanged */
-	OSDP_FILE_TX_STATE_WAIT,   /* CP only: app or PD requested time */
-	OSDP_FILE_TX_STATE_DONE,   /* terminal; outcome captured */
-};
-
 struct osdp_file {
 	uint32_t flags;
 	int file_id;
-	enum osdp_file_tx_state state;
+	struct osdp_multipart mp; /* owns state/offset/total/codec/abort/wait */
 	enum osdp_file_tx_outcome outcome;
 	bool is_open;
 	bool keep_alive_pending; /* PD: last frame was a zero-length ping */
-	int length;
-	uint32_t size;
-	uint32_t offset;
 	int errors;
 	bool cancel_req;
-	tick_t tstamp;
-	uint32_t wait_time_ms;
 	struct osdp_file_ops ops;
 };
 
@@ -60,8 +49,7 @@ static inline bool osdp_file_tx_is_active(struct osdp_pd *pd)
 {
 	struct osdp_file *f = TO_FILE(pd);
 
-	return f && (f->state == OSDP_FILE_TX_STATE_INPROG ||
-		     f->state == OSDP_FILE_TX_STATE_WAIT);
+	return f && osdp_mp_is_active(&f->mp);
 }
 
 int osdp_file_cmd_tx_build(struct osdp_pd *pd, uint8_t *buf, int max_len);
