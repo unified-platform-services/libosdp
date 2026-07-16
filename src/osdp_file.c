@@ -8,8 +8,7 @@
 
 #include "osdp_file.h"
 
-#define FILE_TRANSFER_HEADER_SIZE 11
-#define FILE_TRANSFER_STAT_SIZE	  7
+#define FILE_TRANSFER_STAT_SIZE 7
 
 /* Wire-protocol status codes carried in struct osdp_cmd_file_stat::status */
 #define OSDP_FILE_TX_STATUS_ACK		       0
@@ -40,8 +39,7 @@ static int file_mp_write(void *arg, const void *buf, uint32_t size,
 	struct osdp_file *f = arg;
 	int n = f->ops.write(f->ops.arg, buf, size, offset);
 
-	/* Preserve today's behavior: a short write aborts. File transfer does
-	 * not use RETRY. */
+	/* A short write is fatal; file transfer does not use RETRY. */
 	return (n == (int)size) ? OSDP_MP_RX_OK : OSDP_MP_RX_ABORT;
 }
 
@@ -53,7 +51,6 @@ static inline void file_state_reset(struct osdp_pd *pd)
 				   .arg = f };
 	f->flags = 0;
 	f->errors = 0;
-	f->outcome = OSDP_FILE_TX_OUTCOME_OK;
 	f->is_open = false;
 	f->keep_alive_pending = false;
 	f->file_id = 0;
@@ -91,7 +88,6 @@ static void file_transition_done(struct osdp_pd *pd,
 	 * state, then tear down. */
 	osdp_mp_finish(&f->mp, (int)outcome);
 	file_close_if_open(pd);
-	f->outcome = outcome;
 	if (is_cp_mode(pd) && outcome == OSDP_FILE_TX_OUTCOME_OK_REBOOTING) {
 		make_request(pd, CP_REQ_OFFLINE);
 	}
@@ -293,7 +289,7 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 
 	if (!osdp_mp_is_active(&f->mp)) {
 		/* Peek the engine header to learn the declared file size so
-		 * the app's open() sees it, exactly as before the migration. */
+		 * the app's open() sees it. */
 		uint32_t total = 0, off = 0;
 		uint16_t dlen = 0;
 
@@ -303,10 +299,9 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 			return -1;
 		}
 
-		/* Reject a lying declared length BEFORE open(): the receiver
-		 * open() is O_CREAT|O_WRONLY, so opening on a malformed first
-		 * frame would truncate the destination. This mirrors the
-		 * original pre-open bound exactly. */
+		/* Reject a lying declared length BEFORE open(): a receiver
+		 * open() is typically create/truncate, so opening on a
+		 * malformed first frame would clobber the destination. */
 		if ((int)dlen > len - 1 - OSDP_MP_HDR_SIZE(OSDP_MP_W32)) {
 			LOG_ERR("TX_Decode: declared length %d exceeds %d bytes present",
 				dlen, len - 1 - OSDP_MP_HDR_SIZE(OSDP_MP_W32));
@@ -346,17 +341,16 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 
 	/* Hand the frame to the engine: it writes the chunk via f->ops.write
 	 * at the frame's declared offset and enforces the offset/length
-	 * bounds against the declared total (Step 0 overflow-safe checks). */
+	 * bounds against the declared total. */
 	mrc = osdp_mp_rx_consume(&f->mp, buf + 1, len - 1);
 	if (mrc == OSDP_MP_RC_ERR) {
 		LOG_ERR("TX_Decode: engine rejected frame at off:%" PRIu32,
 			f->mp.offset);
 		f->errors++;
 		/* If this same call opened the transfer, a malformed first
-		 * frame must not leave a dangling open/INPROG transfer behind:
-		 * tear it back down (the original rejected such frames before
-		 * open()). A mid-transfer rejection legitimately stays open so
-		 * the CP can retry. */
+		 * frame must not leave a dangling open/INPROG transfer
+		 * behind: tear it back down. A mid-transfer rejection
+		 * legitimately stays open so the CP can retry. */
 		if (opened_now) {
 			file_transition_done(pd, OSDP_FILE_TX_OUTCOME_ABORTED);
 		}

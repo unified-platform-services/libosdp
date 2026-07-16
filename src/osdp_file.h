@@ -37,7 +37,6 @@ struct osdp_file {
 	uint32_t flags;
 	int file_id;
 	struct osdp_multipart mp; /* owns state/offset/total/codec/abort/wait */
-	enum osdp_file_tx_outcome outcome;
 	bool is_open;
 	bool keep_alive_pending; /* PD: last frame was a zero-length ping */
 	int errors;

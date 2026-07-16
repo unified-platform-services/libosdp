@@ -90,7 +90,9 @@ static int mp_buf_write(void *arg, const void *src, uint32_t size,
 {
 	struct osdp_multipart *mp = arg;
 
-	if (offset + size > mp->buf_len) {
+	/* Same wrap-safe form as mp_buf_read: offset + size could overflow
+	 * for wire-controlled values. */
+	if (offset >= mp->buf_len || size > mp->buf_len - offset) {
 		return OSDP_MP_RX_ABORT;
 	}
 	memcpy(mp->buf + offset, src, size);
@@ -134,7 +136,6 @@ int osdp_mp_tx_init(struct osdp_multipart *mp, uint32_t total,
 	mp->total = total;
 	mp->offset = 0;
 	mp->last_len = 0;
-	mp->errors = 0;
 	mp->start_emitted = false;
 	mp->state = OSDP_MP_INPROG;
 	return 0;
@@ -147,7 +148,9 @@ int osdp_mp_tx_build(struct osdp_multipart *mp, uint8_t *buf, int max_len)
 	uint32_t remaining = mp->total - mp->offset;
 	int n;
 
-	if (avail < 0) {
+	/* A packet that can never carry a payload byte cannot make progress;
+	 * emitting header-only keep-alives forever would spin. */
+	if (avail < 0 || (avail == 0 && remaining > 0)) {
 		return -1;
 	}
 	if ((uint32_t)avail > remaining) {
@@ -197,7 +200,6 @@ int osdp_mp_rx_init(struct osdp_multipart *mp, enum osdp_mp_width w,
 	mp->offset = 0;
 	mp->last_len = 0;
 	mp->last_off = 0;
-	mp->errors = 0;
 	mp->start_emitted = false;
 	mp->state = OSDP_MP_INPROG;
 	return 0;

@@ -64,7 +64,7 @@ struct osdp_mp_ops {
 
 /* Lifecycle phases reported to the consumer's event callback. */
 enum osdp_mp_phase {
-	OSDP_MP_PHASE_START,     /* transfer opened (tx_init / rx_init) */
+	OSDP_MP_PHASE_START,     /* transfer opened */
 	OSDP_MP_PHASE_PROGRESS,  /* a data fragment just committed */
 	OSDP_MP_PHASE_DONE,      /* terminal; outcome is meaningful */
 };
@@ -100,7 +100,6 @@ struct osdp_multipart {
 	bool start_emitted; /* START fires at most once per transfer */
 	uint32_t wait_time_ms; /* sender throttle (set by consumer)   */
 	tick_t tstamp;
-	int errors;
 };
 
 /* Header size for a given width: TOTAL(w) + OFFSET(w) + DATA_LEN(2). */
@@ -157,8 +156,10 @@ void osdp_mp_finish(struct osdp_multipart *mp, int outcome);
 void osdp_mp_emit_start(struct osdp_multipart *mp);
 enum osdp_mp_action osdp_mp_tx_next(struct osdp_multipart *mp);
 
-/* Shared bridge: turns an engine phase into an OSDP notification on `pd`
- * (arg = struct osdp_pd *). Implemented in osdp_common.c (pd-aware). */
+/* Ready-made event_cb that turns an engine phase into an OSDP notification;
+ * bind with arg = the owning struct osdp_pd. Lives in osdp_common.c because
+ * it needs pd internals; declared here because its contract is engine types
+ * only. */
 void osdp_mp_pd_notify(void *arg, enum osdp_mp_phase phase,
 		       const struct osdp_mp_progress *p);
 
