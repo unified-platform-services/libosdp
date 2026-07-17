@@ -795,8 +795,12 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		break;
 	case REPLY_XRD:
 		if (!trs_active(pd)) {
-			LOG_WRN("Unsolicited REPLY_XRD outside a TRS session");
-			return OSDP_CP_ERR_UNKNOWN;
+			/* A reader left in transparent mode (failed teardown,
+			 * CP restart) keeps sending these as poll responses;
+			 * shrug them off rather than cycling the PD offline. */
+			LOG_WRN("Ignoring REPLY_XRD outside a TRS session");
+			ret = OSDP_CP_ERR_NONE;
+			break;
 		}
 		ret = osdp_trs_reply_decode(pd, buf + pos, len, &event);
 		if (ret < 0) {
@@ -1487,7 +1491,10 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		    pd->reply_id == REPLY_CRAUTHR ||
 		    pd->reply_id == REPLY_RAW ||
 		    pd->reply_id == REPLY_KEYPAD ||
-		    (pd->reply_id == REPLY_XRD && trs_active(pd))) {
+		    pd->reply_id == REPLY_XRD) {
+			/* An XRD with no session behind it was already
+			 * swallowed by the decoder; it is still a valid,
+			 * well-formed poll response. */
 			return true;
 		}
 		return is_ignore_unsolicited_messages(pd);
