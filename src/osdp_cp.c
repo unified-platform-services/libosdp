@@ -1472,6 +1472,9 @@ static bool cp_cmd_is_app_owned(int cmd_id)
 	case CMD_MFG:
 	case CMD_BIOREAD:
 	case CMD_BIOMATCH:
+	case CMD_PIVDATA:
+	case CMD_GENAUTH:
+	case CMD_CRAUTH:
 	case CMD_FILETRANSFER:
 		return true;
 	default:

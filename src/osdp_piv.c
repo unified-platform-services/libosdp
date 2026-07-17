@@ -131,6 +131,11 @@ static void piv_op_setup(struct osdp_pd *pd, struct osdp_piv *p,
 	osdp_mp_reset(&p->mp);
 	osdp_mp_set_event_cb(&p->mp, osdp_mp_pd_notify, pd);
 	osdp_mp_set_identity(&p->mp, f->mp_msg, object_id);
+	/* Arm the engine right away (a leg re-inits it with real parameters)
+	 * so an op that dies before its first leg — e.g. the PD NAKs the
+	 * command — still reports MP_DONE; osdp_mp_finish() is a no-op on an
+	 * idle engine. */
+	osdp_mp_rx_init(&p->mp, OSDP_MP_W16, 0);
 	p->phase = OSDP_PIV_CMD;
 }
 
@@ -295,8 +300,10 @@ static void piv_cp_reply_begin(struct osdp_pd *pd, struct osdp_piv *p)
  * it. Commits the fragment; returns true once the whole command is out. */
 static bool piv_cp_cmd_leg_done(struct osdp_piv *p)
 {
-	if (!osdp_mp_is_active(&p->mp)) {
-		return true; /* single-exchange command (PIVDATA) */
+	if (p->mp.total == 0 || !osdp_mp_is_active(&p->mp)) {
+		/* Single-exchange command (PIVDATA): the engine only holds
+		 * the placeholder arming, there is no tx leg to commit. */
+		return true;
 	}
 	osdp_mp_tx_commit(&p->mp);
 	p->tstamp = osdp_millis_now();
