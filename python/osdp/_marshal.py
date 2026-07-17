@@ -136,6 +136,15 @@ _COMMAND_ENCODERS: dict[type, Callable[[Any], Payload]] = {
         "offset_col": x.offset_col,
         "data": x.data,
     },
+    c.TDSet: lambda x: {
+        "command": CommandId.TDSet,
+        "year": x.year,
+        "month": x.month,
+        "day": x.day,
+        "hour": x.hour,
+        "minute": x.minute,
+        "second": x.second,
+    },
     c.Keyset: lambda x: {
         "command": CommandId.Keyset,
         "type": x.type,
@@ -210,6 +219,14 @@ _COMMAND_DECODERS: dict[CommandId, Callable[[Payload], c.Command]] = {
         offset_row=p["offset_row"],
         offset_col=p["offset_col"],
         data=p["data"],
+    ),
+    CommandId.TDSet: lambda p: c.TDSet(
+        year=p["year"],
+        month=p["month"],
+        day=p["day"],
+        hour=p["hour"],
+        minute=p["minute"],
+        second=p["second"],
     ),
     CommandId.Keyset: lambda p: c.Keyset(type=p["type"], data=p["data"]),
     CommandId.Comset: lambda p: c.Comset(

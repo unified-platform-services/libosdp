@@ -64,6 +64,7 @@ __all__ = [
     "Output",
     "PermanentLEDParams",
     "Status",
+    "TDSet",
     "TemporaryLEDParams",
     "Text",
 ]
@@ -350,6 +351,51 @@ class Text:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class TDSet:
+    """Set the PD's local time and date.
+
+    Obsolete in current editions of the OSDP specification; supported for
+    interop with legacy devices. The PD must declare Capability.TimeKeeping.
+
+    @see osdp_cmd_tdset
+
+    Example:
+        >>> cmd = TDSet(year=2026, month=7, day=17,
+        ...             hour=12, minute=30, second=45)
+        >>> cmd.month
+        7
+    """
+
+    ID: ClassVar[CommandId] = CommandId.TDSet
+
+    year: int
+    """Full year in local time, e.g., 2026."""
+
+    month: int
+    """Month of year; 1 - 12."""
+
+    day: int
+    """Day of month; 1 - 31."""
+
+    hour: int
+    """Hours since midnight; 0 - 23."""
+
+    minute: int
+    """Minutes past the hour; 0 - 59."""
+
+    second: int
+    """Seconds past the minute; 0 - 59."""
+
+    def __post_init__(self) -> None:
+        check_range("year", self.year, UINT16_MAX)
+        check_range("month", self.month, 12)
+        check_range("day", self.day, 31)
+        check_range("hour", self.hour, 23)
+        check_range("minute", self.minute, 59)
+        check_range("second", self.second, 59)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Keyset:
     """Install a new secure channel base key on the PD.
 
@@ -628,6 +674,7 @@ Command: TypeAlias = (
     | LED
     | Buzzer
     | Text
+    | TDSet
     | Keyset
     | Comset
     | ComsetDone

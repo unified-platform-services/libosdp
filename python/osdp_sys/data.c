@@ -362,6 +362,16 @@ static const struct pyosdp_field cmd_text_fields[] = {
 	END_OF_FIELDS,
 };
 
+static const struct pyosdp_field cmd_tdset_fields[] = {
+	U16_FIELD(struct osdp_cmd_tdset, year),
+	U8_FIELD(struct osdp_cmd_tdset, month),
+	U8_FIELD(struct osdp_cmd_tdset, day),
+	U8_FIELD(struct osdp_cmd_tdset, hour),
+	U8_FIELD(struct osdp_cmd_tdset, minute),
+	U8_FIELD(struct osdp_cmd_tdset, second),
+	END_OF_FIELDS,
+};
+
 static const struct pyosdp_field cmd_keyset_fields[] = {
 	U8_FIELD(struct osdp_cmd_keyset, type),
 	{
@@ -616,6 +626,7 @@ static const struct pyosdp_translator command_translator[OSDP_CMD_SENTINEL] = {
 	[OSDP_CMD_LED] = { .fields = cmd_led_fields },
 	[OSDP_CMD_BUZZER] = { .fields = cmd_buzzer_fields },
 	[OSDP_CMD_TEXT] = { .fields = cmd_text_fields },
+	[OSDP_CMD_TDSET] = { .fields = cmd_tdset_fields },
 	[OSDP_CMD_KEYSET] = { .fields = cmd_keyset_fields },
 	[OSDP_CMD_COMSET] = { .fields = cmd_comset_fields },
 	[OSDP_CMD_COMSET_DONE] = { .fields = cmd_comset_fields },

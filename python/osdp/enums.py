@@ -114,6 +114,7 @@ class CommandId(IntEnum):
     Notification = _sys.CMD_NOTIFICATION
     BioRead = _sys.CMD_BIOREAD
     BioMatch = _sys.CMD_BIOMATCH
+    TDSet = _sys.CMD_TDSET
 
 
 class EventId(IntEnum):

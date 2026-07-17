@@ -87,6 +87,7 @@ ALL_COMMANDS = [
         offset_col=1,
         data="HELLO",
     ),
+    commands.TDSet(year=2026, month=7, day=17, hour=12, minute=30, second=45),
     commands.Keyset(type=1, data=bytes(range(16))),
     commands.Comset(address=42, baud_rate=115200),
     commands.ComsetDone(address=42, baud_rate=115200),

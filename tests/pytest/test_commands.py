@@ -24,13 +24,16 @@ chn = bus.multidrop_channel()
 
 key = KeyStore.gen_key()
 
-pd_cap = PDCapabilities([
+pd_cap_list = [
     (Capability.OutputControl, 1, 1),
     (Capability.LEDControl, 1, 1),
     (Capability.AudibleControl, 1, 1),
     (Capability.TextOutput, 1, 1),
     (Capability.Biometrics, 1, 1),
-])
+]
+# The insecure PD keeps this set; it doubles as the PD that cannot keep time.
+pd_cap = PDCapabilities(pd_cap_list)
+tk_pd_cap = PDCapabilities(pd_cap_list + [(Capability.TimeKeeping, 1, 0)])
 
 pd_info_list = [
     PDInfo(secure_pd_addr, chn, scbk=key, flags=[ LibFlag.EnforceSecure, LibFlag.EnableNotification ]),
@@ -39,7 +42,7 @@ pd_info_list = [
 
 secure_pd = PeripheralDevice(
     PDInfo(secure_pd_addr, bus.pd_channel(0), scbk=key, flags=[ LibFlag.EnforceSecure ]),
-    pd_cap,
+    tk_pd_cap,
     log_level=LogLevel.Debug
 )
 
@@ -162,6 +165,30 @@ def test_command_text():
     assert cp.submit_command(secure_pd_addr, test_cmd)
     assert_command_received(secure_pd, test_cmd)
     cp_check_command_status(CommandId.Text)
+
+def test_command_tdset():
+    test_cmd = commands.TDSet(
+        year=2026, month=7, day=17, hour=12, minute=30, second=45,
+    )
+    assert cp.is_online(secure_pd_addr)
+    assert cp.submit_command(secure_pd_addr, test_cmd)
+    assert_command_received(secure_pd, test_cmd)
+    cp_check_command_status(CommandId.TDSet)
+
+def test_command_tdset_rejected_without_time_keeping():
+    """A PD that does not declare Time Keeping NAKs osdp_TDSET."""
+    test_cmd = commands.TDSet(
+        year=2026, month=7, day=17, hour=12, minute=30, second=45,
+    )
+    assert cp.is_online(insecure_pd_addr)
+    assert cp.submit_command(insecure_pd_addr, test_cmd)
+    assert insecure_pd.get_command(timeout=2) is None
+    event = events.Notification(
+        type=NotificationType.Command,
+        arg0=int(CommandId.TDSet),
+        arg1=-1,
+    )
+    wait_for_notification_event(cp, insecure_pd.address, event)
 
 def test_command_led_temporary():
     """A temporary state flashes for its timer and then reverts."""
