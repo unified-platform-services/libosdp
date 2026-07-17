@@ -118,6 +118,27 @@ void test_suite_end(struct test *t);
 int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd);
 int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 			   uint32_t cp_flags, uint32_t pd_flags);
+
+/*
+ * Channel interceptor: a registered hook sees every frame crossing the mock
+ * channel and can pass, swallow, or substitute it. INJECT_REPLY additionally
+ * redirects: the CP's command is swallowed and `out` is delivered on the
+ * PD->CP direction instead, as if the PD had answered with it -- the way a
+ * real device answers osdp_BUSY without processing the command. On the
+ * PD->CP direction INJECT_REPLY is meaningless and is treated as REPLACE.
+ */
+enum test_channel_hook_verdict {
+	TEST_HOOK_PASS,		/* deliver the frame unmodified */
+	TEST_HOOK_DROP,		/* swallow the frame, report it as sent */
+	TEST_HOOK_REPLACE,	/* deliver `out` instead of the frame */
+	TEST_HOOK_INJECT_REPLY,	/* swallow frame, deliver `out` as the reply */
+};
+
+typedef enum test_channel_hook_verdict (*test_channel_hook_fn)(
+	void *arg, bool cp_to_pd, const uint8_t *frame, int len,
+	uint8_t *out, int *out_len, int out_max);
+
+void test_set_channel_hook(test_channel_hook_fn fn, void *arg);
 int async_runner_start(osdp_t *ctx, void (*fn)(osdp_t *));
 int async_runner_stop(int runner);
 int async_cp_runner_start(osdp_t *cp_ctx);

@@ -614,20 +614,85 @@ void maybe_corrupt_buffer(uint8_t *buf, int len)
 	g_corrupted_packets++;
 }
 
+static test_channel_hook_fn g_channel_hook;
+static void *g_channel_hook_arg;
+
+void test_set_channel_hook(test_channel_hook_fn fn, void *arg)
+{
+	g_channel_hook = fn;
+	g_channel_hook_arg = arg;
+}
+
+/*
+ * Run the registered channel hook over an outbound frame. Returns the
+ * verdict, with `out`/`out_len` filled for REPLACE and INJECT_REPLY. When
+ * no hook is registered every frame passes.
+ */
+static enum test_channel_hook_verdict channel_hook_filter(
+	bool cp_to_pd, const uint8_t *frame, int len,
+	uint8_t *out, int *out_len, int out_max)
+{
+	enum test_channel_hook_verdict verdict;
+
+	if (!g_channel_hook)
+		return TEST_HOOK_PASS;
+
+	*out_len = 0;
+	verdict = g_channel_hook(g_channel_hook_arg, cp_to_pd, frame, len,
+				 out, out_len, out_max);
+	if (!cp_to_pd && verdict == TEST_HOOK_INJECT_REPLY)
+		verdict = TEST_HOOK_REPLACE;
+	if ((verdict == TEST_HOOK_REPLACE ||
+	     verdict == TEST_HOOK_INJECT_REPLY) && *out_len <= 0)
+		verdict = TEST_HOOK_DROP;
+	return verdict;
+}
+
 #ifndef OPT_OSDP_RX_ZERO_COPY
+
+static int circbuf_push_cp_to_pd(const uint8_t *buf, int len)
+{
+	int i;
+
+	for (i = 0; i < len; i++) {
+		if (CIRCBUF_PUSH(cp_to_pd_buf, (uint8_t *)buf + i))
+			break;
+	}
+	return i;
+}
+
+static int circbuf_push_pd_to_cp(const uint8_t *buf, int len)
+{
+	int i;
+
+	for (i = 0; i < len; i++) {
+		if (CIRCBUF_PUSH(pd_to_cp_buf, (uint8_t *)buf + i))
+			break;
+	}
+	return i;
+}
 
 int test_mock_cp_send(void *data, uint8_t *buf, int len)
 {
-	int i;
+	uint8_t out[MOCK_BUF_LEN];
+	int out_len;
 	ARG_UNUSED(data);
 	assert(len < MOCK_BUF_LEN);
 
 	maybe_corrupt_buffer(buf, len);
-	for (i = 0; i < len; i++) {
-		if (CIRCBUF_PUSH(cp_to_pd_buf, buf + i))
-			break;
+	switch (channel_hook_filter(true, buf, len, out, &out_len, sizeof(out))) {
+	case TEST_HOOK_DROP:
+		return len;
+	case TEST_HOOK_REPLACE:
+		circbuf_push_cp_to_pd(out, out_len);
+		return len;
+	case TEST_HOOK_INJECT_REPLY:
+		circbuf_push_pd_to_cp(out, out_len);
+		return len;
+	case TEST_HOOK_PASS:
+		break;
 	}
-	return i;
+	return circbuf_push_cp_to_pd(buf, len);
 }
 
 int test_mock_cp_receive(void *data, uint8_t *buf, int len)
@@ -651,15 +716,22 @@ void test_mock_cp_flush(void *data)
 
 int test_mock_pd_send(void *data, uint8_t *buf, int len)
 {
-	int i;
+	uint8_t out[MOCK_BUF_LEN];
+	int out_len;
 	ARG_UNUSED(data);
 
 	maybe_corrupt_buffer(buf, len);
-	for (i = 0; i < len; i++) {
-		if (CIRCBUF_PUSH(pd_to_cp_buf, buf + i))
-			break;
+	switch (channel_hook_filter(false, buf, len, out, &out_len, sizeof(out))) {
+	case TEST_HOOK_DROP:
+		return len;
+	case TEST_HOOK_REPLACE:
+		circbuf_push_pd_to_cp(out, out_len);
+		return len;
+	case TEST_HOOK_INJECT_REPLY: /* mapped to REPLACE by the filter */
+	case TEST_HOOK_PASS:
+		break;
 	}
-	return i;
+	return circbuf_push_pd_to_cp(buf, len);
 }
 
 int test_mock_pd_receive(void *data, uint8_t *buf, int len)
@@ -685,11 +757,25 @@ void test_mock_pd_flush(void *data)
 
 int test_mock_cp_send(void *data, uint8_t *buf, int len)
 {
+	uint8_t out[TEST_PKT_MAXLEN];
+	int out_len;
 	ARG_UNUSED(data);
 	if (buf == NULL || len <= 0) {
 		return -1;
 	}
 	maybe_corrupt_buffer(buf, len);
+	switch (channel_hook_filter(true, buf, len, out, &out_len, sizeof(out))) {
+	case TEST_HOOK_DROP:
+		return len;
+	case TEST_HOOK_REPLACE:
+		pktq_push(&cp_to_pd_q, out, out_len);
+		return len;
+	case TEST_HOOK_INJECT_REPLY:
+		pktq_push(&pd_to_cp_q, out, out_len);
+		return len;
+	case TEST_HOOK_PASS:
+		break;
+	}
 	return pktq_push(&cp_to_pd_q, buf, len);
 }
 
@@ -714,11 +800,23 @@ void test_mock_cp_flush(void *data)
 
 int test_mock_pd_send(void *data, uint8_t *buf, int len)
 {
+	uint8_t out[TEST_PKT_MAXLEN];
+	int out_len;
 	ARG_UNUSED(data);
 	if (buf == NULL || len <= 0) {
 		return -1;
 	}
 	maybe_corrupt_buffer(buf, len);
+	switch (channel_hook_filter(false, buf, len, out, &out_len, sizeof(out))) {
+	case TEST_HOOK_DROP:
+		return len;
+	case TEST_HOOK_REPLACE:
+		pktq_push(&pd_to_cp_q, out, out_len);
+		return len;
+	case TEST_HOOK_INJECT_REPLY: /* mapped to REPLACE by the filter */
+	case TEST_HOOK_PASS:
+		break;
+	}
 	return pktq_push(&pd_to_cp_q, buf, len);
 }
 
@@ -753,7 +851,9 @@ int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 #endif /* OPT_OSDP_LOG_MINIMAL */
 
 	/* Shared mock channel; drop stale traffic left by the previous suite so a
-	 * fresh PD does not read a non-zero sequence on its first packet. */
+	 * fresh PD does not read a non-zero sequence on its first packet. The
+	 * channel hook is likewise per-suite state that must not leak. */
+	test_set_channel_hook(NULL, NULL);
 #ifndef OPT_OSDP_RX_ZERO_COPY
 	CIRCBUF_FLUSH(cp_to_pd_buf);
 	CIRCBUF_FLUSH(pd_to_cp_buf);
