@@ -32,6 +32,10 @@ struct busy_test_ctx {
 
 	bool cmd_seen;
 	int last_cmd_id;
+
+	bool notif_cmd_seen;
+	int notif_cmd_arg0;
+	int notif_cmd_arg1;
 };
 
 static struct busy_test_ctx g_ctx;
@@ -118,17 +122,35 @@ static int busy_test_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 	return 0;
 }
 
+static int busy_test_cp_event_callback(void *arg, int pd,
+					struct osdp_event *ev)
+{
+	ARG_UNUSED(arg);
+	ARG_UNUSED(pd);
+
+	if (ev->type == OSDP_EVENT_NOTIFICATION &&
+	    ev->notif.type == OSDP_NOTIFICATION_COMMAND) {
+		g_ctx.notif_cmd_seen = true;
+		g_ctx.notif_cmd_arg0 = ev->notif.arg0;
+		g_ctx.notif_cmd_arg1 = ev->notif.arg1;
+	}
+	return 0;
+}
+
 static int busy_test_setup(struct test *t)
 {
 	int rc = 0;
 	uint8_t status = 0;
 
-	if (test_setup_devices(t, &g_ctx.cp_ctx, &g_ctx.pd_ctx)) {
+	if (test_setup_devices_ext(t, &g_ctx.cp_ctx, &g_ctx.pd_ctx,
+				   OSDP_FLAG_ENABLE_NOTIFICATION, 0)) {
 		printf(SUB_1 "Failed to setup devices!\n");
 		return -1;
 	}
 	osdp_pd_set_command_callback(g_ctx.pd_ctx,
 				     busy_test_pd_command_callback, NULL);
+	osdp_cp_set_event_callback(g_ctx.cp_ctx,
+				   busy_test_cp_event_callback, NULL);
 
 	g_ctx.cp_runner = async_runner_start(g_ctx.cp_ctx, osdp_cp_refresh);
 	g_ctx.pd_runner = async_runner_start(g_ctx.pd_ctx, osdp_pd_refresh);
@@ -246,6 +268,82 @@ static bool test_busy_retry_reuses_sequence(bool use_checksum)
 	return true;
 }
 
+/*
+ * A PD that never stops being busy must cost the app one failed command,
+ * not the link: after the retry budget runs out the command completes as
+ * FAILED, the PD stays online, and the next command goes through.
+ */
+static bool test_busy_permanent_fails_command_softly(void)
+{
+	struct busy_hook_state s = {
+		.busy_remaining = -1, /* never let the command through */
+		.target_cmd = CMD_BUZ,
+	};
+	uint8_t status = 0;
+	int rc = 0;
+
+	printf(SUB_1 "permanent busy fails command softly -- ");
+
+	g_ctx.cmd_seen = false;
+	g_ctx.last_cmd_id = 0;
+	g_ctx.notif_cmd_seen = false;
+	test_set_channel_hook(busy_hook, &s);
+
+	if (submit_buzzer_command()) {
+		printf("failed to submit command!\n");
+		test_set_channel_hook(NULL, NULL);
+		return false;
+	}
+
+	/* Budget: 1 original + OSDP_CMD_MAX_RETRIES retries, 800ms apart */
+	while (rc < 150) {
+		if (g_ctx.notif_cmd_seen)
+			break;
+		usleep(100 * 1000);
+		rc++;
+	}
+	test_set_channel_hook(NULL, NULL);
+
+	if (!g_ctx.notif_cmd_seen) {
+		printf("command never completed!\n");
+		return false;
+	}
+	if (g_ctx.notif_cmd_arg0 != OSDP_CMD_BUZZER ||
+	    g_ctx.notif_cmd_arg1 != -1) {
+		printf("expected failure notification, got arg0=%d arg1=%d!\n",
+		       g_ctx.notif_cmd_arg0, g_ctx.notif_cmd_arg1);
+		return false;
+	}
+	if (s.seq_count != 1 + OSDP_CMD_MAX_RETRIES) {
+		printf("expected %d transmissions, saw %d!\n",
+		       1 + OSDP_CMD_MAX_RETRIES, s.seq_count);
+		return false;
+	}
+	if (g_ctx.cmd_seen) {
+		printf("PD saw a command that was never delivered!\n");
+		return false;
+	}
+
+	osdp_get_status_mask(g_ctx.cp_ctx, &status);
+	if (!(status & 1)) {
+		printf("PD went offline after busy exhaustion!\n");
+		return false;
+	}
+
+	/* The link must still carry the next command */
+	if (submit_buzzer_command()) {
+		printf("failed to submit follow-up command!\n");
+		return false;
+	}
+	if (!wait_for_pd_command(OSDP_CMD_BUZZER, 5)) {
+		printf("follow-up command never reached the PD!\n");
+		return false;
+	}
+
+	printf("success!\n");
+	return true;
+}
+
 void run_busy_tests(struct test *t)
 {
 	bool result = true;
@@ -260,6 +358,7 @@ void run_busy_tests(struct test *t)
 
 	result &= test_busy_retry_reuses_sequence(false);
 	result &= test_busy_retry_reuses_sequence(true);
+	result &= test_busy_permanent_fails_command_softly();
 
 	busy_test_teardown();
 

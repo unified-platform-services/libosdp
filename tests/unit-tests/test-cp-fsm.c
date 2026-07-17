@@ -269,7 +269,7 @@ static void test_cp_soft_failure_matrix(struct test *t)
  * that follows, and the PD -- still speaking CRC -- would demand a sequence
  * reset and take the whole link offline. Resend instead.
  */
-static void feed_msg_chk_nak(struct osdp_pd *pd, bool pd_declares_crc)
+static int feed_msg_chk_nak(struct osdp_pd *pd, bool pd_declares_crc)
 {
 	struct osdp_pd_cap *cap =
 		&pd->cap[OSDP_PD_CAP_CHECK_CHARACTER_SUPPORT];
@@ -284,7 +284,7 @@ static void feed_msg_chk_nak(struct osdp_pd *pd, bool pd_declares_crc)
 	} else {
 		memset(cap, 0, sizeof(*cap));
 	}
-	test_cp_decode_response(pd, nak, sizeof(nak));
+	return test_cp_decode_response(pd, nak, sizeof(nak));
 }
 
 static void test_cp_crc_nak_fallback(struct test *t)
@@ -305,22 +305,23 @@ static void test_cp_crc_nak_fallback(struct test *t)
 		result = false;
 	}
 
-	feed_msg_chk_nak(&pd, true);
-	if (!ISSET_FLAG(&pd, PD_FLAG_CP_USE_CRC)) {
-		printf(SUB_2 "a PD that claimed CRC-16 must not be downgraded\n");
-		result = false;
-	}
-	if (pd.phy_retry_count != 1) {
+	/* A resend request is a non-zero rc; the retry funnel owns the
+	 * budget accounting, so the decoder must leave the counter alone. */
+	if (feed_msg_chk_nak(&pd, true) == 0 || pd.phy_retry_count != 0) {
 		printf(SUB_2 "a corrupted frame must be resent; retries: %d\n",
 		       pd.phy_retry_count);
+		result = false;
+	}
+	if (!ISSET_FLAG(&pd, PD_FLAG_CP_USE_CRC)) {
+		printf(SUB_2 "a PD that claimed CRC-16 must not be downgraded\n");
 		result = false;
 	}
 
 	/* Once the resends are spent, it is an ordinary NAK again */
 	pd.phy_retry_count = OSDP_CMD_MAX_RETRIES;
-	test_cp_decode_response(&pd, (uint8_t[]){ REPLY_NAK,
-						  OSDP_PD_NAK_MSG_CHK }, 2);
-	if (pd.phy_retry_count != OSDP_CMD_MAX_RETRIES ||
+	if (test_cp_decode_response(&pd, (uint8_t[]){ REPLY_NAK,
+						      OSDP_PD_NAK_MSG_CHK },
+				    2) != 0 ||
 	    !ISSET_FLAG(&pd, PD_FLAG_CP_USE_CRC)) {
 		printf(SUB_2 "resends must be bounded, not endless\n");
 		result = false;

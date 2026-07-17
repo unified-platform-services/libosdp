@@ -435,12 +435,13 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 			 * would only make the next frame unreadable too. Take it
 			 * at its word -- the frame was corrupted -- and resend.
 			 */
+			/* The retry funnel in cp_phy_state_update() counts
+			 * this against the shared retry budget. */
 			if (pd->phy_retry_count < OSDP_CMD_MAX_RETRIES) {
-				pd->phy_retry_count += 1;
 				LOG_WRN("PD NAK'd our check character for CMD: "
 					"%s(%02x); resending (%d)",
 					osdp_cmd_name(pd->cmd_id), pd->cmd_id,
-					pd->phy_retry_count);
+					pd->phy_retry_count + 1);
 				ret = OSDP_CP_ERR_RETRY_CMD;
 				break;
 			}
@@ -799,6 +800,9 @@ static int cp_process_reply(struct osdp_pd *pd)
 	case OSDP_ERR_PKT_NO_DATA:
 		return OSDP_CP_ERR_NO_DATA;
 	case OSDP_ERR_PKT_BUSY:
+		/* Recorded so the retry-exhaustion path can tell a busy PD
+		 * from a dead one; a BUSY never reaches the decoder. */
+		pd->reply_id = REPLY_BUSY;
 		return OSDP_CP_ERR_RETRY_CMD;
 	case OSDP_ERR_PKT_NACK:
 		if (pd->nak_code == OSDP_PD_NAK_SEQ_NUM) {
@@ -1008,6 +1012,14 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 			goto error;
 		}
 		if (rc == OSDP_CP_ERR_RETRY_CMD) {
+			if (pd->phy_retry_count >= OSDP_CMD_MAX_RETRIES) {
+				LOG_ERR("Retry budget exhausted for CMD: "
+					"%s(%02x); giving up",
+					osdp_cmd_name(pd->cmd_id), pd->cmd_id);
+				cp_phy_state_done(pd);
+				return OSDP_CP_ERR_NONE;
+			}
+			pd->phy_retry_count += 1;
 			cp_phy_state_wait(pd, OSDP_CMD_RETRY_WAIT_MS);
 			return OSDP_CP_ERR_DEFER;
 		}
@@ -1474,6 +1486,13 @@ static bool cp_cmd_failure_is_soft(struct osdp_pd *pd)
 	/* The vendor command failed, but the PD told us so in a reply of its
 	 * own instead of a NAK. */
 	if (pd->cmd_id == CMD_MFG && pd->reply_id == REPLY_MFGERRR) {
+		return true;
+	}
+
+	/* The PD answered every retry with BUSY until the budget ran out:
+	 * it is alive and coherent, just overloaded. Drop the command, not
+	 * the link. */
+	if (pd->reply_id == REPLY_BUSY) {
 		return true;
 	}
 
