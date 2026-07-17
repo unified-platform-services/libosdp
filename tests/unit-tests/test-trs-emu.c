@@ -81,14 +81,14 @@ static enum test_channel_hook_verdict emu_busy_hook_fn(void *arg,
 		uint8_t *out, int *out_len, int out_max)
 {
 	struct emu_busy_hook *s = arg;
-	int base = 0, data_off, rc;
+	int base, data_off, rc;
 	uint8_t ctrl;
 
 	if (!cp_to_pd)
 		return TEST_HOOK_PASS;
-#ifndef OPT_OSDP_SKIP_MARK_BYTE
-	base = 1;
-#endif
+	/* The leading mark byte depends on build options and direction;
+	 * detect it instead of assuming (a frame proper starts at SOM) */
+	base = (len > 0 && frame[0] == 0xff) ? 1 : 0;
 	if (len < base + 6)
 		return TEST_HOOK_PASS;
 	ctrl = frame[base + 4];
