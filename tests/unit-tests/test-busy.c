@@ -36,6 +36,13 @@ struct busy_test_ctx {
 	bool notif_cmd_seen;
 	int notif_cmd_arg0;
 	int notif_cmd_arg1;
+
+	/*
+	 * The command queue is app-owned and zero-copy: the submitted
+	 * osdp_cmd must outlive every retry until completion, so it lives
+	 * here rather than on the submitter's stack frame.
+	 */
+	struct osdp_cmd buzzer_cmd;
 };
 
 static struct busy_test_ctx g_ctx;
@@ -198,7 +205,7 @@ static bool wait_for_pd_command(int expected_cmd_id, int timeout_sec)
 
 static int submit_buzzer_command(void)
 {
-	struct osdp_cmd cmd = {
+	g_ctx.buzzer_cmd = (struct osdp_cmd){
 		.id = OSDP_CMD_BUZZER,
 		.buzzer = {
 			.reader = 0,
@@ -209,7 +216,7 @@ static int submit_buzzer_command(void)
 		},
 	};
 
-	return osdp_cp_submit_command(g_ctx.cp_ctx, 0, &cmd);
+	return osdp_cp_submit_command(g_ctx.cp_ctx, 0, &g_ctx.buzzer_cmd);
 }
 
 /*

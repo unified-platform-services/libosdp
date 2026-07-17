@@ -150,10 +150,31 @@ void run_codec_fuzz_tests(struct test *t)
 		return;
 	}
 
+	/*
+	 * Every garbage id the sweep feeds in draws an expected "Unknown CMD"
+	 * error from the decoder -- ~150k of them per pass. That is the point
+	 * of the fuzz, not a signal, so gag everything below CRIT while it runs
+	 * (a real crash-adjacent log still gets through) and restore after. The
+	 * threshold lives on each context (copied from the global default at
+	 * setup), so poke the two contexts under test directly.
+	 */
+#ifndef OPT_OSDP_LOG_MINIMAL
+	int pd_level = TO_OSDP(pd)->logger.log_level;
+	int cp_level = TO_OSDP(cp)->logger.log_level;
+
+	TO_OSDP(pd)->logger.log_level = OSDP_LOG_CRIT;
+	TO_OSDP(cp)->logger.log_level = OSDP_LOG_CRIT;
+#endif
+
 	t->mock_data = pd;
 	DO_TEST(t, test_codec_fuzz_pd_decode_command);
 	t->mock_data = cp;
 	DO_TEST(t, test_codec_fuzz_cp_decode_response);
+
+#ifndef OPT_OSDP_LOG_MINIMAL
+	TO_OSDP(pd)->logger.log_level = pd_level;
+	TO_OSDP(cp)->logger.log_level = cp_level;
+#endif
 
 	osdp_cp_teardown(cp);
 	osdp_pd_teardown(pd);

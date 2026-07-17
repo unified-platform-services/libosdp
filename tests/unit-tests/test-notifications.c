@@ -299,7 +299,8 @@ static bool test_cp_file_tx_abort_on_disable(void)
 		.open = notif_fops_open, .read = notif_fops_read,
 		.write = notif_fops_write, .close = notif_fops_close,
 	};
-	int rc, size, offset;
+	int rc;
+	uint32_t size, offset;
 
 	printf(SUB_2 "CP aborts in-flight transfer when PD is disabled\n");
 
@@ -390,7 +391,8 @@ static bool test_pd_file_tx_abort_on_offline(void)
 		.open = notif_fops_open, .read = notif_fops_read,
 		.write = notif_fops_write, .close = notif_fops_close,
 	};
-	int rc, size, offset, elapsed;
+	int rc, elapsed;
+	uint32_t size, offset;
 
 	printf(SUB_2 "PD aborts in-flight transfer when CP goes silent\n");
 

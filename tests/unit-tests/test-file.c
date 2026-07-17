@@ -224,7 +224,8 @@ struct file_tx_opts {
 static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts)
 {
 	bool result = false;
-	int rc, size, offset;
+	int rc;
+	uint32_t size, offset;
 	osdp_t *cp_ctx, *pd_ctx;
 	int cp_runner = -1, pd_runner = -1;
 	uint8_t status = 0;
