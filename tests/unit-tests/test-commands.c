@@ -50,6 +50,11 @@ struct test_command_ctx {
 
 static struct test_command_ctx g_test_ctx = {0};
 
+/* Events are queued by reference, so an inline reply must outlive the
+ * command callback's stack frame. One slot suffices: every test waits for
+ * its reply to reach the CP before the next submission. */
+static struct osdp_event g_inline_reply;
+
 int test_commands_event_callback(void *arg, int pd, struct osdp_event *ev)
 {
 	ARG_UNUSED(pd);
@@ -121,10 +126,9 @@ int test_commands_command_callback(void *arg, struct osdp_cmd *cmd)
 
 	if (cmd->id == OSDP_CMD_BIOREAD || cmd->id == OSDP_CMD_BIOMATCH) {
 		if (ctx->bio_answer_inline) {
-			struct osdp_event ev;
-
-			bio_make_reply(&ev, cmd);
-			if (osdp_pd_submit_event(ctx->pd_ctx, &ev)) {
+			bio_make_reply(&g_inline_reply, cmd);
+			if (osdp_pd_submit_event(ctx->pd_ctx,
+						 &g_inline_reply)) {
 				printf(SUB_2 "Failed to submit inline bio reply\n");
 			}
 		}
@@ -143,22 +147,26 @@ int test_commands_command_callback(void *arg, struct osdp_cmd *cmd)
 		/* Answer synchronously: this must ride out as the reply to the
 		 * MFG command itself, not as a later poll response. */
 		if (ctx->mfg_inline_reply) {
-			struct osdp_event ev = { .type = ctx->mfg_inline_reply };
+			struct osdp_event *ev = &g_inline_reply;
 
+			memset(ev, 0, sizeof(*ev));
+			ev->type = ctx->mfg_inline_reply;
 			if (ctx->mfg_inline_reply == OSDP_EVENT_MFGREP) {
-				ev.mfgrep.vendor_code = cmd->mfg.vendor_code;
-				ev.mfgrep.length = cmd->mfg.length;
-				memcpy(ev.mfgrep.data, cmd->mfg.data,
+				ev->mfgrep.vendor_code = cmd->mfg.vendor_code;
+				ev->mfgrep.length = cmd->mfg.length;
+				memcpy(ev->mfgrep.data, cmd->mfg.data,
 				       cmd->mfg.length);
 			} else {
 				struct osdp_event_mfgstat *ms =
-					(ctx->mfg_inline_reply == OSDP_EVENT_MFGSTATR) ?
-					&ev.mfgstatr : &ev.mfgerrr;
+					(ctx->mfg_inline_reply ==
+					 OSDP_EVENT_MFGSTATR) ?
+						&ev->mfgstatr :
+						&ev->mfgerrr;
 
 				ms->length = cmd->mfg.length;
 				memcpy(ms->data, cmd->mfg.data, cmd->mfg.length);
 			}
-			if (osdp_pd_submit_event(ctx->pd_ctx, &ev)) {
+			if (osdp_pd_submit_event(ctx->pd_ctx, ev)) {
 				printf(SUB_2 "Failed to submit inline MFG reply\n");
 			}
 		}
