@@ -711,6 +711,32 @@ struct osdp_cmd_pivdata {
 };
 
 /**
+ * @brief Command sent from CP to have the PD direct a cryptographic
+ * challenge to its smartcard (osdp_GENAUTH / osdp_CRAUTH). The challenge is
+ * carried as an OSDP multi-part message; the PD returns the response in an
+ * `OSDP_EVENT_GENAUTHR` (resp. `OSDP_EVENT_CRAUTHR`) event.
+ */
+struct osdp_cmd_auth {
+	/**
+	 * Selected algorithm per ISO 7816-4:2005 7.5.5. On the wire this is
+	 * carried in the first fragment only.
+	 */
+	uint8_t algorithm;
+	/**
+	 * Key reference; see @a algorithm. First fragment only on the wire.
+	 */
+	uint8_t key;
+	/**
+	 * Challenge length in @a data; must be non-zero
+	 */
+	uint16_t length;
+	/**
+	 * Cryptographic challenge payload
+	 */
+	uint8_t data[OSDP_PIV_DATA_MAX_LEN];
+};
+
+/**
  * @brief What an output command does to the output line.
  */
 enum osdp_cmd_output_control_code_e {
@@ -1148,6 +1174,7 @@ enum osdp_cmd_e {
 	OSDP_CMD_BIOMATCH,    /**< Scan and match biometric template command */
 	OSDP_CMD_TDSET,       /**< Time and date set command */
 	OSDP_CMD_PIVDATA,     /**< Retrieve PIV object data command */
+	OSDP_CMD_GENAUTH,     /**< General authenticate command */
 	OSDP_CMD_SENTINEL     /**< Max command value */
 };
 
@@ -1196,6 +1223,7 @@ struct osdp_cmd {
 		struct osdp_cmd_biomatch biomatch; /**< Biometric match command structure */
 		struct osdp_cmd_tdset tdset;      /**< Time and date set command structure */
 		struct osdp_cmd_pivdata pivdata;  /**< PIV data retrieval command structure */
+		struct osdp_cmd_auth auth;        /**< GENAUTH/CRAUTH command structure */
 	};
 };
 
@@ -1413,7 +1441,8 @@ struct osdp_event_biomatchr {
 };
 
 /**
- * @brief Payload of a smartcard/PIV reply (`OSDP_EVENT_PIVDATAR`).
+ * @brief Payload of a smartcard/PIV reply (`OSDP_EVENT_PIVDATAR` /
+ * `OSDP_EVENT_GENAUTHR`).
  *
  * These replies travel as OSDP multi-part messages. On the CP, the event
  * carries the fully reassembled payload. On the PD, the application submits
@@ -1445,6 +1474,7 @@ enum osdp_event_type {
 	OSDP_EVENT_BIOREADR,      /**< Scan and send biometric data event */
 	OSDP_EVENT_BIOMATCHR,     /**< Scan and match biometric template event */
 	OSDP_EVENT_PIVDATAR,      /**< PIV data reply event */
+	OSDP_EVENT_GENAUTHR,      /**< General authenticate reply event */
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 

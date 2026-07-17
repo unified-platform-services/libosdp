@@ -141,10 +141,12 @@ int osdp_mp_tx_init(struct osdp_multipart *mp, uint32_t total,
 	return 0;
 }
 
-int osdp_mp_tx_build(struct osdp_multipart *mp, uint8_t *buf, int max_len)
+int osdp_mp_tx_build_ex(struct osdp_multipart *mp, uint8_t *buf, int max_len,
+			const uint8_t *pfx, int pfx_len)
 {
 	int hdr = OSDP_MP_HDR_SIZE(mp->width);
-	int avail = max_len - hdr;
+	int skip = (mp->offset == 0) ? pfx_len : 0;
+	int avail = max_len - hdr - skip;
 	uint32_t remaining = mp->total - mp->offset;
 	int n;
 
@@ -157,7 +159,8 @@ int osdp_mp_tx_build(struct osdp_multipart *mp, uint8_t *buf, int max_len)
 		avail = (int)remaining;
 	}
 
-	n = mp->ops.read(mp->ops.arg, buf + hdr, (uint32_t)avail, mp->offset);
+	n = mp->ops.read(mp->ops.arg, buf + hdr + skip, (uint32_t)avail,
+			 mp->offset);
 	if (n < 0) {
 		return -1;
 	}
@@ -169,10 +172,18 @@ int osdp_mp_tx_build(struct osdp_multipart *mp, uint8_t *buf, int max_len)
 		osdp_mp_hdr_write(mp->width, mp->total, mp->offset, 0, buf);
 		return hdr;
 	}
+	if (skip) {
+		memcpy(buf + hdr, pfx, (size_t)skip);
+	}
 	mp->last_len = n;
 	mp->state = OSDP_MP_INPROG;
 	osdp_mp_hdr_write(mp->width, mp->total, mp->offset, (uint16_t)n, buf);
-	return hdr + n;
+	return hdr + skip + n;
+}
+
+int osdp_mp_tx_build(struct osdp_multipart *mp, uint8_t *buf, int max_len)
+{
+	return osdp_mp_tx_build_ex(mp, buf, max_len, NULL, 0);
 }
 
 int osdp_mp_tx_build_idle(struct osdp_multipart *mp, uint8_t *buf)
@@ -205,18 +216,24 @@ int osdp_mp_rx_init(struct osdp_multipart *mp, enum osdp_mp_width w,
 	return 0;
 }
 
-enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
-				   const uint8_t *buf, int len)
+enum osdp_mp_rc osdp_mp_rx_consume_ex(struct osdp_multipart *mp,
+				      const uint8_t *buf, int len,
+				      uint8_t *pfx, int pfx_len)
 {
 	int hdr = OSDP_MP_HDR_SIZE(mp->width);
 	uint32_t total, off, cur_total;
 	uint16_t dlen;
+	int skip;
 
 	if (osdp_mp_hdr_read(mp->width, buf, len, &total, &off, &dlen) < 0) {
 		return OSDP_MP_RC_ERR;
 	}
-	if (len - hdr < (int)dlen) {
+	skip = (off == 0) ? pfx_len : 0;
+	if (len - hdr - skip < (int)dlen) {
 		return OSDP_MP_RC_ERR;
+	}
+	if (skip) {
+		memcpy(pfx, buf + hdr, (size_t)skip);
 	}
 
 	/* mp->total == 0 means the length is not yet fixed (rx_init got no
@@ -253,7 +270,8 @@ enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
 	}
 
 	if (dlen > 0) {
-		int st = mp->ops.write(mp->ops.arg, buf + hdr, dlen, off);
+		int st = mp->ops.write(mp->ops.arg, buf + hdr + skip, dlen,
+				       off);
 		if (st == OSDP_MP_RX_RETRY) {
 			return OSDP_MP_RC_RETRY; /* offset/last_len unchanged */
 		}
@@ -269,6 +287,12 @@ enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
 		return OSDP_MP_RC_DONE;
 	}
 	return OSDP_MP_RC_MORE;
+}
+
+enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
+				   const uint8_t *buf, int len)
+{
+	return osdp_mp_rx_consume_ex(mp, buf, len, NULL, 0);
 }
 
 void osdp_mp_rx_commit(struct osdp_multipart *mp)

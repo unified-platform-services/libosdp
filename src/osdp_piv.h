@@ -24,9 +24,13 @@ enum osdp_piv_phase {
 struct osdp_piv {
 	enum osdp_piv_phase phase;
 	int mp_msg;         /* OSDP_MP_MSG_* of the active op */
+	uint8_t app_cmd;    /* OSDP_CMD_PIVDATA/... */
 	uint8_t wire_cmd;   /* CMD_PIVDATA/... */
 	uint8_t wire_reply; /* REPLY_PIVDATAR/... */
 	uint8_t event_type; /* OSDP_EVENT_* the reply surfaces as */
+	bool start_emitted; /* one MP_START per op, not per leg */
+	uint8_t algorithm;  /* GENAUTH/CRAUTH first-fragment prefix */
+	uint8_t key;
 	struct osdp_cmd_pivdata req; /* PIVDATA request arguments */
 	tick_t tstamp;      /* last forward progress; bounds a stalled op */
 	struct osdp_multipart mp; /* one leg at a time */
@@ -52,6 +56,11 @@ int osdp_piv_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 /* Prepare the per-PD context for an incoming command of `wire_cmd`'s family
  * (allocates on first use; supersedes any stale op). */
 int osdp_piv_pd_open(struct osdp_pd *pd, uint8_t wire_cmd, int object_id);
+/* Consume one fragment of a multi-part command (GENAUTH/CRAUTH). Returns 1
+ * with `cmd` filled when the challenge is complete, 0 when more fragments
+ * are expected (reply with ACK), -1 on a malformed fragment. */
+int osdp_piv_pd_cmd_frag(struct osdp_pd *pd, uint8_t wire_cmd,
+			 const uint8_t *buf, int len, struct osdp_cmd *cmd);
 bool osdp_piv_pd_reply_pending(struct osdp_pd *pd);
 int osdp_piv_pd_reply_id(struct osdp_pd *pd);
 /* Build one reply fragment. `event` seeds the reply leg on the first

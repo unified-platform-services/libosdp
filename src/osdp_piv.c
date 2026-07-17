@@ -18,6 +18,11 @@ struct piv_family {
 	uint8_t event_type; /* OSDP_EVENT_* */
 };
 
+/* GENAUTH's Algorithm/Key prefix bytes (Table 32) ride outside the multipart
+ * payload, on the first fragment only; TOTAL/DATA_LEN count the challenge
+ * alone. */
+#define PIV_AUTH_PFX_LEN 2
+
 static const struct piv_family piv_families[] = {
 	{
 		.mp_msg = OSDP_MP_MSG_PIV,
@@ -26,7 +31,20 @@ static const struct piv_family piv_families[] = {
 		.wire_reply = REPLY_PIVDATAR,
 		.event_type = OSDP_EVENT_PIVDATAR,
 	},
+	{
+		.mp_msg = OSDP_MP_MSG_GENAUTH,
+		.app_cmd = OSDP_CMD_GENAUTH,
+		.wire_cmd = CMD_GENAUTH,
+		.wire_reply = REPLY_GENAUTHR,
+		.event_type = OSDP_EVENT_GENAUTHR,
+	},
 };
+
+/* Do GENAUTH/CRAUTH command fragments carry the Algorithm/Key prefix? */
+static inline int piv_cmd_pfx_len(const struct osdp_piv *p)
+{
+	return (p->mp_msg == OSDP_MP_MSG_PIV) ? 0 : PIV_AUTH_PFX_LEN;
+}
 
 static const struct piv_family *family_by_app_cmd(int app_cmd)
 {
@@ -97,14 +115,26 @@ static void piv_op_setup(struct osdp_pd *pd, struct osdp_piv *p,
 			 const struct piv_family *f, int object_id)
 {
 	p->mp_msg = f->mp_msg;
+	p->app_cmd = f->app_cmd;
 	p->wire_cmd = f->wire_cmd;
 	p->wire_reply = f->wire_reply;
 	p->event_type = f->event_type;
+	p->start_emitted = false;
 	p->tstamp = osdp_millis_now();
 	osdp_mp_reset(&p->mp);
 	osdp_mp_set_event_cb(&p->mp, osdp_mp_pd_notify, pd);
 	osdp_mp_set_identity(&p->mp, f->mp_msg, object_id);
 	p->phase = OSDP_PIV_CMD;
+}
+
+/* One MP_START per op: the engine re-latches at each leg's init, but both
+ * legs belong to the same observable transfer. */
+static void piv_emit_start(struct osdp_piv *p)
+{
+	if (!p->start_emitted) {
+		p->start_emitted = true;
+		osdp_mp_emit_start(&p->mp);
+	}
 }
 
 bool osdp_piv_is_active(struct osdp_pd *pd)
@@ -121,7 +151,7 @@ void osdp_piv_abort(struct osdp_pd *pd)
 	}
 	/* DONE never precedes START, even for an op that dies before its
 	 * first fragment. */
-	osdp_mp_emit_start(&p->mp);
+	piv_emit_start(p);
 	osdp_mp_finish(&p->mp, OSDP_FILE_TX_OUTCOME_ABORTED);
 	piv_op_reset(p);
 }
@@ -150,6 +180,20 @@ int osdp_piv_cp_submit(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	case OSDP_CMD_PIVDATA:
 		p->req = cmd->pivdata;
 		piv_op_setup(pd, p, f, cmd->pivdata.element);
+		break;
+	case OSDP_CMD_GENAUTH:
+		if (cmd->auth.length == 0 ||
+		    cmd->auth.length > sizeof(p->data)) {
+			LOG_ERR("PIV: invalid challenge length %u",
+				cmd->auth.length);
+			return -1;
+		}
+		piv_op_setup(pd, p, f, cmd->auth.key);
+		p->algorithm = cmd->auth.algorithm;
+		p->key = cmd->auth.key;
+		memcpy(p->data, cmd->auth.data, cmd->auth.length);
+		osdp_mp_bind_buffer(&p->mp, p->data, cmd->auth.length);
+		osdp_mp_tx_init(&p->mp, cmd->auth.length, OSDP_MP_W16);
 		break;
 	default:
 		return -1;
@@ -202,12 +246,27 @@ int osdp_piv_cp_cmd_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = p->req.element;
 		buf[len++] = p->req.offset;
 		break;
+	case CMD_GENAUTH: {
+		uint8_t pfx[PIV_AUTH_PFX_LEN] = { p->algorithm, p->key };
+
+		/* Reserve for the command id byte plus the SC padding + MAC
+		 * that the phy adds when finalizing (file transfer does the
+		 * same); the multipart build greedily fills what remains. */
+		len = osdp_mp_tx_build_ex(&p->mp, buf, max_len - 1 - 16, pfx,
+					  sizeof(pfx));
+		if (len <= 0) {
+			return -1;
+		}
+		piv_emit_start(p);
+		break;
+	}
 	default:
 		return -1;
 	}
 
 	/* Pure serialization: the phy layer re-invokes this on retries. The
-	 * CMD -> REPLY transition happens when a valid reply arrives. */
+	 * fragment is committed (and CMD -> REPLY transitioned) when a valid
+	 * reply arrives. */
 	return len;
 }
 
@@ -218,17 +277,33 @@ static void piv_cp_reply_begin(struct osdp_pd *pd, struct osdp_piv *p)
 
 	osdp_mp_bind_buffer(&p->mp, p->data, sizeof(p->data));
 	osdp_mp_rx_init(&p->mp, OSDP_MP_W16, 0);
-	osdp_mp_emit_start(&p->mp);
+	piv_emit_start(p);
 	p->tstamp = osdp_millis_now();
 	p->phase = OSDP_PIV_REPLY;
+}
+
+/* A valid reply to the command leg acknowledges the fragment that carried
+ * it. Commits the fragment; returns true once the whole command is out. */
+static bool piv_cp_cmd_leg_done(struct osdp_piv *p)
+{
+	if (!osdp_mp_is_active(&p->mp)) {
+		return true; /* single-exchange command (PIVDATA) */
+	}
+	osdp_mp_tx_commit(&p->mp);
+	p->tstamp = osdp_millis_now();
+	return p->mp.offset >= p->mp.total;
 }
 
 void osdp_piv_cp_cmd_acked(struct osdp_pd *pd)
 {
 	struct osdp_piv *p = TO_PIV(pd);
 
-	if (p && p->phase == OSDP_PIV_CMD && pd->cmd_id == p->wire_cmd) {
-		/* App on the PD deferred its reply; poll for it. */
+	if (!p || p->phase != OSDP_PIV_CMD || pd->cmd_id != p->wire_cmd) {
+		return;
+	}
+	if (piv_cp_cmd_leg_done(p)) {
+		/* All fragments ACKed; the app on the PD now has the whole
+		 * command and may take its time — poll for the reply. */
 		piv_cp_reply_begin(pd, p);
 	}
 }
@@ -244,7 +319,9 @@ int osdp_piv_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 		return -1;
 	}
 	if (p->phase == OSDP_PIV_CMD && pd->cmd_id == p->wire_cmd) {
-		/* First fragment arrived inline as the command's reply. */
+		/* First reply fragment arrived inline: it also acknowledges
+		 * the (final) command fragment it answers. */
+		(void)piv_cp_cmd_leg_done(p);
 		piv_cp_reply_begin(pd, p);
 	} else if (p->phase != OSDP_PIV_REPLY) {
 		LOG_ERR("PIV: reply %02x with no op in progress", pd->reply_id);
@@ -293,6 +370,69 @@ int osdp_piv_pd_open(struct osdp_pd *pd, uint8_t wire_cmd, int object_id)
 	osdp_piv_abort(pd);
 	piv_op_setup(pd, p, f, object_id);
 	return 0;
+}
+
+int osdp_piv_pd_cmd_frag(struct osdp_pd *pd, uint8_t wire_cmd,
+			 const uint8_t *buf, int len, struct osdp_cmd *cmd)
+{
+	struct osdp_piv *p = TO_PIV(pd);
+	uint8_t pfx[PIV_AUTH_PFX_LEN] = { 0, 0 };
+	uint32_t total = 0, off = 0;
+	uint16_t dlen = 0;
+	enum osdp_mp_rc rc;
+
+	if (osdp_mp_hdr_read(OSDP_MP_W16, buf, len, &total, &off, &dlen) < 0) {
+		return -1;
+	}
+	if (off == 0) {
+		/* First fragment opens (or supersedes) the op. */
+		if (total == 0 || total > OSDP_PIV_DATA_MAX_LEN) {
+			LOG_ERR("PIV: bad declared total %" PRIu32, total);
+			return -1;
+		}
+		if (osdp_piv_pd_open(pd, wire_cmd, 0)) {
+			return -1;
+		}
+		p = TO_PIV(pd);
+		osdp_mp_bind_buffer(&p->mp, p->data, sizeof(p->data));
+		osdp_mp_rx_init(&p->mp, OSDP_MP_W16, total);
+		piv_emit_start(p);
+	} else if (!p || p->phase != OSDP_PIV_CMD || p->wire_cmd != wire_cmd ||
+		   !osdp_mp_is_active(&p->mp)) {
+		LOG_ERR("PIV: continuation fragment with no op in progress");
+		return -1;
+	}
+
+	rc = osdp_mp_rx_consume_ex(&p->mp, buf, len, pfx, piv_cmd_pfx_len(p));
+	switch (rc) {
+	case OSDP_MP_RC_MORE:
+	case OSDP_MP_RC_DONE:
+		if (off == 0) {
+			p->algorithm = pfx[0];
+			p->key = pfx[1];
+			osdp_mp_set_identity(&p->mp, p->mp_msg, p->key);
+		}
+		osdp_mp_rx_commit(&p->mp);
+		p->tstamp = osdp_millis_now();
+		if (rc == OSDP_MP_RC_MORE) {
+			return 0;
+		}
+		memset(cmd, 0, sizeof(*cmd));
+		cmd->id = p->app_cmd;
+		cmd->auth.algorithm = p->algorithm;
+		cmd->auth.key = p->key;
+		cmd->auth.length = (uint16_t)p->mp.total;
+		memcpy(cmd->auth.data, p->data, p->mp.total);
+		return 1;
+	case OSDP_MP_RC_EARLY_TERM:
+		/* §5.10.2: the sender terminated the transfer early. */
+		LOG_INF("PIV: CP terminated the command leg");
+		osdp_piv_abort(pd);
+		return 0; /* nothing left to process; ACK the frame */
+	default:
+		osdp_piv_abort(pd);
+		return -1;
+	}
 }
 
 bool osdp_piv_pd_reply_pending(struct osdp_pd *pd)

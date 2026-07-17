@@ -112,6 +112,8 @@ static bool event_is_reply_to(int cmd_id, const struct osdp_event *event)
 		return event->type == OSDP_EVENT_BIOMATCHR;
 	case CMD_PIVDATA:
 		return event->type == OSDP_EVENT_PIVDATAR;
+	case CMD_GENAUTH:
+		return event->type == OSDP_EVENT_GENAUTHR;
 	case CMD_OUT:
 		/* The PD may answer osdp_OUT with the resulting output status
 		 * instead of an ACK. See OSDP v2.2 subclause 6.9. */
@@ -181,6 +183,9 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 		break;
 	case OSDP_EVENT_PIVDATAR:
 		reply_code = REPLY_PIVDATAR;
+		break;
+	case OSDP_EVENT_GENAUTHR:
+		reply_code = REPLY_GENAUTHR;
 		break;
 	default:
 		LOG_ERR("Unknown event type %d", event->type);
@@ -426,6 +431,7 @@ static int pd_cmd_cap_ok(struct osdp_pd *pd, struct osdp_cmd *cmd)
 		}
 		return 1;
 	case CMD_PIVDATA:
+	case CMD_GENAUTH:
 		cap = &pd->cap[OSDP_PD_CAP_SMART_CARD_SUPPORT];
 		if (cap->compliance_level == 0) {
 			break;
@@ -1017,6 +1023,37 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		ret = OSDP_PD_ERR_NONE;
 		break;
+	case CMD_GENAUTH: {
+		int frag;
+
+		if (len < OSDP_MP_HDR_SIZE(OSDP_MP_W16)) {
+			break;
+		}
+		if (!pd_cmd_cap_ok(pd, NULL)) {
+			ret = OSDP_PD_ERR_REPLY;
+			break;
+		}
+		frag = osdp_piv_pd_cmd_frag(pd, pd->cmd_id, buf + pos, len,
+					    &cmd);
+		if (frag < 0) {
+			break;
+		}
+		if (frag == 0) { /* more fragments to come */
+			pd->reply_id = REPLY_ACK;
+			ret = OSDP_PD_ERR_NONE;
+			break;
+		}
+		if (!do_command_callback(pd, &cmd)) {
+			osdp_piv_abort(pd);
+			ret = OSDP_PD_ERR_REPLY;
+			break;
+		}
+		if (!pd_take_inline_reply(pd)) {
+			pd->reply_id = REPLY_ACK;
+		}
+		ret = OSDP_PD_ERR_NONE;
+		break;
+	}
 	case CMD_KEYSET:
 		if (len != CMD_KEYSET_DATA_LEN) {
 			break;
@@ -1297,7 +1334,8 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		len += event->mfgrep.length;
 		ret = OSDP_PD_ERR_NONE;
 		break;
-	case REPLY_PIVDATAR: {
+	case REPLY_PIVDATAR:
+	case REPLY_GENAUTHR: {
 		int n;
 
 		/* The backing event seeds the reply leg on its first
@@ -1305,8 +1343,9 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		 * the smartcard context alone. */
 		n = osdp_piv_pd_reply_build(
 			pd,
-			(event && event->type == OSDP_EVENT_PIVDATAR) ? event :
-									NULL,
+			(event && TO_PIV(pd) &&
+			 (int)event->type == TO_PIV(pd)->event_type) ? event :
+								       NULL,
 			buf + len, max_len);
 		if (n <= 0) {
 			break;

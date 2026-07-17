@@ -121,6 +121,12 @@ bool osdp_mp_is_active(const struct osdp_multipart *mp);
 int osdp_mp_tx_init(struct osdp_multipart *mp, uint32_t total,
 		    enum osdp_mp_width w);
 int osdp_mp_tx_build(struct osdp_multipart *mp, uint8_t *buf, int max_len);
+/* Like tx_build, but a consumer-owned prefix of pfx_len bytes rides between
+ * the header and the data on the offset-0 fragment only — the GENAUTH/CRAUTH
+ * Algorithm/Key fields (OSDP 2.2 Tables 32/33, "present in first fragment
+ * only"). The prefix is not counted in TOTAL or DATA_LEN. */
+int osdp_mp_tx_build_ex(struct osdp_multipart *mp, uint8_t *buf, int max_len,
+			const uint8_t *pfx, int pfx_len);
 /* Header-only frame at the committed offset, bypassing the data plane: the
  * FILETRANSFER idle keep-alive (OSDP 2.2 §7.25) or, once offset reaches
  * total, a W16 early-termination frame (§5.10.2). Returns the header size. */
@@ -135,6 +141,11 @@ int osdp_mp_rx_init(struct osdp_multipart *mp, enum osdp_mp_width w,
 		    uint32_t total);
 enum osdp_mp_rc osdp_mp_rx_consume(struct osdp_multipart *mp,
 				   const uint8_t *buf, int len);
+/* Receiver counterpart of osdp_mp_tx_build_ex: on the offset-0 fragment,
+ * pfx_len prefix bytes between header and data are copied out to pfx. */
+enum osdp_mp_rc osdp_mp_rx_consume_ex(struct osdp_multipart *mp,
+				      const uint8_t *buf, int len,
+				      uint8_t *pfx, int pfx_len);
 void osdp_mp_rx_commit(struct osdp_multipart *mp);
 
 /* --- Control / scheduling --- */

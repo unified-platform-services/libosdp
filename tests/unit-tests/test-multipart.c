@@ -665,6 +665,64 @@ static int test_mp_tx_progress_counts(void)
 	return 0;
 }
 
+/* GENAUTH-style consumer prefix: two bytes between header and data on the
+ * offset-0 fragment only, excluded from TOTAL/DATA_LEN. */
+static int test_mp_prefix_roundtrip(void)
+{
+	struct osdp_multipart tx, rx;
+	uint8_t src[10], dst[10], frame[32];
+	uint8_t pfx_in[2] = { 0xA7, 0x03 }, pfx_out[2];
+	enum osdp_mp_rc rc = OSDP_MP_RC_MORE;
+	int i, n, frames = 0;
+
+	for (i = 0; i < 10; i++) {
+		src[i] = (uint8_t)(0x30 + i);
+	}
+	osdp_mp_reset(&tx);
+	osdp_mp_bind_buffer(&tx, src, sizeof(src));
+	osdp_mp_tx_init(&tx, sizeof(src), OSDP_MP_W16);
+	memset(dst, 0, sizeof(dst));
+	osdp_mp_reset(&rx);
+	osdp_mp_bind_buffer(&rx, dst, sizeof(dst));
+	osdp_mp_rx_init(&rx, OSDP_MP_W16, 0);
+
+	while (tx.offset < tx.total) {
+		bool first = (tx.offset == 0);
+
+		/* hdr(6) + pfx(2, first frame only) + up to 4 data bytes */
+		n = osdp_mp_tx_build_ex(&tx, frame, 6 + 2 + 4, pfx_in,
+					sizeof(pfx_in));
+		if (n < 0) {
+			return -1;
+		}
+		if (first &&
+		    (n != 6 + 2 + 4 || frame[6] != 0xA7 || frame[7] != 0x03)) {
+			printf(SUB_1 "pfx: first frame n=%d\n", n);
+			return -1;
+		}
+		osdp_mp_tx_commit(&tx);
+		memset(pfx_out, 0, sizeof(pfx_out));
+		rc = osdp_mp_rx_consume_ex(&rx, frame, n, pfx_out,
+					   sizeof(pfx_out));
+		if (rc == OSDP_MP_RC_ERR) {
+			printf(SUB_1 "pfx: frame %d rejected\n", frames);
+			return -1;
+		}
+		if (first && (pfx_out[0] != 0xA7 || pfx_out[1] != 0x03)) {
+			printf(SUB_1 "pfx: prefix not recovered\n");
+			return -1;
+		}
+		osdp_mp_rx_commit(&rx);
+		frames++;
+	}
+	if (rc != OSDP_MP_RC_DONE || frames < 2 ||
+	    memcmp(src, dst, sizeof(src)) != 0) {
+		printf(SUB_1 "pfx: rc=%d frames=%d\n", rc, frames);
+		return -1;
+	}
+	return 0;
+}
+
 static int test_mp_rx_init_with_total_hint(void)
 {
 	struct osdp_multipart rx;
@@ -792,6 +850,7 @@ void run_multipart_tests(struct test *t)
 	result &= (test_mp_rx_reject_truncated() == 0);
 	result &= (test_mp_rx_retransmit_tolerated() == 0);
 	result &= (test_mp_tx_progress_counts() == 0);
+	result &= (test_mp_prefix_roundtrip() == 0);
 	result &= (test_mp_stream_roundtrip() == 0);
 	result &= (test_mp_rx_retry() == 0);
 	result &= (test_mp_tx_keepalive_on_busy() == 0);
