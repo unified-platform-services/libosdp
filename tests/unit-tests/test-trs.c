@@ -257,6 +257,36 @@ static bool wait_for_trs_completion(int timeout_sec)
 	return false;
 }
 
+/*
+ * An APDU that cannot fit the negotiated packet size must be turned away at
+ * submit time, not fail mysteriously somewhere mid-band.
+ */
+static bool test_trs_apdu_too_big_for_packet(void)
+{
+	/* Static: were a defective admission check to accept it, the queue
+	 * would keep a reference past this function's frame. */
+	static struct osdp_cmd cmd;
+
+	printf(SUB_2 "testing TRS APDU beyond packet capacity\n");
+
+	if (OSDP_TRS_APDU_MAX_LEN + 64 <= OSDP_PACKET_BUF_SIZE) {
+		/* Carrier fits the packet with room to spare on this build
+		 * config; nothing to reject. */
+		return true;
+	}
+
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.id = OSDP_CMD_XWR;
+	cmd.trs.command = OSDP_TRS_CMD_SEND_APDU;
+	cmd.trs.apdu.length = OSDP_TRS_APDU_MAX_LEN;
+
+	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd) == 0) {
+		printf(SUB_2 "packet-overflowing APDU must be rejected at submit\n");
+		return false;
+	}
+	return true;
+}
+
 /* A card command with no START must be turned away at submit, not queued */
 static bool test_trs_apdu_outside_band()
 {
@@ -912,7 +942,7 @@ static bool test_trs_wire_oversized_apdu_reject(void)
 	struct osdp_pd pd;
 	struct osdp_cmd cmd;
 	struct osdp_event ev;
-	uint8_t buf[128];
+	uint8_t buf[OSDP_TRS_APDU_MAX_LEN + 16];
 	int r;
 
 	printf(SUB_2 "testing TRS wire: oversized APDU rejection\n");
@@ -943,6 +973,54 @@ static bool test_trs_wire_oversized_apdu_reject(void)
 	if (r != OSDP_TRS_DECODE_TO_APP ||
 	    cmd.trs.apdu.length != OSDP_TRS_APDU_MAX_LEN) {
 		printf(SUB_2 "max-size C-APDU must be accepted; got %d\n", r);
+		return false;
+	}
+	return true;
+}
+
+/*
+ * PIV certificate reads move R-APDU chunks up to a short-APDU maximum of
+ * 258 bytes (255 data + SW1SW2 + margin); the carrier must hold them, and
+ * a chunk-sized APDU must survive the CP-build -> PD-decode round trip.
+ */
+static bool test_trs_wire_piv_class_apdu_roundtrip(void)
+{
+	struct osdp ctx;
+	struct osdp_pd pd;
+	struct osdp_cmd in, out;
+	uint8_t buf[512];
+	int len, i, r;
+	const int apdu_len = 250;
+
+	printf(SUB_2 "testing TRS wire: PIV-class APDU round-trip\n");
+	trs_wire_pd_init(&ctx, &pd, TRS_MODE_01);
+
+	if (OSDP_TRS_APDU_MAX_LEN < 258) {
+		printf(SUB_2 "APDU carrier too small for PIV chunks: %d\n",
+		       OSDP_TRS_APDU_MAX_LEN);
+		return false;
+	}
+
+	memset(&in, 0, sizeof(in));
+	memset(&out, 0, sizeof(out));
+	in.id = OSDP_CMD_XWR;
+	in.trs.command = OSDP_TRS_CMD_SEND_APDU;
+	in.trs.apdu.length = apdu_len;
+	for (i = 0; i < apdu_len; i++) {
+		in.trs.apdu.data[i] = (uint8_t)i;
+	}
+
+	len = osdp_trs_cmd_build(&pd, &in, buf, sizeof(buf));
+	if (len != 3 + apdu_len) {
+		printf(SUB_2 "large APDU build: want len %d; got %d\n",
+		       3 + apdu_len, len);
+		return false;
+	}
+	r = osdp_trs_cmd_decode(&pd, &out, buf, len);
+	if (r != OSDP_TRS_DECODE_TO_APP ||
+	    out.trs.apdu.length != apdu_len ||
+	    memcmp(out.trs.apdu.data, in.trs.apdu.data, apdu_len) != 0) {
+		printf(SUB_2 "large APDU did not round-trip intact: %d\n", r);
 		return false;
 	}
 	return true;
@@ -1147,6 +1225,7 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_wire_cmd_decode_actions();
 	result &= test_trs_wire_mode_gating();
 	result &= test_trs_wire_oversized_apdu_reject();
+	result &= test_trs_wire_piv_class_apdu_roundtrip();
 	result &= test_trs_wire_pin_entry_roundtrip();
 
 	if (setup_test_environment(t) != 0) {
@@ -1159,6 +1238,7 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_apdu_outside_band();
 	result &= test_trs_session_start();
 	result &= test_trs_non_trs_cmd_in_band();
+	result &= test_trs_apdu_too_big_for_packet();
 	result &= test_trs_apdu_exchange();
 	result &= test_trs_deferred_apdu();
 	result &= test_trs_apdu_nak_keeps_session();

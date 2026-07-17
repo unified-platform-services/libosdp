@@ -2215,6 +2215,12 @@ static int cp_band_admit(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		LOG_ERR("TRS command outside a session; queue a START first");
 		return -1;
 	}
+	if (cp_cmd_is_trs(cmd, OSDP_TRS_CMD_SEND_APDU) &&
+	    (int)cmd->trs.apdu.length > osdp_trs_max_apdu_len(pd)) {
+		LOG_ERR("C-APDU of %u bytes cannot fit the %d-byte packet",
+			cmd->trs.apdu.length, get_tx_buf_size(pd));
+		return -1;
+	}
 	if (cmd->id != OSDP_CMD_XWR && pd->trs.band_open) {
 		/*
 		 * Sending it would interrupt the card transaction; queuing it

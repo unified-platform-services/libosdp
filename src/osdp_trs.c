@@ -228,6 +228,23 @@ static int trs_cmd_to_wire(enum osdp_trs_cmd_e command, uint16_t *mode_code)
 	}
 }
 
+int osdp_trs_max_apdu_len(struct osdp_pd *pd)
+{
+	/*
+	 * Worst-case wire overhead around the APDU: mark byte, packet header,
+	 * security control block, command id, TRS mode/code and reader bytes,
+	 * AES block padding, MAC and CRC. Deliberately conservative -- what
+	 * is admitted against this must always fit when the frame is built.
+	 */
+	const int overhead = 40;
+	int max_len = get_tx_buf_size(pd) - overhead;
+
+	if (max_len > OSDP_TRS_APDU_MAX_LEN) {
+		max_len = OSDP_TRS_APDU_MAX_LEN;
+	}
+	return max_len;
+}
+
 int osdp_trs_cmd_build(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 		       uint8_t *buf, int max_len)
 {

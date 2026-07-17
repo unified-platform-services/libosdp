@@ -41,6 +41,8 @@ int osdp_trs_reply_decode(struct osdp_pd *pd, uint8_t *buf, int len,
 int osdp_trs_reply_build(struct osdp_pd *pd, uint8_t *buf, int max_len);
 int osdp_trs_cmd_decode(struct osdp_pd *pd, struct osdp_cmd *cmd, uint8_t *buf,
 			int len);
+/* Largest C-APDU the negotiated packet size can carry for this PD */
+int osdp_trs_max_apdu_len(struct osdp_pd *pd);
 
 #else /* OPT_BUILD_OSDP_TRS */
 

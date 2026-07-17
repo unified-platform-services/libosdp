@@ -1237,8 +1237,19 @@ enum osdp_trs_session_status_e {
 				      *   session was aborted by a link error */
 };
 
-/** @brief Max APDU length carried in a TRS command or reply */
-#define OSDP_TRS_APDU_MAX_LEN 64
+/**
+ * @brief Max APDU length carried in a TRS command or reply. The default
+ * covers a short-APDU maximum (255 data + SW1SW2 + margin), which is what
+ * PIV-class certificate reads move per GET RESPONSE chunk. Overridable at
+ * build time; note that osdp_cmd/osdp_event embed a buffer of this size, so
+ * shrinking it is how constrained builds reclaim that memory. Actually
+ * usable APDU size is further bound by the negotiated packet size (see
+ * OSDP_PACKET_BUF_SIZE, default 256 -- build with 512 for full-size
+ * chunks); oversized submissions are rejected up front.
+ */
+#ifndef OSDP_TRS_APDU_MAX_LEN
+#define OSDP_TRS_APDU_MAX_LEN 258
+#endif
 /** @brief Max CSN length carried in a TRS card-info reply */
 #define OSDP_TRS_CSN_MAX_LEN 32
 /** @brief Max protocol-data length carried in a TRS card-info reply */
