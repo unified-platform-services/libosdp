@@ -8,6 +8,7 @@
 
 #include "osdp_common.h"
 #include "osdp_file.h"
+#include "osdp_piv.h"
 #include "osdp_diag.h"
 #include "osdp_metrics.h"
 
@@ -306,6 +307,15 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 		}
 		len += ret;
 		break;
+	case CMD_PIVDATA:
+		ret = osdp_piv_cp_cmd_build(pd, buf + len, max_len);
+		if (ret <= 0) {
+			osdp_piv_abort(pd);
+			buf[0] = CMD_ABORT;
+			break;
+		}
+		len += ret;
+		break;
 	case CMD_KEYSET:
 		if (!sc_is_active(pd)) {
 			LOG_ERR("Cannot perform KEYSET without SC!");
@@ -414,6 +424,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != 0) {
 			break;
 		}
+		osdp_piv_cp_cmd_acked(pd);
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_NAK:
@@ -622,6 +633,16 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		ret = OSDP_CP_ERR_RETRY_CMD;
+		break;
+	case REPLY_PIVDATAR:
+		t = osdp_piv_cp_reply_consume(pd, buf, len, &event);
+		if (t < 0) {
+			break;
+		}
+		if (t > 0) {
+			cp_dispatch_event(pd, &event);
+		}
+		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_MFGREP:
 		if (len < REPLY_MFGREP_DATA_LEN) {
@@ -1087,6 +1108,11 @@ static int cp_get_online_command(struct osdp_pd *pd)
 		return ret;
 	}
 
+	ret = osdp_piv_cp_get_command(pd);
+	if (ret != 0) {
+		return ret;
+	}
+
 	if (osdp_millis_since(pd->tstamp) > OSDP_PD_POLL_TIMEOUT_MS) {
 		pd->tstamp = osdp_millis_now();
 		return CMD_POLL;
@@ -1181,6 +1207,7 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		    pd->reply_id == REPLY_MFGERRR ||
 		    pd->reply_id == REPLY_BIOREADR ||
 		    pd->reply_id == REPLY_BIOMATCHR ||
+		    pd->reply_id == REPLY_PIVDATAR ||
 		    pd->reply_id == REPLY_RAW ||
 		    pd->reply_id == REPLY_KEYPAD) {
 			return true;
@@ -1207,6 +1234,11 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 	case CMD_BIOMATCH:
 		return pd->reply_id == REPLY_ACK ||
 		       pd->reply_id == REPLY_BIOMATCHR;
+	case CMD_PIVDATA:
+		/* ACK when the app defers; reply fragments then ride out on
+		 * later polls. */
+		return pd->reply_id == REPLY_ACK ||
+		       pd->reply_id == REPLY_PIVDATAR;
 	case CMD_LSTAT:        return pd->reply_id == REPLY_LSTATR;
 	case CMD_ISTAT:        return pd->reply_id == REPLY_ISTATR;
 	case CMD_OSTAT:        return pd->reply_id == REPLY_OSTATR;
@@ -1379,6 +1411,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 			" seconds; Was in '%s' state",
 			pd->wait_ms / 1000, state_get_name(cur));
 		osdp_file_tx_abort(pd);
+		osdp_piv_abort(pd);
 		notify_pd_status(pd, false);
 		break;
 	case OSDP_CP_STATE_SC_CHLNG:
@@ -1389,6 +1422,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		sc_deactivate(pd);
 		notify_sc_status(pd);
 		osdp_file_tx_abort(pd);
+		osdp_piv_abort(pd);
 		notify_pd_status(pd, false);
 		osdp_phy_state_reset(pd, true);
 		LOG_INF("PD disabled; going offline until re-enabled");
@@ -1581,6 +1615,11 @@ static int state_update(struct osdp_pd *pd)
 				/* Going offline used to do this for us. */
 				osdp_file_tx_abort(pd);
 			}
+			if (err == OSDP_CP_ERR_NONE && osdp_piv_is_active(pd) &&
+			    pd->cmd_id == TO_PIV(pd)->wire_cmd) {
+				/* PD refused the smartcard command (NAK). */
+				osdp_piv_abort(pd);
+			}
 		}
 		osdp_phy_state_reset(pd, false);
 		break;
@@ -1659,6 +1698,10 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	if (cmd->id == OSDP_CMD_FILE_TX) {
 		return osdp_file_tx_command(pd, cmd->file_tx.id,
 					    cmd->file_tx.flags);
+	} else if (cmd->id == OSDP_CMD_PIVDATA) {
+		/* Multi-exchange op driven from the refresh loop (like
+		 * FILE_TX); it does not ride the command queue. */
+		return osdp_piv_cp_submit(pd, cmd);
 	} else if (cmd->id == OSDP_CMD_KEYSET &&
 		   (cmd->keyset.type != 1 || !sc_is_active(pd))) {
 		LOG_ERR("Invalid keyset request");
@@ -1890,6 +1933,7 @@ void osdp_cp_teardown(osdp_t *ctx)
 
 #ifndef OPT_OSDP_STATIC
 		safe_free(pd->file);
+		safe_free(pd->piv);
 #ifdef OPT_OSDP_RX_ZERO_COPY
 		safe_free(pd->rx_pkt);
 #else

@@ -6,6 +6,7 @@
 
 #include "osdp_common.h"
 #include "osdp_file.h"
+#include "osdp_piv.h"
 #include "osdp_diag.h"
 #include "osdp_metrics.h"
 
@@ -109,6 +110,8 @@ static bool event_is_reply_to(int cmd_id, const struct osdp_event *event)
 		return event->type == OSDP_EVENT_BIOREADR;
 	case CMD_BIOMATCH:
 		return event->type == OSDP_EVENT_BIOMATCHR;
+	case CMD_PIVDATA:
+		return event->type == OSDP_EVENT_PIVDATAR;
 	case CMD_OUT:
 		/* The PD may answer osdp_OUT with the resulting output status
 		 * instead of an ACK. See OSDP v2.2 subclause 6.9. */
@@ -175,6 +178,9 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 		break;
 	case OSDP_EVENT_BIOMATCHR:
 		reply_code = REPLY_BIOMATCHR;
+		break;
+	case OSDP_EVENT_PIVDATAR:
+		reply_code = REPLY_PIVDATAR;
 		break;
 	default:
 		LOG_ERR("Unknown event type %d", event->type);
@@ -419,6 +425,12 @@ static int pd_cmd_cap_ok(struct osdp_pd *pd, struct osdp_cmd *cmd)
 			break;
 		}
 		return 1;
+	case CMD_PIVDATA:
+		cap = &pd->cap[OSDP_PD_CAP_SMART_CARD_SUPPORT];
+		if (cap->compliance_level == 0) {
+			break;
+		}
+		return 1;
 	case CMD_CHLNG:
 	case CMD_SCRYPT:
 	case CMD_KEYSET:
@@ -592,6 +604,13 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		const struct osdp_event *queued_event;
 
 		if (len != 0) {
+			break;
+		}
+		/* A multi-part smartcard reply in flight continues before any
+		 * queued event; the CP is polling to pull its fragments. */
+		if (osdp_piv_pd_reply_pending(pd)) {
+			pd->reply_id = osdp_piv_pd_reply_id(pd);
+			ret = OSDP_PD_ERR_NONE;
 			break;
 		}
 		/* Check if we have external events in the queue */
@@ -958,6 +977,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		osdp_file_tx_abort(pd);
+		osdp_piv_abort(pd);
 		pd->reply_id = REPLY_ACK;
 		ret = OSDP_PD_ERR_NONE;
 		break;
@@ -968,6 +988,34 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			pd->reply_id = REPLY_FTSTAT;
 			break;
 		}
+		break;
+	case CMD_PIVDATA:
+		if (len != CMD_PIVDATA_DATA_LEN) {
+			break;
+		}
+		if (!pd_cmd_cap_ok(pd, NULL)) {
+			ret = OSDP_PD_ERR_REPLY;
+			break;
+		}
+		cmd.id = OSDP_CMD_PIVDATA;
+		cmd.pivdata.oid[0] = buf[pos++];
+		cmd.pivdata.oid[1] = buf[pos++];
+		cmd.pivdata.oid[2] = buf[pos++];
+		cmd.pivdata.element = buf[pos++];
+		cmd.pivdata.offset = buf[pos++];
+		if (osdp_piv_pd_open(pd, CMD_PIVDATA, cmd.pivdata.element)) {
+			break;
+		}
+		if (!do_command_callback(pd, &cmd)) {
+			ret = OSDP_PD_ERR_REPLY;
+			break;
+		}
+		/* App deferred: ACK. The reply rides out on a later poll once
+		 * the app submits it. */
+		if (!pd_take_inline_reply(pd)) {
+			pd->reply_id = REPLY_ACK;
+		}
+		ret = OSDP_PD_ERR_NONE;
 		break;
 	case CMD_KEYSET:
 		if (len != CMD_KEYSET_DATA_LEN) {
@@ -1249,6 +1297,24 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		len += event->mfgrep.length;
 		ret = OSDP_PD_ERR_NONE;
 		break;
+	case REPLY_PIVDATAR: {
+		int n;
+
+		/* The backing event seeds the reply leg on its first
+		 * fragment; continuation fragments (poll-driven) build from
+		 * the smartcard context alone. */
+		n = osdp_piv_pd_reply_build(
+			pd,
+			(event && event->type == OSDP_EVENT_PIVDATAR) ? event :
+									NULL,
+			buf + len, max_len);
+		if (n <= 0) {
+			break;
+		}
+		len += n;
+		ret = OSDP_PD_ERR_NONE;
+		break;
+	}
 	case REPLY_MFGSTATR:
 	case REPLY_MFGERRR:
 		mfgstat = (event->type == OSDP_EVENT_MFGSTATR) ?
@@ -1493,6 +1559,7 @@ static void osdp_pd_update(struct osdp_pd *pd)
 		LOG_INF("PD offline; lost CP activity");
 		pd_set_offline(pd);
 		osdp_file_tx_abort(pd);
+		osdp_piv_abort(pd);
 		notify_pd_status(pd, false);
 	}
 
@@ -1795,6 +1862,7 @@ void osdp_pd_teardown(osdp_t *ctx)
 	}
 #endif /* OPT_OSDP_RX_ZERO_COPY */
 	safe_free(pd->file);
+	safe_free(pd->piv);
 	safe_free(pd_ctx->rx_buf);
 	safe_free(pd);
 	safe_free(ctx);

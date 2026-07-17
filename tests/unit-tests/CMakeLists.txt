@@ -26,6 +26,7 @@ list(APPEND OSDP_UNIT_TEST_SRC
 	test-busy.c
 	test-file.c
 	test-multipart.c
+	test-piv.c
 	test-commands.c
 	test-events.c
 	test-bio.c

@@ -899,6 +899,7 @@ int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 		{ OSDP_PD_CAP_CONTACT_STATUS_MONITORING, 1, 8 },
 		{ OSDP_PD_CAP_BIOMETRICS, 1, 1 },
 		{ OSDP_PD_CAP_TIME_KEEPING, 1, 0 },
+		{ OSDP_PD_CAP_SMART_CARD_SUPPORT, 1, 1 },
 		{ -1, -1, -1 }
 	};
 
@@ -1126,6 +1127,7 @@ int main(int argc, char *argv[])
 		{ "events", run_event_tests },
 		{ "bio", run_bio_tests },
 		{ "multipart", run_multipart_tests },
+		{ "piv", run_piv_tests },
 		{ "hotplug", run_hotplug_tests },
 		{ "notifications", run_notification_tests },
 		{ "async_fuzz", run_async_fuzz_tests },

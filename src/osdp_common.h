@@ -316,6 +316,7 @@ static inline __noreturn void die()
 #define CMD_ACURXSIZE_DATA_LEN    2
 #define CMD_KEEPACTIVE_DATA_LEN   2
 #define CMD_MFG_DATA_LEN          3  /* variable length message */
+#define CMD_PIVDATA_DATA_LEN      5
 
 #define REPLY_NAK_DATA_LEN        1
 #define REPLY_PDID_DATA_LEN       12
@@ -552,6 +553,7 @@ struct osdp_pd {
 
 	struct osdp_secure_channel sc;   /* Secure Channel session context */
 	struct osdp_file *file;          /* File transfer context */
+	struct osdp_piv *piv;            /* Smartcard/PIV multipart context */
 	struct osdp_metrics metrics;     /* link/protocol health counters */
 
 	/* PD command callback to app with opaque arg pointer as passed by app */

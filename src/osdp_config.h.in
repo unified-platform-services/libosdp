@@ -65,6 +65,12 @@
 #define OSDP_FILE_ERROR_RETRY_MAX               (10)
 #endif
 
+/* A smartcard/PIV multi-part operation that makes no forward progress for
+ * this long is aborted (covers a PD app that never supplies its reply). */
+#ifndef OSDP_PIV_OP_TIMEOUT_MS
+#define OSDP_PIV_OP_TIMEOUT_MS                  (10 * 1000)
+#endif
+
 #ifndef OSDP_PD_MAX
 #define OSDP_PD_MAX                             (126)
 #endif

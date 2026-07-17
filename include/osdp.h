@@ -681,6 +681,36 @@ struct osdp_cmd_tdset {
 };
 
 /**
+ * @brief Max PIV/auth payload, in bytes, that the smartcard command/event
+ * structures (and the multipart reassembly context behind them) can carry.
+ * These payloads travel as OSDP multi-part messages so they may span many
+ * packets on the wire; this bound is on the reassembled whole.
+ */
+#ifndef OSDP_PIV_DATA_MAX_LEN
+#define OSDP_PIV_DATA_MAX_LEN 256
+#endif
+
+/**
+ * @brief Command sent from CP to retrieve the contents of a PIV object from
+ * a smartcard attached to the PD (osdp_PIVDATA). The PD returns the data in
+ * an `OSDP_EVENT_PIVDATAR` event, reassembled from the multi-part reply.
+ */
+struct osdp_cmd_pivdata {
+	/**
+	 * PIV Object ID per NIST SP 800-73-4 Part 1
+	 */
+	uint8_t oid[3];
+	/**
+	 * PIV element ID within the object
+	 */
+	uint8_t element;
+	/**
+	 * Offset within the requested element
+	 */
+	uint8_t offset;
+};
+
+/**
  * @brief What an output command does to the output line.
  */
 enum osdp_cmd_output_control_code_e {
@@ -1117,6 +1147,7 @@ enum osdp_cmd_e {
 	OSDP_CMD_BIOREAD,     /**< Scan and send biometric data command */
 	OSDP_CMD_BIOMATCH,    /**< Scan and match biometric template command */
 	OSDP_CMD_TDSET,       /**< Time and date set command */
+	OSDP_CMD_PIVDATA,     /**< Retrieve PIV object data command */
 	OSDP_CMD_SENTINEL     /**< Max command value */
 };
 
@@ -1164,6 +1195,7 @@ struct osdp_cmd {
 		struct osdp_cmd_bioread bioread;  /**< Biometric read command structure */
 		struct osdp_cmd_biomatch biomatch; /**< Biometric match command structure */
 		struct osdp_cmd_tdset tdset;      /**< Time and date set command structure */
+		struct osdp_cmd_pivdata pivdata;  /**< PIV data retrieval command structure */
 	};
 };
 
@@ -1381,6 +1413,25 @@ struct osdp_event_biomatchr {
 };
 
 /**
+ * @brief Payload of a smartcard/PIV reply (`OSDP_EVENT_PIVDATAR`).
+ *
+ * These replies travel as OSDP multi-part messages. On the CP, the event
+ * carries the fully reassembled payload. On the PD, the application submits
+ * this event (from within the command callback for an inline reply, or later
+ * for delivery on a subsequent poll) and libosdp fragments it on the wire.
+ */
+struct osdp_event_piv_reply {
+	/**
+	 * Number of valid bytes in @a data; must be non-zero
+	 */
+	uint16_t length;
+	/**
+	 * Reassembled reply payload
+	 */
+	uint8_t data[OSDP_PIV_DATA_MAX_LEN];
+};
+
+/**
  * @brief OSDP PD Events
  */
 enum osdp_event_type {
@@ -1393,6 +1444,7 @@ enum osdp_event_type {
 	OSDP_EVENT_MFGERRR,       /**< Manufacturer specific error reply event */
 	OSDP_EVENT_BIOREADR,      /**< Scan and send biometric data event */
 	OSDP_EVENT_BIOMATCHR,     /**< Scan and match biometric template event */
+	OSDP_EVENT_PIVDATAR,      /**< PIV data reply event */
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 
@@ -1412,6 +1464,7 @@ struct osdp_event {
 		struct osdp_event_mfgstat mfgerrr;   /**< Manufacturer specific error reply event structure */
 		struct osdp_event_bioreadr bioreadr; /**< Biometric read reply event structure */
 		struct osdp_event_biomatchr biomatchr; /**< Biometric match reply event structure */
+		struct osdp_event_piv_reply piv_reply; /**< Smartcard/PIV reply event structure */
 		struct osdp_status_report status;    /**< Status report event structure */
 		struct osdp_notification notif;      /**< LibOSDP notification (CP mode) */
 	};

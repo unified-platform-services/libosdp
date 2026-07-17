@@ -161,6 +161,7 @@ void run_file_tx_pd_keep_alive_tests(struct test *t);
 void run_file_rx_idle_frame_tests(struct test *t);
 void run_file_rx_reject_paths_tests(struct test *t);
 void run_multipart_tests(struct test *t);
+void run_piv_tests(struct test *t);
 void run_command_tests(struct test *t);
 void run_event_tests(struct test *t);
 void run_bio_tests(struct test *t);
