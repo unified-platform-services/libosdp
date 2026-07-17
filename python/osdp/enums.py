@@ -115,6 +115,9 @@ class CommandId(IntEnum):
     BioRead = _sys.CMD_BIOREAD
     BioMatch = _sys.CMD_BIOMATCH
     TDSet = _sys.CMD_TDSET
+    PivData = _sys.CMD_PIVDATA
+    GenAuth = _sys.CMD_GENAUTH
+    CrAuth = _sys.CMD_CRAUTH
 
 
 class EventId(IntEnum):
@@ -132,6 +135,9 @@ class EventId(IntEnum):
     ManufacturerError = _sys.EVENT_MFGERRR
     BioRead = _sys.EVENT_BIOREADR
     BioMatch = _sys.EVENT_BIOMATCHR
+    PivData = _sys.EVENT_PIVDATAR
+    GenAuth = _sys.EVENT_GENAUTHR
+    CrAuth = _sys.EVENT_CRAUTHR
 
 
 class LEDColor(_WireEnum):

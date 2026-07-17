@@ -213,6 +213,24 @@ _COMMAND_ENCODERS: dict[type, Callable[[Any], Payload]] = {
         "type": x.type,
         "report": x.report,
     },
+    c.PivData: lambda x: {
+        "command": CommandId.PivData,
+        "oid": x.oid,
+        "element": x.element,
+        "offset": x.offset,
+    },
+    c.GenAuth: lambda x: {
+        "command": CommandId.GenAuth,
+        "algorithm": x.algorithm,
+        "key": x.key,
+        "data": x.data,
+    },
+    c.CrAuth: lambda x: {
+        "command": CommandId.CrAuth,
+        "algorithm": x.algorithm,
+        "key": x.key,
+        "data": x.data,
+    },
     c.Notification: lambda x: {
         "command": CommandId.Notification,
         **_notification_payload(x),
@@ -277,6 +295,15 @@ _COMMAND_DECODERS: dict[CommandId, Callable[[Payload], c.Command]] = {
     ),
     CommandId.Status: lambda p: c.Status(
         type=StatusReportType(p["type"]), report=p["report"]
+    ),
+    CommandId.PivData: lambda p: c.PivData(
+        oid=p["oid"], element=p["element"], offset=p["offset"]
+    ),
+    CommandId.GenAuth: lambda p: c.GenAuth(
+        algorithm=p["algorithm"], key=p["key"], data=p["data"]
+    ),
+    CommandId.CrAuth: lambda p: c.CrAuth(
+        algorithm=p["algorithm"], key=p["key"], data=p["data"]
     ),
     CommandId.Notification: lambda p: c.Notification(
         type=NotificationType(p["type"]),
@@ -374,6 +401,18 @@ _EVENT_ENCODERS: dict[type, Callable[[Any], Payload]] = {
         "type": x.type,
         "report": x.report,
     },
+    e.PivData: lambda x: {
+        "event": EventId.PivData,
+        "data": x.data,
+    },
+    e.GenAuth: lambda x: {
+        "event": EventId.GenAuth,
+        "data": x.data,
+    },
+    e.CrAuth: lambda x: {
+        "event": EventId.CrAuth,
+        "data": x.data,
+    },
     e.Notification: lambda x: {
         "event": EventId.Notification,
         **_notification_payload(x),
@@ -405,6 +444,9 @@ _EVENT_DECODERS: dict[EventId, Callable[[Payload], e.Event]] = {
     EventId.Status: lambda p: e.Status(
         type=StatusReportType(p["type"]), report=p["report"]
     ),
+    EventId.PivData: lambda p: e.PivData(data=p["data"]),
+    EventId.GenAuth: lambda p: e.GenAuth(data=p["data"]),
+    EventId.CrAuth: lambda p: e.CrAuth(data=p["data"]),
     EventId.Notification: lambda p: e.Notification(
         type=NotificationType(p["type"]),
         arg0=p.get("arg0", 0), arg1=p.get("arg1", 0),

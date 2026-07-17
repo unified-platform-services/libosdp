@@ -114,6 +114,12 @@ ALL_COMMANDS = [
         type=NotificationType.MultipartDone, mp_type=1, object_id=1,
         total=3200, offset=3200, outcome=0,
     ),
+    commands.PivData(oid=b"\x5f\xc1\x02", element=7, offset=1),
+    commands.GenAuth(algorithm=0xA7, key=0x9E, data=b"challenge-bytes"),
+    commands.GenAuth(
+        algorithm=1, key=2, data=bytes(range(256))[:commands.MAX_PIV_DATA_LEN]
+    ),
+    commands.CrAuth(algorithm=0x11, key=0x22, data=b"\x00\x01\x02"),
 ]
 
 ALL_EVENTS = [
@@ -151,6 +157,9 @@ ALL_EVENTS = [
         type=NotificationType.MultipartDone, mp_type=1, object_id=1,
         total=3200, offset=3200, outcome=0,
     ),
+    events.PivData(data=b"piv-object-contents"),
+    events.GenAuth(data=b"auth-response"),
+    events.CrAuth(data=b"challenge-response"),
 ]
 
 

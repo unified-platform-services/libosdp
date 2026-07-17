@@ -61,6 +61,9 @@ MAX_MFG_DATA_LEN = _sys.EVENT_MFGREP_MAX_DATALEN
 """Longest payload a manufacturer event can carry."""
 
 MAX_BIO_TEMPLATE_LEN = _sys.EVENT_BIOREADR_MAX_TEMPLATE_LEN
+
+#: Max smartcard/PIV payload a reply event can carry, in bytes.
+MAX_PIV_DATA_LEN = _sys.PIV_DATA_MAX_LEN
 """Longest biometric template a BioRead can carry."""
 
 MAX_STATUS_REPORT_LEN = _sys.STATUS_REPORT_MAX_LEN
@@ -435,6 +438,70 @@ class Notification:
         return FileTxOutcome(self.arg1)
 
 
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PivData:
+    """A PD's answer to a `commands.PivData`: the PIV object contents.
+
+    On the CP, the event carries the payload reassembled from the multi-part
+    reply. On the PD, submit this event (from within the command callback for
+    an inline reply, or later for delivery on a subsequent poll) and libosdp
+    fragments it on the wire.
+
+    @see osdp_event_piv_reply
+    """
+
+    ID: ClassVar[EventId] = EventId.PivData
+
+    data: bytes = b""
+    """Reassembled reply payload; non-empty."""
+
+    def __post_init__(self) -> None:
+        if not self.data:
+            raise ValueError("data must not be empty")
+        check_length("data", self.data, MAX_PIV_DATA_LEN)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GenAuth:
+    """A PD's answer to a `commands.GenAuth`: the authenticate response.
+
+    Delivery semantics match `PivData`.
+
+    @see osdp_event_piv_reply
+    """
+
+    ID: ClassVar[EventId] = EventId.GenAuth
+
+    data: bytes = b""
+    """Reassembled reply payload; non-empty."""
+
+    def __post_init__(self) -> None:
+        if not self.data:
+            raise ValueError("data must not be empty")
+        check_length("data", self.data, MAX_PIV_DATA_LEN)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CrAuth:
+    """A PD's answer to a `commands.CrAuth`: the challenge response.
+
+    Delivery semantics match `PivData`.
+
+    @see osdp_event_piv_reply
+    """
+
+    ID: ClassVar[EventId] = EventId.CrAuth
+
+    data: bytes = b""
+    """Reassembled reply payload; non-empty."""
+
+    def __post_init__(self) -> None:
+        if not self.data:
+            raise ValueError("data must not be empty")
+        check_length("data", self.data, MAX_PIV_DATA_LEN)
+
+
 Event: TypeAlias = (
     CardRead
     | KeyPress
@@ -443,6 +510,9 @@ Event: TypeAlias = (
     | ManufacturerError
     | BioRead
     | BioMatch
+    | PivData
+    | GenAuth
+    | CrAuth
     | Status
     | Notification
 )

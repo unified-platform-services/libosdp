@@ -76,6 +76,9 @@ MAX_KEYSET_LEN = _sys.CMD_KEYSET_KEY_MAX_LEN
 """Longest key a Keyset command can carry."""
 
 MAX_MFG_DATA_LEN = _sys.CMD_MFG_MAX_DATALEN
+
+#: Max smartcard/PIV payload a command or reply can carry, in bytes.
+MAX_PIV_DATA_LEN = _sys.PIV_DATA_MAX_LEN
 """Longest payload a Manufacturer command can carry."""
 
 MAX_BIO_TEMPLATE_LEN = _sys.CMD_BIOMATCH_MAX_TEMPLATE_LEN
@@ -685,6 +688,103 @@ class Notification:
     """Terminal outcome. Only meaningful at NotificationType.MultipartDone."""
 
 
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class PivData:
+    """Retrieve the contents of a PIV object from the PD's smartcard.
+
+    The PD answers with an `events.PivData` carrying the reassembled object
+    data; replies larger than one OSDP packet travel as multi-part messages
+    transparently.
+
+    @see osdp_cmd_pivdata
+
+    Example:
+        >>> cmd = PivData(oid=b"\x5f\xc1\x02", element=7)
+        >>> cmd.oid
+        b'_\xc1\x02'
+    """
+
+    ID: ClassVar[CommandId] = CommandId.PivData
+
+    oid: bytes = b"\x00\x00\x00"
+    """3-byte PIV Object ID per NIST SP 800-73-4 Part 1."""
+
+    element: int = 0
+    """PIV element ID within the object."""
+
+    offset: int = 0
+    """Offset within the requested element."""
+
+    def __post_init__(self) -> None:
+        if len(self.oid) != 3:
+            raise ValueError("oid must be exactly 3 bytes")
+        check_range("element", self.element, UINT8_MAX)
+        check_range("offset", self.offset, UINT8_MAX)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GenAuth:
+    """Direct a general-authenticate challenge to the PD's smartcard.
+
+    The challenge travels as a multi-part message; the PD answers with an
+    `events.GenAuth` carrying the reassembled response.
+
+    @see osdp_cmd_auth
+
+    Example:
+        >>> cmd = GenAuth(algorithm=0xA7, key=0x9E, data=b"challenge")
+        >>> len(cmd.data)
+        9
+    """
+
+    ID: ClassVar[CommandId] = CommandId.GenAuth
+
+    algorithm: int = 0
+    """Selected algorithm per ISO 7816-4:2005 7.5.5."""
+
+    key: int = 0
+    """Key reference; see `algorithm`."""
+
+    data: bytes = b""
+    """Cryptographic challenge payload; non-empty."""
+
+    def __post_init__(self) -> None:
+        check_range("algorithm", self.algorithm, UINT8_MAX)
+        check_range("key", self.key, UINT8_MAX)
+        if not self.data:
+            raise ValueError("data must not be empty")
+        check_length("data", self.data, MAX_PIV_DATA_LEN)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class CrAuth:
+    """Direct a challenge/response sequence to the PD's smartcard.
+
+    Identical shape to `GenAuth`; the PD answers with an `events.CrAuth`.
+
+    @see osdp_cmd_auth
+    """
+
+    ID: ClassVar[CommandId] = CommandId.CrAuth
+
+    algorithm: int = 0
+    """Selected algorithm per ISO 7816-4:2005 7.5.5."""
+
+    key: int = 0
+    """Key reference; see `algorithm`."""
+
+    data: bytes = b""
+    """Cryptographic challenge payload; non-empty."""
+
+    def __post_init__(self) -> None:
+        check_range("algorithm", self.algorithm, UINT8_MAX)
+        check_range("key", self.key, UINT8_MAX)
+        if not self.data:
+            raise ValueError("data must not be empty")
+        check_length("data", self.data, MAX_PIV_DATA_LEN)
+
+
 Command: TypeAlias = (
     Output
     | LED
@@ -697,6 +797,9 @@ Command: TypeAlias = (
     | Manufacturer
     | BioRead
     | BioMatch
+    | PivData
+    | GenAuth
+    | CrAuth
     | FileTransfer
     | Status
     | Notification

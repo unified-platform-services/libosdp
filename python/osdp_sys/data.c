@@ -454,6 +454,72 @@ static const struct pyosdp_field cmd_status_fields[] = {
 	END_OF_FIELDS,
 };
 
+/* GENAUTH/CRAUTH challenge: two u8 fields plus a length-carrying buffer. */
+static const struct pyosdp_field cmd_auth_fields[] = {
+	U8_FIELD(struct osdp_cmd_auth, algorithm),
+	U8_FIELD(struct osdp_cmd_auth, key),
+	{
+		.key = "data",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_cmd_auth, data),
+		.len_offset = offsetof(struct osdp_cmd_auth, length),
+		.len_kind = FIELD_U16,
+		.max_len = OSDP_PIV_DATA_MAX_LEN,
+	},
+	END_OF_FIELDS,
+};
+
+/* Reassembled smartcard/PIV reply payload (PIVDATAR/GENAUTHR/CRAUTHR). */
+static const struct pyosdp_field event_piv_reply_fields[] = {
+	{
+		.key = "data",
+		.kind = FIELD_BYTES,
+		.offset = offsetof(struct osdp_event_piv_reply, data),
+		.len_offset = offsetof(struct osdp_event_piv_reply, length),
+		.len_kind = FIELD_U16,
+		.max_len = OSDP_PIV_DATA_MAX_LEN,
+	},
+	END_OF_FIELDS,
+};
+
+/*
+ * The PIV object id is a fixed 3-byte array with no length field, which the
+ * declarative field kinds cannot express; marshal it by hand as `bytes`.
+ */
+static int pyosdp_make_dict_cmd_pivdata(PyObject *obj, const void *payload)
+{
+	const struct osdp_cmd_pivdata *p = payload;
+
+	if (pyosdp_dict_add_bytes(obj, "oid", p->oid, sizeof(p->oid)) ||
+	    pyosdp_dict_add_int(obj, "element", p->element) ||
+	    pyosdp_dict_add_int(obj, "offset", p->offset))
+		return -1;
+	return 0;
+}
+
+static int pyosdp_make_struct_cmd_pivdata(void *payload, PyObject *dict)
+{
+	struct osdp_cmd_pivdata *p = payload;
+	uint8_t *oid;
+	int len, val;
+
+	if (pyosdp_dict_get_bytes(dict, "oid", &oid, &len))
+		return -1;
+	if (len != (int)sizeof(p->oid)) {
+		PyErr_Format(PyExc_ValueError, "oid must be %zu bytes",
+			     sizeof(p->oid));
+		return -1;
+	}
+	memcpy(p->oid, oid, sizeof(p->oid));
+	if (pyosdp_dict_get_int(dict, "element", &val))
+		return -1;
+	p->element = (uint8_t)val;
+	if (pyosdp_dict_get_int(dict, "offset", &val))
+		return -1;
+	p->offset = (uint8_t)val;
+	return 0;
+}
+
 /*
  * A notification's payload is a union: MP_* types carry the structured
  * osdp_mp_notification (mp_type/object_id/total/offset/outcome), everything
@@ -696,6 +762,12 @@ static const struct pyosdp_translator command_translator[OSDP_CMD_SENTINEL] = {
 	[OSDP_CMD_MFG] = { .fields = cmd_mfg_fields },
 	[OSDP_CMD_BIOREAD] = { .fields = cmd_bioread_fields },
 	[OSDP_CMD_BIOMATCH] = { .fields = cmd_biomatch_fields },
+	[OSDP_CMD_PIVDATA] = {
+		.to_dict = pyosdp_make_dict_cmd_pivdata,
+		.to_struct = pyosdp_make_struct_cmd_pivdata,
+	},
+	[OSDP_CMD_GENAUTH] = { .fields = cmd_auth_fields },
+	[OSDP_CMD_CRAUTH] = { .fields = cmd_auth_fields },
 	[OSDP_CMD_FILE_TX] = { .fields = cmd_file_tx_fields },
 	[OSDP_CMD_STATUS] = { .fields = cmd_status_fields },
 	[OSDP_CMD_NOTIFICATION] = {
@@ -715,6 +787,9 @@ static const struct pyosdp_translator event_translator[OSDP_EVENT_SENTINEL] = {
 	[OSDP_EVENT_MFGERRR] = { .fields = event_mfgstat_fields },
 	[OSDP_EVENT_BIOREADR] = { .fields = event_bioreadr_fields },
 	[OSDP_EVENT_BIOMATCHR] = { .fields = event_biomatchr_fields },
+	[OSDP_EVENT_PIVDATAR] = { .fields = event_piv_reply_fields },
+	[OSDP_EVENT_GENAUTHR] = { .fields = event_piv_reply_fields },
+	[OSDP_EVENT_CRAUTHR] = { .fields = event_piv_reply_fields },
 	[OSDP_EVENT_STATUS] = { .fields = event_status_fields },
 	[OSDP_EVENT_NOTIFICATION] = {
 		.to_dict = pyosdp_make_dict_notification,
