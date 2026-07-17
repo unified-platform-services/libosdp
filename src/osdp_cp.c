@@ -941,16 +941,23 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 		}
 		pd->phy_state = OSDP_CP_PHY_STATE_RETRY_CMD;
 		return OSDP_CP_ERR_DEFER;
-	case OSDP_CP_PHY_STATE_RETRY_CMD:
+	case OSDP_CP_PHY_STATE_RETRY_CMD: {
+		struct osdp_channel *channel = &pd_to_osdp(pd)->channel;
+
+		/*
+		 * A retry must repeat the command in its original form (v2.2
+		 * sections 5.4 and 7.19): rewind the sequence number so the
+		 * rebuild below goes out with the one the original carried.
+		 * Rebuilding under SC yields the same bytes since the MAC
+		 * chain only advances when a MAC'd reply is accepted.
+		 */
+		if (channel->flush)
+			channel->flush(channel->data);
+		pd->seq_number = pd->phy_tx_seq - 1;
 		pd->phy_state = OSDP_CP_PHY_STATE_SEND_CMD;
+	}
 		__fallthrough;
 	case OSDP_CP_PHY_STATE_SEND_CMD:
-		if (pd->phy_retry_count > 0) {
-			struct osdp_channel *channel = &pd_to_osdp(pd)->channel;
-			if (channel->flush)
-				channel->flush(channel->data);
-			pd->seq_number = pd->phy_tx_seq - 1;
-		}
 		if (cp_build_packet(pd)) {
 			LOG_ERR("Failed to build packet for CMD: %s(%02x)",
 				osdp_cmd_name(pd->cmd_id), pd->cmd_id);

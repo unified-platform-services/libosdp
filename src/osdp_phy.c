@@ -663,12 +663,14 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 	} else {
 		if (comp == 0) {
 			/**
-			 * Check for receiving a busy reply from the PD which would
-			 * have a sequence number of 0, come in an unsecured packet
-			 * of minimum length, and have the reply ID REPLY_BUSY.
+			 * A busy PD replies REPLY_BUSY with sequence number 0
+			 * in a plain (non-SCB) packet of minimum length, even
+			 * while a secure channel is active (v2.2 section 7.19).
+			 * Surface it as-is; the retry path repeats the command
+			 * with its original sequence number.
 			 */
-			if ((pkt_len == 6) && (pkt->data[0] == REPLY_BUSY)) {
-				pd->seq_number -= 1;
+			if ((pkt_len == 6) && (pkt->data[0] == REPLY_BUSY) &&
+			    !(pkt->control & PKT_CONTROL_SCB)) {
 				return OSDP_ERR_PKT_BUSY;
 			}
 		}

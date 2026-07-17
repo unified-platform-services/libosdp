@@ -23,6 +23,7 @@ list(APPEND OSDP_UNIT_TEST_SRC
 	test-cp-phy.c
 	test-pd-phy.c
 	test-cp-fsm.c
+	test-busy.c
 	test-file.c
 	test-commands.c
 	test-events.c
