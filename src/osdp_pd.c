@@ -48,7 +48,7 @@ static struct osdp_pd_cap osdp_pd_cap[] = {
 		2, /* SIA OSDP 2.2 */
 		0, /* N/A */
 	},
-	{ -1, 0, 0 } /* Sentinel */
+	{ OSDP_PD_CAP_SENTINEL, 0, 0 }
 };
 
 static int pd_event_queue_init(struct osdp_pd *pd)

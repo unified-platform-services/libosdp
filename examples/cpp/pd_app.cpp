@@ -53,7 +53,7 @@ osdp_pd_info_t info_pd = {
 			.compliance_level = 1,
 			.num_items = 1
 		},
-			{ static_cast<uint8_t>(-1), 0, 0 } /* Sentinel */
+			{ OSDP_PD_CAP_SENTINEL, 0, 0 }
 		},
 		.scbk = nullptr,
 };

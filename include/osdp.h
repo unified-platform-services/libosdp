@@ -411,8 +411,8 @@ typedef struct {
 	struct osdp_pd_id id;
 	/**
 	 * This is a pointer to an array of structures containing the PD'
-	 * capabilities. Use { -1, 0, 0 } to terminate the array. This is used
-	 * only PD mode of operation
+	 * capabilities. Use { OSDP_PD_CAP_SENTINEL, 0, 0 } to terminate the
+	 * array. This is used only PD mode of operation
 	 */
 	const struct osdp_pd_cap *cap;
 	/**
@@ -1465,7 +1465,7 @@ void osdp_pd_teardown(osdp_t *ctx);
  *
  * @param ctx OSDP context
  * @param cap pointer to array of cap (`struct osdp_pd_cap`) terminated by a
- * capability with cap->function_code set to 0.
+ * capability with cap->function_code set to OSDP_PD_CAP_SENTINEL.
  */
 OSDP_EXPORT
 void osdp_pd_set_capabilities(osdp_t *ctx, const struct osdp_pd_cap *cap);

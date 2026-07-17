@@ -12,7 +12,7 @@ osdp_pd_info_t info_pd = {};
 static const struct osdp_pd_cap pd_cap[] = {
     { OSDP_PD_CAP_READER_LED_CONTROL, 1, 1 },
     { OSDP_PD_CAP_READER_AUDIBLE_OUTPUT, 1, 1 },
-    { static_cast<uint8_t>(-1), 0, 0 } /* Sentinel */
+    { OSDP_PD_CAP_SENTINEL, 0, 0 }
 };
 static struct osdp_channel pd_channel = {};
 
