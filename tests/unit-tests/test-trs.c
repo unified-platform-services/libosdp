@@ -177,12 +177,21 @@ static int trs_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 	return 0;
 }
 
-static int setup_test_environment(struct test *t)
+static int setup_test_environment_ex(struct test *t, bool plaintext)
 {
-	printf(SUB_1 "setting up OSDP devices\n");
+	int rc;
 
-	if (test_setup_devices_ext(t, &g_trs.cp_ctx, &g_trs.pd_ctx,
-				   OSDP_FLAG_ENABLE_NOTIFICATION, 0)) {
+	printf(SUB_1 "setting up OSDP devices%s\n",
+	       plaintext ? " (plaintext link)" : "");
+
+	if (plaintext) {
+		rc = test_setup_devices_plain(t, &g_trs.cp_ctx, &g_trs.pd_ctx,
+					      OSDP_FLAG_ENABLE_NOTIFICATION, 0);
+	} else {
+		rc = test_setup_devices_ext(t, &g_trs.cp_ctx, &g_trs.pd_ctx,
+					    OSDP_FLAG_ENABLE_NOTIFICATION, 0);
+	}
+	if (rc) {
 		printf(SUB_1 "Failed to setup devices!\n");
 		return -1;
 	}
@@ -207,6 +216,11 @@ static int setup_test_environment(struct test *t)
 		return -1;
 	}
 	return 0;
+}
+
+static int setup_test_environment(struct test *t)
+{
+	return setup_test_environment_ex(t, false);
 }
 
 static void teardown_test_environment()
@@ -552,6 +566,122 @@ static bool test_trs_apdu_error_reply_fails_cmd()
 	if (g_trs.status_seen) {
 		printf(SUB_2 "error report must not end the session (status %d)\n",
 		       g_trs.last_status);
+		return false;
+	}
+
+	return test_trs_apdu_exchange();
+}
+
+extern uint16_t test_osdp_compute_crc16(const uint8_t *buf, size_t len);
+
+struct trs_wire_nak_hook {
+	int xwr_tx_count;
+	bool nak_next_reply;
+};
+
+/*
+ * Model the RPK40 declining a CARD_SCAN it does not implement: the command
+ * is delivered (so the PD's sequence tracking stays honest), but the reply
+ * going back is rewritten into a plaintext NAK(MSG_CHK) at the reply's own
+ * sequence number.
+ */
+static enum test_channel_hook_verdict trs_wire_nak_hook(void *arg,
+		bool cp_to_pd, const uint8_t *frame, int len,
+		uint8_t *out, int *out_len, int out_max)
+{
+	struct trs_wire_nak_hook *s = arg;
+	int base = 0, data_off, n = 0, start, pkt_len;
+	uint8_t ctrl;
+	uint16_t crc;
+
+#ifndef OPT_OSDP_SKIP_MARK_BYTE
+	base = 1;
+#endif
+	if (len < base + 6)
+		return TEST_HOOK_PASS;
+	ctrl = frame[base + 4];
+
+	if (cp_to_pd) {
+		data_off = base + 5;
+		if (ctrl & 0x08) /* security control block */
+			data_off += frame[base + 5];
+		if (data_off < len && frame[data_off] == CMD_XWR) {
+			s->xwr_tx_count++;
+			s->nak_next_reply = true;
+		}
+		return TEST_HOOK_PASS;
+	}
+
+	if (!s->nak_next_reply || out_max < 11)
+		return TEST_HOOK_PASS;
+	s->nak_next_reply = false;
+
+	n = 0;
+#ifndef OPT_OSDP_SKIP_MARK_BYTE
+	out[n++] = 0xff;
+#endif
+	start = n;
+	out[n++] = 0x53;
+	out[n++] = 0x65 | 0x80;	/* PD address 101, reply direction */
+	pkt_len = 5 + 2 + 2;	/* header + NAK/code + CRC */
+	out[n++] = pkt_len & 0xff;
+	out[n++] = (pkt_len >> 8) & 0xff;
+	out[n++] = 0x04 | (ctrl & 0x03); /* CRC, reply's sequence */
+	out[n++] = REPLY_NAK;
+	out[n++] = OSDP_PD_NAK_MSG_CHK;
+	crc = test_osdp_compute_crc16(out + start, n - start);
+	out[n++] = crc & 0xff;
+	out[n++] = (crc >> 8) & 0xff;
+	*out_len = n;
+	return TEST_HOOK_REPLACE;
+}
+
+/*
+ * Not every reader implements CARD_SCAN: the RPK40 answers it with a wire
+ * level NAK(MSG_CHK). An APDU-bearing command must never be blind
+ * retransmitted -- replaying card traffic can have card-side effects -- so
+ * the NAK costs the app exactly one failed command: one transmission, no
+ * resends, session intact.
+ */
+static bool test_trs_card_scan_wire_nak(void)
+{
+	struct trs_wire_nak_hook s = { 0 };
+	struct osdp_cmd cmd;
+	int rc = 0;
+
+	printf(SUB_2 "testing TRS CARD_SCAN declined on the wire\n");
+
+	g_trs.completion_seen = false;
+	g_trs.status_seen = false;
+	g_trs.event_seen = false;
+
+	test_set_channel_hook(trs_wire_nak_hook, &s);
+	if (submit_trs_cmd(&cmd, OSDP_TRS_CMD_CARD_SCAN)) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "failed to submit CARD_SCAN\n");
+		return false;
+	}
+	while (rc++ < 120 && !g_trs.completion_seen) {
+		usleep(100 * 1000);
+	}
+	test_set_channel_hook(NULL, NULL);
+
+	if (!g_trs.completion_seen) {
+		printf(SUB_2 "CARD_SCAN never completed\n");
+		return false;
+	}
+	if (g_trs.last_completion != OSDP_COMPLETION_FAILED) {
+		printf(SUB_2 "NAK'd CARD_SCAN must complete as failed\n");
+		return false;
+	}
+	if (s.xwr_tx_count != 1) {
+		printf(SUB_2 "NAK'd CARD_SCAN must not be retransmitted; "
+		       "saw %d transmissions\n", s.xwr_tx_count);
+		return false;
+	}
+	if (g_trs.status_seen) {
+		printf(SUB_2 "NAK'd CARD_SCAN must not end the session "
+		       "(status %d)\n", g_trs.last_status);
 		return false;
 	}
 
@@ -985,6 +1115,23 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_apdu_error_reply_fails_cmd();
 	result &= test_trs_card_present();
 	result &= test_trs_error_reply();
+	result &= test_trs_session_stop();
+
+	teardown_test_environment();
+
+	/*
+	 * Reader-quirk tests run on a plaintext link, matching the field
+	 * traces they are modeled on: rewriting a reply on the wire would
+	 * desynchronize the secure channel's MAC chain, which a real quirky
+	 * reader never does.
+	 */
+	if (setup_test_environment_ex(t, true) != 0) {
+		printf(SUB_1 "Failed to setup plaintext test environment\n");
+		TEST_REPORT(t, false);
+		return;
+	}
+	result &= test_trs_session_start();
+	result &= test_trs_card_scan_wire_nak();
 	result &= test_trs_session_stop();
 
 	teardown_test_environment();

@@ -472,7 +472,12 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		osdp_metrics_report(pd, OSDP_METRIC_NAK);
 		pd->nak_code = buf[pos];
+		/* Never blind-retransmit a card command: replaying card
+		 * traffic can have card-side effects (PIN retry counters,
+		 * transaction state), and readers are known to NAK an
+		 * unimplemented XWR sub-command with MSG_CHK. */
 		if (pd->nak_code == OSDP_PD_NAK_MSG_CHK &&
+		    pd->cmd_id != CMD_XWR &&
 		    ISSET_FLAG(pd, PD_FLAG_CP_USE_CRC)) {
 			if (!cp_pd_declared_crc(pd)) {
 				LOG_INF("PD NAK'd CRC-16, falling back to checksum");
@@ -1957,6 +1962,17 @@ static bool cp_cmd_failure_is_soft(struct osdp_pd *pd)
 	 * that transaction failed, but the card session is still up. */
 	if (pd->cmd_id == CMD_XWR && pd->reply_id == REPLY_XRD &&
 	    trs_reply_error(pd)) {
+		return true;
+	}
+
+	/* A reader may NAK a card command it does not implement with any code
+	 * it fancies -- the RPK40 answers CARD_SCAN with MSG_CHK. The command
+	 * was delivered and answered; unless the code says the link itself is
+	 * broken, the failure belongs to this one transaction. */
+	if (pd->cmd_id == CMD_XWR && pd->reply_id == REPLY_NAK &&
+	    pd->nak_code != OSDP_PD_NAK_SEQ_NUM &&
+	    pd->nak_code != OSDP_PD_NAK_SC_UNSUP &&
+	    pd->nak_code != OSDP_PD_NAK_SC_COND) {
 		return true;
 	}
 

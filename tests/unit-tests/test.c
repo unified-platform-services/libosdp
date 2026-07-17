@@ -856,8 +856,9 @@ void test_mock_pd_flush(void *data)
 
 #endif /* OPT_OSDP_RX_ZERO_COPY */
 
-int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
-			   uint32_t cp_flags, uint32_t pd_flags)
+static int test_setup_devices_impl(struct test *t, osdp_t **cp, osdp_t **pd,
+				   uint32_t cp_flags, uint32_t pd_flags,
+				   bool with_scbk)
 {
 #ifndef OPT_OSDP_LOG_MINIMAL
 	osdp_logger_init("osdp", t->loglevel, NULL);
@@ -897,7 +898,7 @@ int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 		.address = 101,
 		.baud_rate = 9600,
 		.flags = cp_flags,
-		.scbk = scbk,
+		.scbk = with_scbk ? scbk : NULL,
 	};
 
 	*cp = osdp_cp_setup(&cp_channel, 1, &info_cp);
@@ -952,6 +953,20 @@ int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 	}
 
 	return 0;
+}
+
+int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
+			   uint32_t cp_flags, uint32_t pd_flags)
+{
+	return test_setup_devices_impl(t, cp, pd, cp_flags, pd_flags, true);
+}
+
+/* No SCBK on the CP: the link comes up and stays in plaintext, the way
+ * legacy readers on unprovisioned installs run. */
+int test_setup_devices_plain(struct test *t, osdp_t **cp, osdp_t **pd,
+			     uint32_t cp_flags, uint32_t pd_flags)
+{
+	return test_setup_devices_impl(t, cp, pd, cp_flags, pd_flags, false);
 }
 
 int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd)
