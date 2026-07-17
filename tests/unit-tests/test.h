@@ -142,6 +142,8 @@ void test_write_junit(struct test *t, const char *path);
 int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd);
 int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 			   uint32_t cp_flags, uint32_t pd_flags);
+int test_setup_devices_plain(struct test *t, osdp_t **cp, osdp_t **pd,
+			     uint32_t cp_flags, uint32_t pd_flags);
 bool test_wait_for_online(osdp_t *cp_ctx, int pd_idx, int timeout_sec);
 
 /*
