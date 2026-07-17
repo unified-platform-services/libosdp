@@ -293,6 +293,14 @@ static bool validate_command(struct osdp_pd *pd, struct osdp_cmd *cmd)
 			result = false;
 		}
 		break;
+	case OSDP_CMD_TDSET:
+		if (cmd->tdset.month < 1 || cmd->tdset.month > 12 ||
+		    cmd->tdset.day < 1 || cmd->tdset.day > 31 ||
+		    cmd->tdset.hour > 23 || cmd->tdset.minute > 59 ||
+		    cmd->tdset.second > 59) {
+			result = false;
+		}
+		break;
 	default:
 		break;
 	}
@@ -395,6 +403,12 @@ static int pd_cmd_cap_ok(struct osdp_pd *pd, struct osdp_cmd *cmd)
 	case CMD_TEXT:
 		cap = &pd->cap[OSDP_PD_CAP_READER_TEXT_OUTPUT];
 		if (cap->num_items == 0 || cap->compliance_level == 0) {
+			break;
+		}
+		return 1;
+	case CMD_TDSET:
+		cap = &pd->cap[OSDP_PD_CAP_TIME_KEEPING];
+		if (cap->compliance_level == 0) {
 			break;
 		}
 		return 1;
@@ -790,6 +804,27 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		memcpy(cmd.text.data, buf + pos, cmd.text.length);
+		ret = OSDP_PD_ERR_REPLY;
+		if (!pd_cmd_cap_ok(pd, &cmd)) {
+			break;
+		}
+		if (!do_command_callback(pd, &cmd)) {
+			break;
+		}
+		pd->reply_id = REPLY_ACK;
+		ret = OSDP_PD_ERR_NONE;
+		break;
+	case CMD_TDSET:
+		if (len != CMD_TDSET_DATA_LEN) {
+			break;
+		}
+		cmd.id = OSDP_CMD_TDSET;
+		cmd.tdset.year = bread_u16_le(buf, &pos);
+		cmd.tdset.month = buf[pos++];
+		cmd.tdset.day = buf[pos++];
+		cmd.tdset.hour = buf[pos++];
+		cmd.tdset.minute = buf[pos++];
+		cmd.tdset.second = buf[pos++];
 		ret = OSDP_PD_ERR_REPLY;
 		if (!pd_cmd_cap_ok(pd, &cmd)) {
 			break;

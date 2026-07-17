@@ -682,6 +682,31 @@ static bool test_text_command()
 	return wait_for_command(OSDP_CMD_TEXT, 5);
 }
 
+static bool test_tdset_command()
+{
+	printf(SUB_2 "testing time and date set command\n");
+	reset_test_state();
+
+	struct osdp_cmd cmd = {
+		.id = OSDP_CMD_TDSET,
+		.tdset = {
+			.year = 2026,
+			.month = 7,
+			.day = 17,
+			.hour = 12,
+			.minute = 30,
+			.second = 45,
+		},
+	};
+
+	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+		printf(SUB_2 "Failed to send tdset command\n");
+		return false;
+	}
+
+	return wait_for_command(OSDP_CMD_TDSET, 5);
+}
+
 static bool test_mfg_command_simple()
 {
 	printf(SUB_2 "testing manufacturer command (simple)\n");
@@ -899,6 +924,52 @@ static bool wait_for_cmd_notification(int expected_cmd, int expected_arg1,
 	return false;
 }
 
+static bool test_tdset_invalid_time_naks()
+{
+	printf(SUB_2 "testing tdset command with invalid month NAKs\n");
+	reset_test_state();
+
+	if (osdp_cp_modify_flag(g_test_ctx.cp_ctx, 0,
+				OSDP_FLAG_ENABLE_NOTIFICATION, true)) {
+		printf(SUB_2 "Failed to enable notifications\n");
+		return false;
+	}
+
+	struct osdp_cmd cmd = {
+		.id = OSDP_CMD_TDSET,
+		.tdset = {
+			.year = 2026,
+			.month = 13,
+			.day = 17,
+			.hour = 12,
+			.minute = 30,
+			.second = 45,
+		},
+	};
+
+	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+		printf(SUB_2 "Failed to send tdset command\n");
+		return false;
+	}
+
+	if (!wait_for_cmd_notification(OSDP_CMD_TDSET, -1, 5)) {
+		printf(SUB_2 "NAK not reported (notif arg0=%d arg1=%d seen=%d)\n",
+		       g_test_ctx.notif_cmd_arg0,
+		       g_test_ctx.notif_cmd_arg1,
+		       g_test_ctx.notif_cmd_seen);
+		return false;
+	}
+
+	if (g_test_ctx.cmd_seen && g_test_ctx.last_cmd_id == OSDP_CMD_TDSET) {
+		printf(SUB_2 "PD app callback must not run for invalid time\n");
+		return false;
+	}
+
+	osdp_cp_modify_flag(g_test_ctx.cp_ctx, 0,
+			    OSDP_FLAG_ENABLE_NOTIFICATION, false);
+	return true;
+}
+
 /*
  * The PD app submits its manufacturer reply from within the CMD_MFG callback,
  * so it must ride out as the reply to that command rather than as an ACK
@@ -1106,6 +1177,8 @@ void run_command_tests(struct test *t)
 	overall_result &= test_led_permanent_command();
 	overall_result &= test_output_command();
 	overall_result &= test_text_command();
+	overall_result &= test_tdset_command();
+	overall_result &= test_tdset_invalid_time_naks();
 	overall_result &= test_comset_command();
 	overall_result &= test_status_command();
 	overall_result &= test_keyset_command();

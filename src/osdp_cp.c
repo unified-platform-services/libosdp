@@ -114,6 +114,7 @@ static bool cmd_needs_payload(int cmd_id)
 	case CMD_LED:
 	case CMD_BUZ:
 	case CMD_TEXT:
+	case CMD_TDSET:
 	case CMD_COMSET:
 	case CMD_MFG:
 	case CMD_BIOREAD:
@@ -227,6 +228,17 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 		buf[len++] = cmd->text.length;
 		memcpy(buf + len, cmd->text.data, cmd->text.length);
 		len += cmd->text.length;
+		break;
+	case CMD_TDSET:
+		if (max_len < CMD_TDSET_DATA_LEN) {
+			goto out_of_space;
+		}
+		bwrite_u16_le(cmd->tdset.year, buf, &len);
+		buf[len++] = cmd->tdset.month;
+		buf[len++] = cmd->tdset.day;
+		buf[len++] = cmd->tdset.hour;
+		buf[len++] = cmd->tdset.minute;
+		buf[len++] = cmd->tdset.second;
 		break;
 	case CMD_COMSET:
 		if (max_len < CMD_COMSET_DATA_LEN) {
@@ -827,6 +839,7 @@ static int cp_translate_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	case OSDP_CMD_LED:    return CMD_LED;
 	case OSDP_CMD_BUZZER: return CMD_BUZ;
 	case OSDP_CMD_TEXT:   return CMD_TEXT;
+	case OSDP_CMD_TDSET:  return CMD_TDSET;
 	case OSDP_CMD_COMSET: return CMD_COMSET;
 	case OSDP_CMD_MFG:    return CMD_MFG;
 	case OSDP_CMD_BIOREAD:  return CMD_BIOREAD;
@@ -1399,6 +1412,7 @@ static bool cp_cmd_is_app_owned(int cmd_id)
 	case CMD_LED:
 	case CMD_BUZ:
 	case CMD_TEXT:
+	case CMD_TDSET:
 	case CMD_ISTAT:
 	case CMD_OSTAT:
 	case CMD_LSTAT:
@@ -1475,6 +1489,7 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 	case CMD_LED:    app_cmd = OSDP_CMD_LED;    break;
 	case CMD_BUZ:    app_cmd = OSDP_CMD_BUZZER; break;
 	case CMD_TEXT:   app_cmd = OSDP_CMD_TEXT;   break;
+	case CMD_TDSET:  app_cmd = OSDP_CMD_TDSET;  break;
 	case CMD_COMSET: app_cmd = OSDP_CMD_COMSET; break;
 	case CMD_ISTAT:  app_cmd = OSDP_CMD_STATUS; break;
 	case CMD_OSTAT:  app_cmd = OSDP_CMD_STATUS; break;

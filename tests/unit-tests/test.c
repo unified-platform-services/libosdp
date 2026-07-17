@@ -798,6 +798,7 @@ int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 		{ OSDP_PD_CAP_READER_TEXT_OUTPUT, 1, 1 },
 		{ OSDP_PD_CAP_CONTACT_STATUS_MONITORING, 1, 8 },
 		{ OSDP_PD_CAP_BIOMETRICS, 1, 1 },
+		{ OSDP_PD_CAP_TIME_KEEPING, 1, 0 },
 		{ -1, -1, -1 }
 	};
 

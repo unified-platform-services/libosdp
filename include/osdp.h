@@ -648,6 +648,39 @@ struct osdp_cmd_biomatch {
 };
 
 /**
+ * @brief Set the PD's local time and date (osdp_TDSET). This command is
+ * obsolete in current editions of the OSDP specification; LibOSDP supports
+ * it for interop with legacy devices. The PD is expected to have declared
+ * the @ref OSDP_PD_CAP_TIME_KEEPING capability to accept this command.
+ */
+struct osdp_cmd_tdset {
+	/**
+	 * Full year in local time; eg., 2026
+	 */
+	uint16_t year;
+	/**
+	 * Month of year; 1 - 12
+	 */
+	uint8_t month;
+	/**
+	 * Day of month; 1 - 31
+	 */
+	uint8_t day;
+	/**
+	 * Hours since midnight; 0 - 23
+	 */
+	uint8_t hour;
+	/**
+	 * Minutes past the hour; 0 - 59
+	 */
+	uint8_t minute;
+	/**
+	 * Seconds past the minute; 0 - 59
+	 */
+	uint8_t second;
+};
+
+/**
  * @brief What an output command does to the output line.
  */
 enum osdp_cmd_output_control_code_e {
@@ -1055,6 +1088,7 @@ enum osdp_cmd_e {
 	OSDP_CMD_NOTIFICATION,/**< LibOSDP notification (PD mode, synthesized) */
 	OSDP_CMD_BIOREAD,     /**< Scan and send biometric data command */
 	OSDP_CMD_BIOMATCH,    /**< Scan and match biometric template command */
+	OSDP_CMD_TDSET,       /**< Time and date set command */
 	OSDP_CMD_SENTINEL     /**< Max command value */
 };
 
@@ -1101,6 +1135,7 @@ struct osdp_cmd {
 		struct osdp_notification notif;   /**< LibOSDP notification (PD mode) */
 		struct osdp_cmd_bioread bioread;  /**< Biometric read command structure */
 		struct osdp_cmd_biomatch biomatch; /**< Biometric match command structure */
+		struct osdp_cmd_tdset tdset;      /**< Time and date set command structure */
 	};
 };
 

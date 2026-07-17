@@ -243,7 +243,7 @@ static inline __noreturn void die()
 #define CMD_BUZ		 0x6A
 #define CMD_TEXT	 0x6B
 #define CMD_RMODE	 0x6C /* deprecated: removed from the spec */
-#define CMD_TDSET	 0x6D /* deprecated: removed from the spec */
+#define CMD_TDSET	 0x6D /* obsolete in spec; kept for legacy interop */
 #define CMD_COMSET	 0x6E
 #define CMD_BIOREAD	 0x73
 #define CMD_BIOMATCH	 0x74
@@ -306,6 +306,7 @@ static inline __noreturn void die()
 #define CMD_LED_DATA_LEN          14
 #define CMD_BUZ_DATA_LEN          5
 #define CMD_TEXT_DATA_LEN         6  /* variable length message */
+#define CMD_TDSET_DATA_LEN        7
 #define CMD_COMSET_DATA_LEN       5
 #define CMD_BIOREAD_DATA_LEN      4
 #define CMD_BIOMATCH_DATA_LEN     6  /* variable length message */
