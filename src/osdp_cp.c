@@ -1137,6 +1137,7 @@ static void notify_pd_status(struct osdp_pd *pd, bool is_online)
 	evt.type = OSDP_EVENT_NOTIFICATION;
 	evt.notif.type = OSDP_NOTIFICATION_PD_STATUS;
 	evt.notif.arg0 = is_online;
+	evt.notif.arg1 = 0;
 	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 }
