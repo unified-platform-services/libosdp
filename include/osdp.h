@@ -1175,6 +1175,7 @@ enum osdp_cmd_e {
 	OSDP_CMD_TDSET,       /**< Time and date set command */
 	OSDP_CMD_PIVDATA,     /**< Retrieve PIV object data command */
 	OSDP_CMD_GENAUTH,     /**< General authenticate command */
+	OSDP_CMD_CRAUTH,      /**< Challenge/response authenticate command */
 	OSDP_CMD_SENTINEL     /**< Max command value */
 };
 
@@ -1442,7 +1443,7 @@ struct osdp_event_biomatchr {
 
 /**
  * @brief Payload of a smartcard/PIV reply (`OSDP_EVENT_PIVDATAR` /
- * `OSDP_EVENT_GENAUTHR`).
+ * `OSDP_EVENT_GENAUTHR` / `OSDP_EVENT_CRAUTHR`).
  *
  * These replies travel as OSDP multi-part messages. On the CP, the event
  * carries the fully reassembled payload. On the PD, the application submits
@@ -1475,6 +1476,7 @@ enum osdp_event_type {
 	OSDP_EVENT_BIOMATCHR,     /**< Scan and match biometric template event */
 	OSDP_EVENT_PIVDATAR,      /**< PIV data reply event */
 	OSDP_EVENT_GENAUTHR,      /**< General authenticate reply event */
+	OSDP_EVENT_CRAUTHR,       /**< Challenge/response authenticate reply event */
 	OSDP_EVENT_SENTINEL       /**< Max event value */
 };
 

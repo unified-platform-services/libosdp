@@ -114,6 +114,8 @@ static bool event_is_reply_to(int cmd_id, const struct osdp_event *event)
 		return event->type == OSDP_EVENT_PIVDATAR;
 	case CMD_GENAUTH:
 		return event->type == OSDP_EVENT_GENAUTHR;
+	case CMD_CRAUTH:
+		return event->type == OSDP_EVENT_CRAUTHR;
 	case CMD_OUT:
 		/* The PD may answer osdp_OUT with the resulting output status
 		 * instead of an ACK. See OSDP v2.2 subclause 6.9. */
@@ -186,6 +188,9 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 		break;
 	case OSDP_EVENT_GENAUTHR:
 		reply_code = REPLY_GENAUTHR;
+		break;
+	case OSDP_EVENT_CRAUTHR:
+		reply_code = REPLY_CRAUTHR;
 		break;
 	default:
 		LOG_ERR("Unknown event type %d", event->type);
@@ -432,6 +437,7 @@ static int pd_cmd_cap_ok(struct osdp_pd *pd, struct osdp_cmd *cmd)
 		return 1;
 	case CMD_PIVDATA:
 	case CMD_GENAUTH:
+	case CMD_CRAUTH:
 		cap = &pd->cap[OSDP_PD_CAP_SMART_CARD_SUPPORT];
 		if (cap->compliance_level == 0) {
 			break;
@@ -1023,7 +1029,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		ret = OSDP_PD_ERR_NONE;
 		break;
-	case CMD_GENAUTH: {
+	case CMD_GENAUTH:
+	case CMD_CRAUTH: {
 		int frag;
 
 		if (len < OSDP_MP_HDR_SIZE(OSDP_MP_W16)) {
@@ -1335,7 +1342,8 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_PIVDATAR:
-	case REPLY_GENAUTHR: {
+	case REPLY_GENAUTHR:
+	case REPLY_CRAUTHR: {
 		int n;
 
 		/* The backing event seeds the reply leg on its first

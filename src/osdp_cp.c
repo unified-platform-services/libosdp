@@ -309,6 +309,7 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 		break;
 	case CMD_PIVDATA:
 	case CMD_GENAUTH:
+	case CMD_CRAUTH:
 		ret = osdp_piv_cp_cmd_build(pd, buf + len, max_len);
 		if (ret <= 0) {
 			osdp_piv_abort(pd);
@@ -637,6 +638,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		break;
 	case REPLY_PIVDATAR:
 	case REPLY_GENAUTHR:
+	case REPLY_CRAUTHR:
 		t = osdp_piv_cp_reply_consume(pd, buf, len, &event);
 		if (t < 0) {
 			break;
@@ -1211,6 +1213,7 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		    pd->reply_id == REPLY_BIOMATCHR ||
 		    pd->reply_id == REPLY_PIVDATAR ||
 		    pd->reply_id == REPLY_GENAUTHR ||
+		    pd->reply_id == REPLY_CRAUTHR ||
 		    pd->reply_id == REPLY_RAW ||
 		    pd->reply_id == REPLY_KEYPAD) {
 			return true;
@@ -1243,10 +1246,13 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		return pd->reply_id == REPLY_ACK ||
 		       pd->reply_id == REPLY_PIVDATAR;
 	case CMD_GENAUTH:
+	case CMD_CRAUTH:
 		/* ACK per command fragment (and when the app defers); the
 		 * first reply fragment may answer the final one inline. */
 		return pd->reply_id == REPLY_ACK ||
-		       pd->reply_id == REPLY_GENAUTHR;
+		       (pd->cmd_id == CMD_GENAUTH ?
+				pd->reply_id == REPLY_GENAUTHR :
+				pd->reply_id == REPLY_CRAUTHR);
 	case CMD_LSTAT:        return pd->reply_id == REPLY_LSTATR;
 	case CMD_ISTAT:        return pd->reply_id == REPLY_ISTATR;
 	case CMD_OSTAT:        return pd->reply_id == REPLY_OSTATR;
@@ -1706,7 +1712,9 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	if (cmd->id == OSDP_CMD_FILE_TX) {
 		return osdp_file_tx_command(pd, cmd->file_tx.id,
 					    cmd->file_tx.flags);
-	} else if (cmd->id == OSDP_CMD_PIVDATA || cmd->id == OSDP_CMD_GENAUTH) {
+	} else if (cmd->id == OSDP_CMD_PIVDATA ||
+		   cmd->id == OSDP_CMD_GENAUTH ||
+		   cmd->id == OSDP_CMD_CRAUTH) {
 		/* Multi-exchange op driven from the refresh loop (like
 		 * FILE_TX); it does not ride the command queue. */
 		return osdp_piv_cp_submit(pd, cmd);

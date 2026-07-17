@@ -38,6 +38,13 @@ static const struct piv_family piv_families[] = {
 		.wire_reply = REPLY_GENAUTHR,
 		.event_type = OSDP_EVENT_GENAUTHR,
 	},
+	{
+		.mp_msg = OSDP_MP_MSG_CRAUTH,
+		.app_cmd = OSDP_CMD_CRAUTH,
+		.wire_cmd = CMD_CRAUTH,
+		.wire_reply = REPLY_CRAUTHR,
+		.event_type = OSDP_EVENT_CRAUTHR,
+	},
 };
 
 /* Do GENAUTH/CRAUTH command fragments carry the Algorithm/Key prefix? */
@@ -182,6 +189,7 @@ int osdp_piv_cp_submit(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		piv_op_setup(pd, p, f, cmd->pivdata.element);
 		break;
 	case OSDP_CMD_GENAUTH:
+	case OSDP_CMD_CRAUTH:
 		if (cmd->auth.length == 0 ||
 		    cmd->auth.length > sizeof(p->data)) {
 			LOG_ERR("PIV: invalid challenge length %u",
@@ -246,7 +254,8 @@ int osdp_piv_cp_cmd_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = p->req.element;
 		buf[len++] = p->req.offset;
 		break;
-	case CMD_GENAUTH: {
+	case CMD_GENAUTH:
+	case CMD_CRAUTH: {
 		uint8_t pfx[PIV_AUTH_PFX_LEN] = { p->algorithm, p->key };
 
 		/* Reserve for the command id byte plus the SC padding + MAC

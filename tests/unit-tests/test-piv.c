@@ -60,7 +60,8 @@ static int piv_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 
 	if (cmd->id == OSDP_CMD_PIVDATA) {
 		ctx->last_req = cmd->pivdata;
-	} else if (cmd->id == OSDP_CMD_GENAUTH) {
+	} else if (cmd->id == OSDP_CMD_GENAUTH ||
+		   cmd->id == OSDP_CMD_CRAUTH) {
 		ctx->last_auth = cmd->auth;
 	} else {
 		return 0;
@@ -81,7 +82,8 @@ static int piv_cp_event_callback(void *arg, int pd, struct osdp_event *ev)
 
 	ARG_UNUSED(pd);
 	if (ev->type == OSDP_EVENT_PIVDATAR ||
-	    ev->type == OSDP_EVENT_GENAUTHR) {
+	    ev->type == OSDP_EVENT_GENAUTHR ||
+	    ev->type == OSDP_EVENT_CRAUTHR) {
 		ctx->last_reply = ev->piv_reply;
 		ctx->reply_count++;
 	} else if (ev->type == OSDP_EVENT_NOTIFICATION &&
@@ -207,12 +209,14 @@ static bool test_pivdata_roundtrip(const char *label, bool inline_reply)
 }
 
 /* The challenge fills the app-side buffer, so the command leg itself spans
- * multiple CMD_GENAUTH fragments (with the Algorithm/Key prefix on the first
- * one only) before the multi-fragment reply comes back. */
-static bool test_genauth_roundtrip(const char *label, bool inline_reply)
+ * multiple CMD_GENAUTH/CMD_CRAUTH fragments (with the Algorithm/Key prefix
+ * on the first one only) before the multi-fragment reply comes back. */
+static bool test_auth_roundtrip(const char *name, const char *label,
+				int cmd_id, int reply_event_type,
+				bool inline_reply)
 {
 	struct osdp_cmd cmd = {
-		.id = OSDP_CMD_GENAUTH,
+		.id = cmd_id,
 		.auth = {
 			.algorithm = 0xA7,
 			.key = 0x9E,
@@ -225,8 +229,8 @@ static bool test_genauth_roundtrip(const char *label, bool inline_reply)
 		cmd.auth.data[i] = (uint8_t)(0x10 + i);
 	}
 
-	printf(SUB_2 "GENAUTH %s reply round-trip\n", label);
-	if (!piv_run_op(label, &cmd, OSDP_EVENT_GENAUTHR, inline_reply)) {
+	printf(SUB_2 "%s %s reply round-trip\n", name, label);
+	if (!piv_run_op(label, &cmd, reply_event_type, inline_reply)) {
 		return false;
 	}
 	if (g_piv.last_auth.algorithm != 0xA7 || g_piv.last_auth.key != 0x9E) {
@@ -332,8 +336,14 @@ void run_piv_tests(struct test *t)
 
 	ok &= test_pivdata_roundtrip("inline", true);
 	ok &= test_pivdata_roundtrip("deferred", false);
-	ok &= test_genauth_roundtrip("inline", true);
-	ok &= test_genauth_roundtrip("deferred", false);
+	ok &= test_auth_roundtrip("GENAUTH", "inline", OSDP_CMD_GENAUTH,
+				  OSDP_EVENT_GENAUTHR, true);
+	ok &= test_auth_roundtrip("GENAUTH", "deferred", OSDP_CMD_GENAUTH,
+				  OSDP_EVENT_GENAUTHR, false);
+	ok &= test_auth_roundtrip("CRAUTH", "inline", OSDP_CMD_CRAUTH,
+				  OSDP_EVENT_CRAUTHR, true);
+	ok &= test_auth_roundtrip("CRAUTH", "deferred", OSDP_CMD_CRAUTH,
+				  OSDP_EVENT_CRAUTHR, false);
 	ok &= test_pivdata_busy_reject();
 
 teardown:
