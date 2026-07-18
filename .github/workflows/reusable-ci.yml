@@ -38,6 +38,9 @@ jobs:
 
   MakeBuild:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
     steps:
     - uses: actions/checkout@v7
       with:
@@ -47,7 +50,24 @@ jobs:
     - name: make
       run: make V=1
     - name: make check
-      run: make V=1 check
+      # JUNIT_DIR makes the parallel runner emit one per-case JUnit file per
+      # suite; the steps below publish and archive them even on test failure.
+      run: JUNIT_DIR=junit-results make V=1 check
+    - name: Publish unit-test report
+      uses: mikepenz/action-junit-report@v6
+      if: always()
+      with:
+        report_paths: junit-results/*.xml
+        check_name: Unit Tests (make)
+        detailed_summary: true
+        include_passed: true
+        fail_on_failure: false
+    - name: Upload JUnit XML
+      uses: actions/upload-artifact@v7
+      if: always()
+      with:
+        name: junit-results
+        path: junit-results/*.xml
 
   DoxygenCheck:
     runs-on: ubuntu-latest

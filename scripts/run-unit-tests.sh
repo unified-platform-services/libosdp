@@ -17,6 +17,9 @@ set -u
 BIN="${BIN:-build/unit-test}"
 LOGDIR="${LOGDIR:-build/test-logs}"
 JOBS="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
+# When set, each suite writes per-case JUnit XML to $JUNIT_DIR/<suite>.xml
+# (for CI test reporting). Empty = no JUnit emitted.
+JUNIT_DIR="${JUNIT_DIR:-}"
 
 # Suites that assert real-time protocol timing (file-transfer completion
 # windows, retransmit/link-loss budgets) are unreliable under heavy CPU
@@ -30,6 +33,10 @@ fi
 
 mkdir -p "$LOGDIR"
 rm -f "$LOGDIR"/*.log "$LOGDIR"/*.status 2>/dev/null
+if [ -n "$JUNIT_DIR" ]; then
+	mkdir -p "$JUNIT_DIR"
+	rm -f "$JUNIT_DIR"/*.xml 2>/dev/null
+fi
 
 # Ctrl-C / TERM: stop the suite processes (never the orchestrator itself).
 # The harness treats SIGTERM/SIGINT cooperatively -- it unwinds at the next
@@ -62,7 +69,9 @@ is_serial() {
 # completion (single-line writes stay atomic even from concurrent suites).
 run_suite() {
 	local s="$1"
-	if "$BIN" "$s" >"$LOGDIR/$s.log" 2>&1; then
+	local extra=()
+	[ -n "$JUNIT_DIR" ] && extra=(--junit "$JUNIT_DIR/$s.xml")
+	if "$BIN" "${extra[@]}" "$s" >"$LOGDIR/$s.log" 2>&1; then
 		echo 0 >"$LOGDIR/$s.status"
 		printf '  [PASS] %s\n' "$s"
 	else
