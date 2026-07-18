@@ -349,14 +349,14 @@ class Notification:
     Produced by the library, not by a peer, when `LibFlag.EnableNotification`
     is set. Apps never submit this.
 
-    What `arg0` and `arg1` mean depends on `type`; the properties below name
-    the common readings so callers need not remember the encoding.
+    Each `type` carries its own typed fields; only those relevant to the type
+    are meaningful. The properties below name the common readings.
 
     @see osdp_notification
 
     Example:
         >>> note = Notification(type=NotificationType.Command,
-        ...                     arg0=int(CommandId.LED), arg1=0)
+        ...                     command=int(CommandId.LED), success=True)
         >>> note.command_id.name
         'LED'
         >>> note.succeeded
@@ -366,13 +366,25 @@ class Notification:
     ID: ClassVar[EventId] = EventId.Notification
 
     type: NotificationType = NotificationType.Command
-    """What happened. Determines how arg0 and arg1 are read."""
+    """What happened. Selects which fields below are meaningful."""
 
-    arg0: int = 0
-    """First argument; its meaning depends on `type`."""
+    command: int = 0
+    """Which command completed (CommandId). Only for NotificationType.Command."""
 
-    arg1: int = 0
-    """Second argument; its meaning depends on `type`."""
+    success: bool = False
+    """Whether that command succeeded. Only for NotificationType.Command."""
+
+    active: bool = False
+    """Whether the secure channel is up.
+    Only for NotificationType.SecureChannelStatus."""
+
+    scbk_d: bool = False
+    """True when the SC uses SCBK-D (install key) rather than SCBK.
+    Only for NotificationType.SecureChannelStatus."""
+
+    online: bool = False
+    """Whether the PD is reachable.
+    Only for NotificationType.PeripheralDeviceStatus."""
 
     mp_type: int = 0
     """Multipart family (C enum osdp_mp_msg_type; 1 = file transfer). Only
@@ -393,12 +405,12 @@ class Notification:
     @property
     def command_id(self) -> CommandId:
         """Which command completed. Only for NotificationType.Command."""
-        return CommandId(self.arg0)
+        return CommandId(self.command)
 
     @property
     def succeeded(self) -> bool:
         """Whether that command succeeded. Only for NotificationType.Command."""
-        return self.arg1 == 0
+        return self.success
 
     @property
     def sc_active(self) -> bool:
@@ -406,7 +418,7 @@ class Notification:
 
         Only for NotificationType.SecureChannelStatus.
         """
-        return self.arg0 == 1
+        return self.active
 
     @property
     def pd_online(self) -> bool:
@@ -414,29 +426,23 @@ class Notification:
 
         Only for NotificationType.PeripheralDeviceStatus.
         """
-        return self.arg0 == 1
+        return self.online
 
     @property
     def file_id(self) -> int:
         """Which file was transferred.
 
-        For NotificationType.MultipartDone reads object_id; for other
-        notification types reads arg0.
+        Only for NotificationType.Multipart* (reads object_id).
         """
-        if self.type == NotificationType.MultipartDone:
-            return self.object_id
-        return self.arg0
+        return self.object_id
 
     @property
     def file_tx_outcome(self) -> FileTxOutcome:
         """How the transfer ended.
 
-        For NotificationType.MultipartDone reads outcome; for other
-        notification types reads arg1.
+        Only for NotificationType.MultipartDone (reads outcome).
         """
-        if self.type == NotificationType.MultipartDone:
-            return FileTxOutcome(self.outcome)
-        return FileTxOutcome(self.arg1)
+        return FileTxOutcome(self.outcome)
 
 
 

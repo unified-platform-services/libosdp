@@ -108,7 +108,8 @@ ALL_COMMANDS = [
     commands.Status(type=StatusReportType.Input),
     commands.Status(type=StatusReportType.Input, report=bytes([0, 1, 0, 1])),
     commands.Notification(
-        type=NotificationType.Command, arg0=int(CommandId.LED), arg1=0
+        type=NotificationType.Command, command=int(CommandId.LED),
+        success=True,
     ),
     commands.Notification(
         type=NotificationType.MultipartDone, mp_type=1, object_id=1,
@@ -147,7 +148,7 @@ ALL_EVENTS = [
     events.BioMatch(status=BioStatus.Success, score=250),
     events.Status(type=StatusReportType.Output, report=bytes([1, 0, 1])),
     events.Notification(
-        type=NotificationType.PeripheralDeviceStatus, arg0=1, arg1=0
+        type=NotificationType.PeripheralDeviceStatus, online=True
     ),
     events.Notification(
         type=NotificationType.MultipartStart, mp_type=1, object_id=1,

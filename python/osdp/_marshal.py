@@ -119,9 +119,16 @@ _MP_NOTIFICATION_TYPES = frozenset({
 
 
 def _notification_payload(x) -> Payload:
-    """Multipart notifications marshal the structured mp fields (the C codec
-    requires them and carries no arg0/arg1); every other type marshals the
-    flat arg0/arg1 pair."""
+    """Each notification type marshals its own typed payload; the C codec keys
+    on `type` and reads only the fields that type carries."""
+    if x.type == NotificationType.Command:
+        # Key is "command_id", not "command": the PD command-delivery path
+        # already uses "command" as its command-type discriminator.
+        return {"type": x.type, "command_id": x.command, "success": x.success}
+    if x.type == NotificationType.SecureChannelStatus:
+        return {"type": x.type, "active": x.active, "scbk_d": x.scbk_d}
+    if x.type == NotificationType.PeripheralDeviceStatus:
+        return {"type": x.type, "online": x.online}
     if x.type in _MP_NOTIFICATION_TYPES:
         return {
             "type": x.type,
@@ -131,7 +138,23 @@ def _notification_payload(x) -> Payload:
             "offset": x.offset,
             "outcome": x.outcome,
         }
-    return {"type": x.type, "arg0": x.arg0, "arg1": x.arg1}
+    return {"type": x.type}
+
+
+def _notification_from_payload(cls, p: Payload):
+    """Build a Notification dataclass (`cls`) from a marshalled payload dict,
+    reading only the fields the notification's type carries."""
+    return cls(
+        type=NotificationType(p["type"]),
+        command=p.get("command_id", 0),
+        success=bool(p.get("success", 0)),
+        active=bool(p.get("active", 0)),
+        scbk_d=bool(p.get("scbk_d", 0)),
+        online=bool(p.get("online", 0)),
+        mp_type=p.get("mp_type", 0),
+        object_id=p.get("object_id", 0), total=p.get("total", 0),
+        offset=p.get("offset", 0), outcome=p.get("outcome", 0),
+    )
 
 
 _COMMAND_ENCODERS: dict[type, Callable[[Any], Payload]] = {
@@ -305,12 +328,8 @@ _COMMAND_DECODERS: dict[CommandId, Callable[[Payload], c.Command]] = {
     CommandId.CrAuth: lambda p: c.CrAuth(
         algorithm=p["algorithm"], key=p["key"], data=p["data"]
     ),
-    CommandId.Notification: lambda p: c.Notification(
-        type=NotificationType(p["type"]),
-        arg0=p.get("arg0", 0), arg1=p.get("arg1", 0),
-        mp_type=p.get("mp_type", 0),
-        object_id=p.get("object_id", 0), total=p.get("total", 0),
-        offset=p.get("offset", 0), outcome=p.get("outcome", 0),
+    CommandId.Notification: lambda p: _notification_from_payload(
+        c.Notification, p
     ),
 }
 
@@ -447,12 +466,8 @@ _EVENT_DECODERS: dict[EventId, Callable[[Payload], e.Event]] = {
     EventId.PivData: lambda p: e.PivData(data=p["data"]),
     EventId.GenAuth: lambda p: e.GenAuth(data=p["data"]),
     EventId.CrAuth: lambda p: e.CrAuth(data=p["data"]),
-    EventId.Notification: lambda p: e.Notification(
-        type=NotificationType(p["type"]),
-        arg0=p.get("arg0", 0), arg1=p.get("arg1", 0),
-        mp_type=p.get("mp_type", 0),
-        object_id=p.get("object_id", 0), total=p.get("total", 0),
-        offset=p.get("offset", 0), outcome=p.get("outcome", 0),
+    EventId.Notification: lambda p: _notification_from_payload(
+        e.Notification, p
     ),
 }
 

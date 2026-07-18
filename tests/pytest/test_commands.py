@@ -62,8 +62,8 @@ cp = ControlPanel(pd_info_list, log_level=LogLevel.Debug)
 def cp_check_command_status(cmd_id, expected_outcome=True):
     event = events.Notification(
         type=NotificationType.Command,
-        arg0=int(cmd_id),
-        arg1=0 if expected_outcome else -1,
+        command=int(cmd_id),
+        success=expected_outcome,
     )
     wait_for_notification_event(cp, secure_pd.address, event)
 
@@ -185,8 +185,8 @@ def test_command_tdset_rejected_without_time_keeping():
     assert insecure_pd.get_command(timeout=2) is None
     event = events.Notification(
         type=NotificationType.Command,
-        arg0=int(CommandId.TDSet),
-        arg1=-1,
+        command=int(CommandId.TDSet),
+        success=False,
     )
     wait_for_notification_event(cp, insecure_pd.address, event)
 

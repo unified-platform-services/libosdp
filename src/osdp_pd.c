@@ -541,8 +541,7 @@ static int pd_prebuild_status_reply(struct osdp_pd *pd, int reply_id,
  * command callback. Gated by OSDP_FLAG_ENABLE_NOTIFICATION. Return value
  * is ignored -- these are informational, not wire commands. */
 static void pd_deliver_notification(struct osdp_pd *pd,
-				    enum osdp_notification_type type,
-				    int arg0, int arg1)
+				    const struct osdp_notification *n)
 {
 	struct osdp_cmd cmd = { 0 };
 
@@ -550,23 +549,26 @@ static void pd_deliver_notification(struct osdp_pd *pd,
 		return;
 	}
 	cmd.id = OSDP_CMD_NOTIFICATION;
-	cmd.notif.type = type;
-	cmd.notif.arg0 = arg0;
-	cmd.notif.arg1 = arg1;
+	cmd.notif = *n;
 	(void)pd->command_callback(pd->command_callback_arg, &cmd);
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 }
 
 static void notify_pd_status(struct osdp_pd *pd, bool is_online)
 {
-	pd_deliver_notification(pd, OSDP_NOTIFICATION_PD_STATUS,
-				is_online, 0);
+	struct osdp_notification n = { .type = OSDP_NOTIFICATION_PD_STATUS };
+
+	n.pd_status.online = is_online;
+	pd_deliver_notification(pd, &n);
 }
 
 static void notify_sc_status(struct osdp_pd *pd)
 {
-	pd_deliver_notification(pd, OSDP_NOTIFICATION_SC_STATUS,
-				sc_is_active(pd), sc_use_scbkd(pd));
+	struct osdp_notification n = { .type = OSDP_NOTIFICATION_SC_STATUS };
+
+	n.sc_status.active = sc_is_active(pd);
+	n.sc_status.scbk_d = sc_use_scbkd(pd);
+	pd_deliver_notification(pd, &n);
 }
 
 /* Edge-triggered SC deactivate: only notify the app when the flag

@@ -86,8 +86,8 @@ int test_commands_event_callback(void *arg, int pd, struct osdp_event *ev)
 	if (ev->type == OSDP_EVENT_NOTIFICATION &&
 	    ev->notif.type == OSDP_NOTIFICATION_COMMAND) {
 		ctx->notif_cmd_seen = true;
-		ctx->notif_cmd_arg0 = ev->notif.arg0;
-		ctx->notif_cmd_arg1 = ev->notif.arg1;
+		ctx->notif_cmd_arg0 = ev->notif.command.command;
+		ctx->notif_cmd_arg1 = ev->notif.command.success ? 0 : -1;
 	}
 
 	return 0;

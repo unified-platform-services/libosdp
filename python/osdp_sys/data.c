@@ -521,37 +521,46 @@ static int pyosdp_make_struct_cmd_pivdata(void *payload, PyObject *dict)
 }
 
 /*
- * A notification's payload is a union: MP_* types carry the structured
- * osdp_mp_notification (mp_type/object_id/total/offset/outcome), everything
- * else carries the flat arg0/arg1 pair that aliases its first two ints. Emit
- * whichever the type selects so the outcome (5th mp field, past arg0/arg1)
- * survives the round trip.
+ * A notification's payload is a union keyed by `type`: each kind carries its
+ * own typed struct (command/sc_status/pd_status/mp). Emit/consume the dict keys
+ * the type selects so every field survives the round trip.
  */
-static bool notif_type_is_mp(int type)
-{
-	return type == OSDP_NOTIFICATION_MP_START ||
-	       type == OSDP_NOTIFICATION_MP_PROGRESS ||
-	       type == OSDP_NOTIFICATION_MP_DONE;
-}
-
 static int pyosdp_make_dict_notification(PyObject *obj, const void *payload)
 {
 	const struct osdp_notification *n = payload;
 
 	if (pyosdp_dict_add_int(obj, "type", n->type))
 		return -1;
-	if (notif_type_is_mp(n->type)) {
+	switch (n->type) {
+	case OSDP_NOTIFICATION_COMMAND:
+		/* Key is "command_id", not "command": the command-delivery path
+		 * already uses "command" as its command-type discriminator. */
+		if (pyosdp_dict_add_int(obj, "command_id", n->command.command) ||
+		    pyosdp_dict_add_int(obj, "success", n->command.success))
+			return -1;
+		break;
+	case OSDP_NOTIFICATION_SC_STATUS:
+		if (pyosdp_dict_add_int(obj, "active", n->sc_status.active) ||
+		    pyosdp_dict_add_int(obj, "scbk_d", n->sc_status.scbk_d))
+			return -1;
+		break;
+	case OSDP_NOTIFICATION_PD_STATUS:
+		if (pyosdp_dict_add_int(obj, "online", n->pd_status.online))
+			return -1;
+		break;
+	case OSDP_NOTIFICATION_MP_START:
+	case OSDP_NOTIFICATION_MP_PROGRESS:
+	case OSDP_NOTIFICATION_MP_DONE:
 		if (pyosdp_dict_add_int(obj, "mp_type", n->mp.mp_type) ||
 		    pyosdp_dict_add_int(obj, "object_id", n->mp.object_id) ||
 		    pyosdp_dict_add_int(obj, "total", (int)n->mp.total) ||
 		    pyosdp_dict_add_int(obj, "offset", (int)n->mp.offset) ||
 		    pyosdp_dict_add_int(obj, "outcome", n->mp.outcome))
 			return -1;
-		return 0;
+		break;
+	default:
+		break;
 	}
-	if (pyosdp_dict_add_int(obj, "arg0", n->arg0) ||
-	    pyosdp_dict_add_int(obj, "arg1", n->arg1))
-		return -1;
 	return 0;
 }
 
@@ -563,7 +572,31 @@ static int pyosdp_make_struct_notification(void *payload, PyObject *dict)
 	if (pyosdp_dict_get_int(dict, "type", &type))
 		return -1;
 	n->type = (enum osdp_notification_type)type;
-	if (notif_type_is_mp(type)) {
+	switch (n->type) {
+	case OSDP_NOTIFICATION_COMMAND:
+		if (pyosdp_dict_get_int(dict, "command_id", &val))
+			return -1;
+		n->command.command = (enum osdp_cmd_e)val;
+		if (pyosdp_dict_get_int(dict, "success", &val))
+			return -1;
+		n->command.success = (bool)val;
+		break;
+	case OSDP_NOTIFICATION_SC_STATUS:
+		if (pyosdp_dict_get_int(dict, "active", &val))
+			return -1;
+		n->sc_status.active = (bool)val;
+		if (pyosdp_dict_get_int(dict, "scbk_d", &val))
+			return -1;
+		n->sc_status.scbk_d = (bool)val;
+		break;
+	case OSDP_NOTIFICATION_PD_STATUS:
+		if (pyosdp_dict_get_int(dict, "online", &val))
+			return -1;
+		n->pd_status.online = (bool)val;
+		break;
+	case OSDP_NOTIFICATION_MP_START:
+	case OSDP_NOTIFICATION_MP_PROGRESS:
+	case OSDP_NOTIFICATION_MP_DONE:
 		if (pyosdp_dict_get_int(dict, "mp_type", &val))
 			return -1;
 		n->mp.mp_type = (enum osdp_mp_msg_type)val;
@@ -579,14 +612,10 @@ static int pyosdp_make_struct_notification(void *payload, PyObject *dict)
 		if (pyosdp_dict_get_int(dict, "outcome", &val))
 			return -1;
 		n->mp.outcome = val;
-		return 0;
+		break;
+	default:
+		break;
 	}
-	if (pyosdp_dict_get_int(dict, "arg0", &val))
-		return -1;
-	n->arg0 = val;
-	if (pyosdp_dict_get_int(dict, "arg1", &val))
-		return -1;
-	n->arg1 = val;
 	return 0;
 }
 

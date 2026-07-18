@@ -655,7 +655,7 @@ class Notification:
 
     Example:
         >>> note = Notification(type=NotificationType.PeripheralDeviceStatus,
-        ...                     arg0=1)
+        ...                     online=True)
         >>> note.type.name
         'PeripheralDeviceStatus'
     """
@@ -663,13 +663,25 @@ class Notification:
     ID: ClassVar[CommandId] = CommandId.Notification
 
     type: NotificationType = NotificationType.Command
-    """What happened. Determines how arg0 and arg1 are read."""
+    """What happened. Selects which fields below are meaningful."""
 
-    arg0: int = 0
-    """First argument; its meaning depends on `type`."""
+    command: int = 0
+    """Which command completed (CommandId). Only for NotificationType.Command."""
 
-    arg1: int = 0
-    """Second argument; its meaning depends on `type`."""
+    success: bool = False
+    """Whether that command succeeded. Only for NotificationType.Command."""
+
+    active: bool = False
+    """Whether the secure channel is up.
+    Only for NotificationType.SecureChannelStatus."""
+
+    scbk_d: bool = False
+    """True when the SC uses SCBK-D (install key) rather than SCBK.
+    Only for NotificationType.SecureChannelStatus."""
+
+    online: bool = False
+    """Whether the PD is reachable.
+    Only for NotificationType.PeripheralDeviceStatus."""
 
     mp_type: int = 0
     """Multipart family (C enum osdp_mp_msg_type; 1 = file transfer). Only

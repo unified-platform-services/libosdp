@@ -808,11 +808,10 @@ static int test_mp_notification_union(void)
 {
 	struct osdp_notification n;
 
-	/* Existing callers keep arg0/arg1 unaffected. */
+	/* Non-MP callers use their own typed member. */
 	n.type = OSDP_NOTIFICATION_PD_STATUS;
-	n.arg0 = 1;
-	n.arg1 = 0;
-	if (n.arg0 != 1 || n.arg1 != 0) {
+	n.pd_status.online = true;
+	if (!n.pd_status.online) {
 		return -1;
 	}
 	/* MP_* callers read the structured member. */

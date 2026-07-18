@@ -69,11 +69,12 @@ static int pd_cmd_cb(void *arg, struct osdp_cmd *cmd)
 	switch (cmd->notif.type) {
 	case OSDP_NOTIFICATION_PD_STATUS:
 		notif_record_update(&nx->pd_pd_status, cmd->notif.type,
-				    cmd->notif.arg0, cmd->notif.arg1);
+				    cmd->notif.pd_status.online, 0);
 		break;
 	case OSDP_NOTIFICATION_SC_STATUS:
 		notif_record_update(&nx->pd_sc_status, cmd->notif.type,
-				    cmd->notif.arg0, cmd->notif.arg1);
+				    cmd->notif.sc_status.active,
+				    cmd->notif.sc_status.scbk_d);
 		break;
 	case OSDP_NOTIFICATION_MP_START:
 		notif_record_update(&nx->pd_mp_start, cmd->notif.type,

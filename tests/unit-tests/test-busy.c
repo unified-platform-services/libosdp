@@ -138,8 +138,8 @@ static int busy_test_cp_event_callback(void *arg, int pd,
 	if (ev->type == OSDP_EVENT_NOTIFICATION &&
 	    ev->notif.type == OSDP_NOTIFICATION_COMMAND) {
 		g_ctx.notif_cmd_seen = true;
-		g_ctx.notif_cmd_arg0 = ev->notif.arg0;
-		g_ctx.notif_cmd_arg1 = ev->notif.arg1;
+		g_ctx.notif_cmd_arg0 = ev->notif.command.command;
+		g_ctx.notif_cmd_arg1 = ev->notif.command.success ? 0 : -1;
 	}
 	return 0;
 }

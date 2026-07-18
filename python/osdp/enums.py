@@ -265,18 +265,18 @@ class StatusReportType(_WireEnum):
 class NotificationType(IntEnum):
     """Kind of library notification. @see osdp_notification_type
 
-    The meaning of a notification's `arg0` and `arg1` depends on this type; see
-    `osdp.events.Notification` for typed accessors.
+    Each type carries its own typed fields on `osdp.events.Notification` /
+    `osdp.commands.Notification`; this discriminator selects which are valid.
     """
 
     Command = _sys.NOTIFICATION_COMMAND
-    """A command completed. arg0 is the command id, arg1 is 0 on success."""
+    """A command completed. Carries `command` (id) and `success`."""
 
     SecureChannelStatus = _sys.NOTIFICATION_SC_STATUS
-    """Secure channel changed. arg0 is 1 when active."""
+    """Secure channel changed. Carries `active` and `scbk_d`."""
 
     PeripheralDeviceStatus = _sys.NOTIFICATION_PD_STATUS
-    """PD reachability changed. arg0 is 1 when online."""
+    """PD reachability changed. Carries `online`."""
 
     MultipartStart = _sys.NOTIFICATION_MP_START
     MultipartProgress = _sys.NOTIFICATION_MP_PROGRESS

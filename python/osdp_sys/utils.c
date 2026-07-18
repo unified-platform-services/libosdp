@@ -84,10 +84,9 @@ int pyosdp_module_add_type(PyObject *module, const char *name,
 }
 
 /*
- * Accepts both signed values (such as osdp_notification::arg1 which is -1 on
- * failure) and unsigned 32 bit values (such as OSDP_CMD_FILE_TX_FLAG_CANCEL
- * which is 1 << 31). Both are stored into an int; callers cast to the width
- * their struct field needs.
+ * Accepts both signed values (such as a negative status code) and unsigned
+ * 32 bit values (such as OSDP_CMD_FILE_TX_FLAG_CANCEL which is 1 << 31). Both
+ * are stored into an int; callers cast to the width their struct field needs.
  */
 int pyosdp_parse_int(PyObject *obj, int *res)
 {

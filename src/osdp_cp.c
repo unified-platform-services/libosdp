@@ -1153,8 +1153,7 @@ static void notify_pd_status(struct osdp_pd *pd, bool is_online)
 
 	evt.type = OSDP_EVENT_NOTIFICATION;
 	evt.notif.type = OSDP_NOTIFICATION_PD_STATUS;
-	evt.notif.arg0 = is_online;
-	evt.notif.arg1 = 0;
+	evt.notif.pd_status.online = is_online;
 	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 }
@@ -1170,8 +1169,8 @@ static void notify_sc_status(struct osdp_pd *pd)
 
 	evt.type = OSDP_EVENT_NOTIFICATION;
 	evt.notif.type = OSDP_NOTIFICATION_SC_STATUS;
-	evt.notif.arg0 = sc_is_active(pd);
-	evt.notif.arg1 = sc_use_scbkd(pd);
+	evt.notif.sc_status.active = sc_is_active(pd);
+	evt.notif.sc_status.scbk_d = sc_use_scbkd(pd);
 	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 }
@@ -1607,8 +1606,8 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 
 	evt.type = OSDP_EVENT_NOTIFICATION;
 	evt.notif.type = OSDP_NOTIFICATION_COMMAND;
-	evt.notif.arg0 = app_cmd;
-	evt.notif.arg1 = status ? 0 : -1;
+	evt.notif.command.command = app_cmd;
+	evt.notif.command.success = (status != 0);
 
 	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);

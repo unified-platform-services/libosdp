@@ -115,12 +115,12 @@ def test_pd_receives_pd_status_and_sc_status_notifications():
         with rec.lock:
             assert rec.pd_status_last.type == \
                 NotificationType.PeripheralDeviceStatus
-            assert rec.pd_status_last.arg0 == 1, \
-                f"PD_STATUS arg0={rec.pd_status_last.arg0}, want 1 (online)"
+            assert rec.pd_status_last.online, \
+                f"PD_STATUS online={rec.pd_status_last.online}, want True"
             assert rec.sc_status_last.type == \
                 NotificationType.SecureChannelStatus
-            assert rec.sc_status_last.arg0 == 1, \
-                f"SC_STATUS arg0={rec.sc_status_last.arg0}, want 1 (active)"
+            assert rec.sc_status_last.active, \
+                f"SC_STATUS active={rec.sc_status_last.active}, want True"
     finally:
         _teardown_pair(cp, pd, "notif-pd")
 
@@ -147,8 +147,8 @@ def test_pd_receives_offline_notification_on_cp_silence():
         assert rec.wait_pd_status(timeout=12), \
             "PD never saw offline notification after CP went silent"
         with rec.lock:
-            assert rec.pd_status_last.arg0 == 0, \
-                f"PD_STATUS arg0={rec.pd_status_last.arg0}, want 0 (offline)"
+            assert not rec.pd_status_last.online, \
+                f"PD_STATUS online={rec.pd_status_last.online}, want False"
     finally:
         _teardown_pair(cp, pd, "notif-off")
 

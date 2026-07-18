@@ -1075,32 +1075,27 @@ struct osdp_cmd_file_tx {
  */
 enum osdp_notification_type {
 	/**
-	 * Application command outcome report.
-	 *
-	 * arg0: The command ID
-	 * arg1: outcome -- 0: success; -1: failure;
+	 * Application command outcome report. Payload: `command`
+	 * (@ref osdp_notification_command).
 	 */
 	OSDP_NOTIFICATION_COMMAND,
 	/**
-	 * Secure Channel state change.
+	 * Secure Channel state change. Payload: `sc_status`
+	 * (@ref osdp_notification_sc_status).
 	 *
 	 * Fires on both CP and PD. In CP mode it reports the state of the
 	 * SC session with the addressed PD; in PD mode it reports the state
 	 * of the SC session with the CP.
-	 *
-	 * arg0: status -- 0: inactive; 1: active
-	 * arg1: scbk type -- 0: scbk; 1: scbk-d
 	 */
 	OSDP_NOTIFICATION_SC_STATUS,
 	/**
-	 * Peer link state change.
+	 * Peer link state change. Payload: `pd_status`
+	 * (@ref osdp_notification_pd_status).
 	 *
 	 * In CP mode: the addressed PD has gone online or offline.
 	 * In PD mode: the CP has become reachable (inbound traffic
 	 * observed) or unreachable (no CP activity for
 	 * OSDP_PD_ONLINE_TOUT_MS).
-	 *
-	 * arg0: status -- 0: offline; 1: online
 	 */
 	OSDP_NOTIFICATION_PD_STATUS,
 	/**
@@ -1151,25 +1146,6 @@ struct osdp_mp_notification {
 };
 
 /**
- * @brief LibOSDP notification payload.
- *
- * Carries a libosdp-synthesized notification to the application. The same
- * struct is used in both event (CP) and command (PD) delivery paths. See
- * @ref osdp_notification_type for the per-type meaning of @a arg0 and
- * @a arg1.
- */
-struct osdp_notification {
-	enum osdp_notification_type type;  /**< Notification type */
-	union {
-		struct {
-			int arg0;          /**< Additional data member */
-			int arg1;          /**< Additional data member */
-		};
-		struct osdp_mp_notification mp; /**< For OSDP_NOTIFICATION_MP_* */
-	};
-};
-
-/**
  * @brief OSDP application exposed commands
  */
 enum osdp_cmd_e {
@@ -1191,6 +1167,47 @@ enum osdp_cmd_e {
 	OSDP_CMD_GENAUTH,     /**< General authenticate command */
 	OSDP_CMD_CRAUTH,      /**< Challenge/response authenticate command */
 	OSDP_CMD_SENTINEL     /**< Max command value */
+};
+
+/**
+ * @brief Payload for OSDP_NOTIFICATION_COMMAND.
+ */
+struct osdp_notification_command {
+	enum osdp_cmd_e command; /**< Which application command completed */
+	bool success;            /**< true: succeeded; false: failed */
+};
+
+/**
+ * @brief Payload for OSDP_NOTIFICATION_SC_STATUS.
+ */
+struct osdp_notification_sc_status {
+	bool active;   /**< Secure channel session is up */
+	bool scbk_d;   /**< true: SCBK-D (install key); false: SCBK */
+};
+
+/**
+ * @brief Payload for OSDP_NOTIFICATION_PD_STATUS.
+ */
+struct osdp_notification_pd_status {
+	bool online;   /**< Peer link is online/reachable */
+};
+
+/**
+ * @brief LibOSDP notification payload.
+ *
+ * Carries a libosdp-synthesized notification to the application. The same
+ * struct is used in both event (CP) and command (PD) delivery paths. The
+ * @a type discriminator selects which union member is valid; see
+ * @ref osdp_notification_type.
+ */
+struct osdp_notification {
+	enum osdp_notification_type type;  /**< Notification type */
+	union {
+		struct osdp_notification_command command;     /**< COMMAND */
+		struct osdp_notification_sc_status sc_status; /**< SC_STATUS */
+		struct osdp_notification_pd_status pd_status; /**< PD_STATUS */
+		struct osdp_mp_notification mp;               /**< MP_* */
+	};
 };
 
 /**
