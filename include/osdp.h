@@ -89,6 +89,19 @@ extern "C" {
 #define OSDP_FLAG_ALLOW_EMPTY_ENCRYPTED_DATA_BLOCK 0x00200000
 
 /**
+ * @brief Allow a biometric read reply (REPLY_BIOREADR) to be split across many
+ * packets so templates larger than one packet can be transferred. When set, a
+ * short first reply (its `length` field carrying the total template size, but
+ * fewer bytes physically present) starts a multi-part transfer whose remaining
+ * fragments are pulled by subsequent poll cycles. This is non-conforming to the
+ * standard, so it must be set independently on both the CP and the PD; when it
+ * is not set, LibOSDP expects the whole template in a single packet.
+ *
+ * @note This is an init-only flag; it applies to both CP and PD roles.
+ */
+#define OSDP_FLAG_BIOREADR_MULTIPART 0x00400000
+
+/**
  * @brief Various PD capability function codes.
  */
 enum osdp_pd_cap_function_code_e {
@@ -1123,6 +1136,7 @@ enum osdp_mp_msg_type {
 	OSDP_MP_MSG_PIV,               /**< PIV data (reserved) */
 	OSDP_MP_MSG_GENAUTH,           /**< General auth (reserved) */
 	OSDP_MP_MSG_CRAUTH,            /**< Challenge/response auth (reserved) */
+	OSDP_MP_MSG_BIOREAD,           /**< Biometric read reply */
 };
 
 /**
@@ -1266,14 +1280,15 @@ struct osdp_cmd {
 #endif
 
 /**
- * @brief Max biometric template that fits in a single OSDP packet.
+ * @brief Max biometric template carried in a BIOREADR reply.
  *
- * @note The OSDP spec allows biometric templates to be split across multiple
- * packets (see "Multi-Part Messages"); LibOSDP does not implement multi-part
- * messages, so a template must fit within one packet.
+ * @note A template up to this size fits in a single packet. Larger templates
+ * (up to this ceiling) can be transferred across multiple packets only when
+ * both roles set @ref OSDP_FLAG_BIOREADR_MULTIPART; without that flag a template
+ * must fit within one packet.
  */
 #ifndef OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN
-#define OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN 128
+#define OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN 256
 #endif
 
 /**

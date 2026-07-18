@@ -279,7 +279,8 @@ class BioRead:
     """Scan quality, from 0x00 (worst) to 0xFF (best)."""
 
     data: bytes = b""
-    """The captured template, at most 128 bytes. Empty on failure."""
+    """The captured template. Empty on failure. Larger than one packet only when
+    both roles set `LibFlag.BioReadrMultipart`."""
 
     def __post_init__(self) -> None:
         check_range("reader", self.reader, UINT8_MAX)

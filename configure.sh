@@ -200,7 +200,7 @@ fi
 ## Declare sources
 LIBOSDP_SOURCES+=" src/osdp_common.c src/osdp_phy.c src/osdp_sc.c src/osdp_file.c src/osdp_pd.c"
 LIBOSDP_SOURCES+=" src/osdp_cp.c src/osdp_metrics.c src/osdp_multipart.c"
-LIBOSDP_SOURCES+=" src/osdp_piv.c"
+LIBOSDP_SOURCES+=" src/osdp_piv.c src/osdp_bio.c"
 LIBOSDP_SOURCES+=" utils/src/list.c utils/src/queue.c utils/src/utils.c"
 LIBOSDP_SOURCES+=" utils/src/disjoint_set.c utils/src/crc16.c"
 if [[ -z "${LOG_MINIMAL}" ]]; then

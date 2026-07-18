@@ -7,6 +7,7 @@
 #include "osdp_common.h"
 #include "osdp_file.h"
 #include "osdp_piv.h"
+#include "osdp_bio.h"
 #include "osdp_diag.h"
 #include "osdp_metrics.h"
 
@@ -625,6 +626,13 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			ret = OSDP_PD_ERR_NONE;
 			break;
 		}
+		/* A multi-part biometric read reply in flight likewise continues
+		 * on poll cycles until the whole template is out. */
+		if (osdp_bio_pd_reply_pending(pd)) {
+			pd->reply_id = REPLY_BIOREADR;
+			ret = OSDP_PD_ERR_NONE;
+			break;
+		}
 		/* Check if we have external events in the queue */
 		if (pd_event_dequeue(pd, &queued_event) == 0) {
 			ret = pd_translate_event(pd, queued_event);
@@ -990,6 +998,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		osdp_file_tx_abort(pd);
 		osdp_piv_abort(pd);
+		osdp_bio_abort(pd);
 		pd->reply_id = REPLY_ACK;
 		ret = OSDP_PD_ERR_NONE;
 		break;
@@ -1193,7 +1202,10 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	max_len -= 1;
 
 	event_type = reply_backing_event_type(pd->reply_id);
-	if (event_type >= 0 && (!event || (int)event->type != event_type)) {
+	/* A multi-part BIOREADR continuation is built from the bio context alone;
+	 * its poll-driven fragments carry no backing event. */
+	if (event_type >= 0 && (!event || (int)event->type != event_type) &&
+	    !(pd->reply_id == REPLY_BIOREADR && osdp_bio_pd_reply_pending(pd))) {
 		LOG_ERR("REPLY: %s(%02x) has no matching event to build from",
 			osdp_reply_name(pd->reply_id), pd->reply_id);
 		goto out;
@@ -1374,6 +1386,23 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case REPLY_BIOREADR:
+		if (is_bioreadr_multipart(pd)) {
+			/* The backing event seeds the transfer on its first
+			 * fragment; poll-driven continuations build from the bio
+			 * context alone. */
+			int n = osdp_bio_pd_reply_build(
+				pd,
+				(event &&
+				 (int)event->type == OSDP_EVENT_BIOREADR) ?
+					event : NULL,
+				buf + len, max_len);
+			if (n < 0) {
+				break;
+			}
+			len += n;
+			ret = OSDP_PD_ERR_NONE;
+			break;
+		}
 		if (event->bioreadr.length > OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN) {
 			LOG_ERR("BIOREADR template too long (%d)",
 				event->bioreadr.length);
@@ -1757,6 +1786,9 @@ static void pd_collect_init_flags(struct osdp_pd *pd, uint32_t flags)
 	if (flags & OSDP_FLAG_ALLOW_EMPTY_ENCRYPTED_DATA_BLOCK) {
 		SET_FLAG(pd, PD_FLAG_ALLOW_EMPTY_EDB);
 	}
+	if (flags & OSDP_FLAG_BIOREADR_MULTIPART) {
+		SET_FLAG(pd, PD_FLAG_BIOREADR_MP);
+	}
 }
 
 static int pd_setup_rx_storage(const struct osdp_channel *channel,
@@ -1910,6 +1942,7 @@ void osdp_pd_teardown(osdp_t *ctx)
 #endif /* OPT_OSDP_RX_ZERO_COPY */
 	safe_free(pd->file);
 	safe_free(pd->piv);
+	safe_free(pd->bio);
 	safe_free(pd_ctx->rx_buf);
 	safe_free(pd);
 	safe_free(ctx);

@@ -367,6 +367,7 @@ static inline __noreturn void die()
 #define PD_FLAG_ENABLE_NOTIF    BIT(27) /* See: OSDP_FLAG_ENABLE_NOTIFICATION */
 #define PD_FLAG_CAPTURE_PKT     BIT(28) /* See: OSDP_FLAG_CAPTURE_PACKETS */
 #define PD_FLAG_ALLOW_EMPTY_EDB BIT(29) /* See: OSDP_FLAG_ALLOW_EMPTY_ENCRYPTED_DATA_BLOCK */
+#define PD_FLAG_BIOREADR_MP     BIT(30) /* See: OSDP_FLAG_BIOREADR_MULTIPART */
 
 /* CP event requests; used with make_request() and check_request() */
 #define CP_REQ_RESTART_SC              0x00000001
@@ -554,6 +555,7 @@ struct osdp_pd {
 	struct osdp_secure_channel sc;   /* Secure Channel session context */
 	struct osdp_file *file;          /* File transfer context */
 	struct osdp_piv *piv;            /* Smartcard/PIV multipart context */
+	struct osdp_bio *bio;            /* Biometric read multipart context */
 	struct osdp_metrics metrics;     /* link/protocol health counters */
 
 	/* PD command callback to app with opaque arg pointer as passed by app */
@@ -870,6 +872,10 @@ static inline bool is_packet_trace_enabled(struct osdp_pd *pd) {
 
 static inline bool sc_allow_empty_encrypted_data_block(struct osdp_pd *pd) {
 	return ISSET_FLAG(pd, PD_FLAG_ALLOW_EMPTY_EDB);
+}
+
+static inline bool is_bioreadr_multipart(struct osdp_pd *pd) {
+	return ISSET_FLAG(pd, PD_FLAG_BIOREADR_MP);
 }
 
 static inline bool is_enforce_secure(struct osdp_pd *pd)

@@ -86,6 +86,7 @@ list(APPEND LIB_OSDP_SOURCES
 	${CMAKE_CURRENT_SOURCE_DIR}/osdp_file.c
 	${CMAKE_CURRENT_SOURCE_DIR}/osdp_multipart.c
 	${CMAKE_CURRENT_SOURCE_DIR}/osdp_piv.c
+	${CMAKE_CURRENT_SOURCE_DIR}/osdp_bio.c
 	${CMAKE_CURRENT_SOURCE_DIR}/osdp_metrics.c
 )
 

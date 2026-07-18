@@ -89,6 +89,7 @@ if (CONFIG_LIBOSDP)
 		${OSDP_ROOT}/src/osdp_file.c
 		${OSDP_ROOT}/src/osdp_multipart.c
 		${OSDP_ROOT}/src/osdp_piv.c
+		${OSDP_ROOT}/src/osdp_bio.c
 		${OSDP_ROOT}/src/osdp_metrics.c
 
 		## Utils

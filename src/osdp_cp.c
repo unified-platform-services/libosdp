@@ -9,6 +9,7 @@
 #include "osdp_common.h"
 #include "osdp_file.h"
 #include "osdp_piv.h"
+#include "osdp_bio.h"
 #include "osdp_diag.h"
 #include "osdp_metrics.h"
 
@@ -683,6 +684,17 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_BIOREADR:
+		if (is_bioreadr_multipart(pd)) {
+			t = osdp_bio_cp_reply_consume(pd, buf, len, &event);
+			if (t < 0) {
+				break;
+			}
+			if (t > 0) {
+				cp_dispatch_event(pd, &event);
+			}
+			ret = OSDP_CP_ERR_NONE;
+			break;
+		}
 		if (len < REPLY_BIOREADR_DATA_LEN) {
 			break;
 		}
@@ -1117,6 +1129,11 @@ static int cp_get_online_command(struct osdp_pd *pd)
 		return ret;
 	}
 
+	ret = osdp_bio_cp_get_command(pd);
+	if (ret != 0) {
+		return ret;
+	}
+
 	if (osdp_millis_since(pd->tstamp) > OSDP_PD_POLL_TIMEOUT_MS) {
 		pd->tstamp = osdp_millis_now();
 		return CMD_POLL;
@@ -1427,6 +1444,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 			pd->wait_ms / 1000, state_get_name(cur));
 		osdp_file_tx_abort(pd);
 		osdp_piv_abort(pd);
+		osdp_bio_abort(pd);
 		notify_pd_status(pd, false);
 		break;
 	case OSDP_CP_STATE_SC_CHLNG:
@@ -1438,6 +1456,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		notify_sc_status(pd);
 		osdp_file_tx_abort(pd);
 		osdp_piv_abort(pd);
+		osdp_bio_abort(pd);
 		notify_pd_status(pd, false);
 		osdp_phy_state_reset(pd, true);
 		LOG_INF("PD disabled; going offline until re-enabled");
@@ -1751,6 +1770,9 @@ static void cp_collect_init_flags(struct osdp_pd *pd, uint32_t flags)
 	if (flags & OSDP_FLAG_ALLOW_EMPTY_ENCRYPTED_DATA_BLOCK) {
 		SET_FLAG(pd, PD_FLAG_ALLOW_EMPTY_EDB);
 	}
+	if (flags & OSDP_FLAG_BIOREADR_MULTIPART) {
+		SET_FLAG(pd, PD_FLAG_BIOREADR_MP);
+	}
 }
 
 static int cp_expand_pd_array(struct osdp *ctx, int num_pd,
@@ -1954,6 +1976,7 @@ void osdp_cp_teardown(osdp_t *ctx)
 #ifndef OPT_OSDP_STATIC
 		safe_free(pd->file);
 		safe_free(pd->piv);
+		safe_free(pd->bio);
 #ifdef OPT_OSDP_RX_ZERO_COPY
 		safe_free(pd->rx_pkt);
 #else

@@ -81,6 +81,9 @@ class LibFlag(IntFlag):
     AllowEmptyEncryptedDataBlock = _sys.FLAG_ALLOW_EMPTY_ENCRYPTED_DATA_BLOCK
     """Tolerate peers that send an encrypted data block with no payload."""
 
+    BioReadrMultipart = _sys.FLAG_BIOREADR_MULTIPART
+    """Transfer biometric read replies larger than one packet in multiple parts."""
+
 
 class LogLevel(IntEnum):
     """Verbosity of the library's logger. @see osdp_log_level_e"""
