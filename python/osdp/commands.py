@@ -712,9 +712,9 @@ class PivData:
     @see osdp_cmd_pivdata
 
     Example:
-        >>> cmd = PivData(oid=b"\x5f\xc1\x02", element=7)
+        >>> cmd = PivData(oid=b"\\x5f\\xc1\\x02", element=7)
         >>> cmd.oid
-        b'_\xc1\x02'
+        b'_\\xc1\\x02'
     """
 
     ID: ClassVar[CommandId] = CommandId.PivData
