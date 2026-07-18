@@ -39,5 +39,8 @@
 #define OSDP_PCAP_LINK_TYPE                     (162)
 #define OSDP_PD_NAME_MAXLEN                     (16)
 #define OSDP_MINIMUM_PACKET_SIZE		(128)
+#define OSDP_CP_MAX_PDS                         (8)
+#define OSDP_BIO_OP_TIMEOUT_MS                  (10 * 1000)
+#define OSDP_PIV_OP_TIMEOUT_MS                  (10 * 1000)
 
 #endif /* _OSDP_CONFIG_H_ */
