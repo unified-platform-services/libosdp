@@ -167,15 +167,15 @@ static int busy_test_setup(struct test *t)
 	}
 
 	while (1) {
-		if (rc > 10) {
+		if (rc > 10 * 1000) { /* ~10s online timeout (rc is ms) */
 			printf(SUB_1 "PD failed to come online\n");
 			return -1;
 		}
 		osdp_get_status_mask(g_ctx.cp_ctx, &status);
 		if (status & 1)
 			break;
-		usleep(1000 * 1000);
-		rc++;
+		usleep(20 * 1000);
+		rc += 20;
 	}
 	return 0;
 }

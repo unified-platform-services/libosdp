@@ -117,13 +117,14 @@ static void reset_test_state()
 
 static bool wait_for_command(int expected_cmd_id, int timeout_sec)
 {
-	int rc = 0;
-	while (rc < timeout_sec) {
+	int rc = 0; /* elapsed time in ms */
+	int timeout_ms = timeout_sec * 1000;
+	while (rc < timeout_ms) {
 		if (g_test_ctx.cmd_seen && g_test_ctx.last_cmd_id == expected_cmd_id) {
 			return true;
 		}
-		usleep(1000 * 1000);
-		rc++;
+		usleep(20 * 1000);
+		rc += 20;
 	}
 	return false;
 }

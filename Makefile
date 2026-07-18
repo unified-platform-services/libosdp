@@ -82,7 +82,7 @@ $(O)/unit-test: $(OBJ_TEST)
 
 .PHONY: check
 check: unit-test
-	$(Q)$(O)/unit-test
+	$(Q)BIN=$(O)/unit-test LOGDIR=$(O)/test-logs scripts/run-unit-tests.sh
 
 ## Clean
 

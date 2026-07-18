@@ -76,9 +76,29 @@ include_directories(
 	${PROJECT_SOURCE_DIR}/utils/include
 )
 
-# CTest integration: lets `ctest` (and IDEs) discover the unit tests.
-# osdp_unit_test is EXCLUDE_FROM_ALL so a plain `cmake --build` does not
-# produce the binary. A fixture builds it on demand when ctest runs.
+# CTest integration: one CTest test per suite so `ctest -R ut_piv` runs a
+# single group and `ctest -jN` fans suites out as isolated processes. Process
+# isolation is what makes the parallelism safe -- the harness keeps global mock
+# state (one circbuf/pktq pair, one workqueue) that is fine per-process but must
+# never be shared across suites in threads.
+#
+# The suite name list is derived from test-suites.def -- the single source of
+# truth the C dispatch table also uses -- so CTest registration cannot drift
+# from the binary. SUITE(...) suites exist in both binaries; SUITE_ZC(...)
+# suites are compiled only into the zero-copy binary.
+file(STRINGS test-suites.def _osdp_suite_lines REGEX "^SUITE(_ZC)?\\(")
+set(OSDP_SUITES "")
+set(OSDP_SUITES_ZC_ONLY "")
+foreach(_line ${_osdp_suite_lines})
+	if(_line MATCHES "^SUITE_ZC\\(([A-Za-z0-9_]+)")
+		list(APPEND OSDP_SUITES_ZC_ONLY ${CMAKE_MATCH_1})
+	elseif(_line MATCHES "^SUITE\\(([A-Za-z0-9_]+)")
+		list(APPEND OSDP_SUITES ${CMAKE_MATCH_1})
+	endif()
+endforeach()
+
+# Both binaries are EXCLUDE_FROM_ALL, so a plain `cmake --build` does not
+# produce them. A fixture builds each on demand when ctest runs.
 add_test(NAME osdp_unit_test_build
 	COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
 		--target ${OSDP_UNIT_TEST} --config $<CONFIG>
@@ -86,15 +106,6 @@ add_test(NAME osdp_unit_test_build
 set_tests_properties(osdp_unit_test_build PROPERTIES
 	FIXTURES_SETUP osdp_unit_test_built
 )
-add_test(NAME osdp_unit_test
-	COMMAND ${OSDP_UNIT_TEST}
-	WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
-set_tests_properties(osdp_unit_test PROPERTIES
-	FIXTURES_REQUIRED osdp_unit_test_built
-)
-
-# Same on-demand build + run wiring for the zero-copy regression binary.
 add_test(NAME osdp_unit_test_zc_build
 	COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR}
 		--target ${OSDP_UNIT_TEST}_zc --config $<CONFIG>
@@ -102,18 +113,43 @@ add_test(NAME osdp_unit_test_zc_build
 set_tests_properties(osdp_unit_test_zc_build PROPERTIES
 	FIXTURES_SETUP osdp_unit_test_zc_built
 )
-add_test(NAME osdp_unit_test_zc
-	COMMAND ${OSDP_UNIT_TEST}_zc
-	WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
-set_tests_properties(osdp_unit_test_zc PROPERTIES
-	FIXTURES_REQUIRED osdp_unit_test_zc_built
-)
 
-# `check` and `check-ut` remain as convenience wrappers around ctest so
-# existing docs and CI continue to work unchanged.
+# Suites that assert real-time protocol timing (file-transfer completion
+# windows, retransmit/link-loss budgets) are unreliable under heavy CPU
+# contention: mark them RUN_SERIAL so `ctest -jN` runs them alone and cannot
+# starve their wall-clock wait loops. Keep this list minimal -- RUN_SERIAL on a
+# long suite would erase the parallel speedup.
+set(OSDP_SERIAL_SUITES file_tx)
+
+foreach(_suite ${OSDP_SUITES})
+	add_test(NAME ut_${_suite}
+		COMMAND ${OSDP_UNIT_TEST} ${_suite}
+		WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+	)
+	set_tests_properties(ut_${_suite} PROPERTIES
+		FIXTURES_REQUIRED osdp_unit_test_built
+	)
+	if(_suite IN_LIST OSDP_SERIAL_SUITES)
+		set_tests_properties(ut_${_suite} PROPERTIES RUN_SERIAL TRUE)
+	endif()
+endforeach()
+
+foreach(_suite ${OSDP_SUITES} ${OSDP_SUITES_ZC_ONLY})
+	add_test(NAME ut_zc_${_suite}
+		COMMAND ${OSDP_UNIT_TEST}_zc ${_suite}
+		WORKING_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+	)
+	set_tests_properties(ut_zc_${_suite} PROPERTIES
+		FIXTURES_REQUIRED osdp_unit_test_zc_built
+	)
+	if(_suite IN_LIST OSDP_SERIAL_SUITES)
+		set_tests_properties(ut_zc_${_suite} PROPERTIES RUN_SERIAL TRUE)
+	endif()
+endforeach()
+
+# `check` / `check-ut` stay as the single convenience wrapper around ctest.
 add_custom_target(check
-	COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R osdp_unit_test
+	COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R "^ut_"
 	DEPENDS ${OSDP_UNIT_TEST} ${OSDP_UNIT_TEST}_zc
 	USES_TERMINAL
 )

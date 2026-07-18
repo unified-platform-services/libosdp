@@ -292,15 +292,15 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 
 	rc = 0;
 	while (1) {
-		if (rc > 10) {
+		if (rc > 10 * 1000) { /* ~10s online timeout (rc is ms) */
 			printf(SUB_1 "PD failed to come online");
 			goto error;
 		}
 		osdp_get_status_mask(cp_ctx, &status);
 		if (status & 1)
 			break;
-		usleep(1000 * 1000);
-		rc++;
+		usleep(20 * 1000);
+		rc += 20;
 	}
 
 	printf(SUB_1 "initiating file tx command\n");

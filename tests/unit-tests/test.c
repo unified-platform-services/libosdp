@@ -9,6 +9,8 @@
 #include <time.h>
 #include <stdarg.h>
 #include <pthread.h>
+#include <signal.h>
+#include <fnmatch.h>
 
 #include <osdp.h>
 
@@ -102,6 +104,31 @@ struct test_suite_entry {
 
 static struct test *g_active_test;
 static bool g_color_enabled;
+
+/* Run selection + interruption state, consulted at the per-case DO_TEST gate. */
+static const char *g_case_glob;      /* NULL = run every case in the suite */
+static const char *g_junit_path;     /* NULL = no JUnit XML emitted */
+static volatile sig_atomic_t g_interrupted;
+
+static void test_on_signal(int signum)
+{
+	ARG_UNUSED(signum);
+	g_interrupted = 1;
+}
+
+int test_interrupted(void)
+{
+	return g_interrupted;
+}
+
+bool test_should_run_case(const char *name)
+{
+	if (g_interrupted)
+		return false;
+	if (g_case_glob && fnmatch(g_case_glob, name, 0) != 0)
+		return false;
+	return true;
+}
 
 #define C_RST "\x1b[0m"
 #define C_DIM "\x1b[90m"
@@ -1068,6 +1095,74 @@ static void print_slowest_tests(const struct test *t, int n)
 	}
 }
 
+static void junit_escape(FILE *f, const char *s)
+{
+	for (; *s; s++) {
+		switch (*s) {
+		case '&': fputs("&amp;", f); break;
+		case '<': fputs("&lt;", f); break;
+		case '>': fputs("&gt;", f); break;
+		case '"': fputs("&quot;", f); break;
+		case '\'': fputs("&apos;", f); break;
+		default: fputc((unsigned char)*s, f); break;
+		}
+	}
+}
+
+void test_write_junit(struct test *t, const char *path)
+{
+	const struct test_suite_record *s;
+	const struct test_case_record *rec;
+	FILE *f;
+	int i, j;
+
+	if (!path)
+		return;
+	f = fopen(path, "w");
+	if (!f) {
+		fprintf(stderr, "test: cannot open JUnit file '%s'\n", path);
+		return;
+	}
+
+	fprintf(f, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+	fprintf(f, "<testsuites tests=\"%d\" failures=\"%d\" skipped=\"%d\">\n",
+		t->tests, t->failure + t->errors, t->skipped);
+
+	for (i = 0; i < t->suite_count; i++) {
+		s = &t->suites[i];
+		fprintf(f, "  <testsuite name=\"");
+		junit_escape(f, s->name);
+		fprintf(f, "\" tests=\"%d\" failures=\"%d\" skipped=\"%d\" time=\"%.3f\">\n",
+			s->tests, s->fail + s->error, s->skip,
+			s->duration_ms / 1000.0);
+
+		for (j = 0; j < t->tests; j++) {
+			rec = &t->cases[j];
+			if (strcmp(rec->suite, s->name) != 0)
+				continue;
+			fprintf(f, "    <testcase name=\"");
+			junit_escape(f, rec->name);
+			fprintf(f, "\" classname=\"");
+			junit_escape(f, rec->suite);
+			fprintf(f, "\" time=\"%.3f\"", rec->duration_ms / 1000.0);
+			if (rec->status == TEST_STATUS_PASS) {
+				fprintf(f, "/>\n");
+			} else if (rec->status == TEST_STATUS_SKIP) {
+				fprintf(f, ">\n      <skipped/>\n    </testcase>\n");
+			} else {
+				const char *tag = rec->status == TEST_STATUS_ERROR ?
+						  "error" : "failure";
+				fprintf(f, ">\n      <%s message=\"", tag);
+				junit_escape(f, rec->message[0] ? rec->message : tag);
+				fprintf(f, "\"/>\n    </testcase>\n");
+			}
+		}
+		fprintf(f, "  </testsuite>\n");
+	}
+	fprintf(f, "</testsuites>\n");
+	fclose(f);
+}
+
 int test_end(struct test *t)
 {
 	double total_ms = test_now_ms() - t->run_start_ms;
@@ -1091,6 +1186,8 @@ int test_end(struct test *t)
 	format_duration(total_ms, dur, sizeof(dur));
 	fprintf(stdout, "  Time:     %s\n\n", dur);
 
+	test_write_junit(t, g_junit_path);
+
 	if (t->failure > 0 || t->errors > 0)
 		return -1;
 
@@ -1107,37 +1204,104 @@ static void run_file_tx_suite(struct test *t)
 	run_file_rx_reject_paths_tests(t);
 }
 
+static void test_usage(const char *prog, const struct test_suite_entry *suites,
+		       int n_suites)
+{
+	int i;
+
+	fprintf(stdout,
+		"Usage: %s [options] [suite[:case-glob] ...]\n"
+		"\n"
+		"With no suite arguments every suite runs. Name one or more suites\n"
+		"to run only those; append ':<glob>' to run only matching cases\n"
+		"(glob matches the DO_TEST case name, e.g. piv:test_piv_*).\n"
+		"\n"
+		"Options:\n"
+		"  --list           list suite names, one per line\n"
+		"  --junit <path>   write JUnit XML results to <path>\n"
+		"  -h, --help       show this help\n"
+		"\nSuites:\n", prog);
+	for (i = 0; i < n_suites; i++)
+		fprintf(stdout, "  %s\n", suites[i].name);
+}
+
 int main(int argc, char *argv[])
 {
+	static const struct test_suite_entry suites[] = {
+#define SUITE(name, fn) { #name, fn },
+#ifdef OPT_OSDP_RX_ZERO_COPY
+/* Zero-copy canary runs first: a precise signal before the long general suites. */
+#define SUITE_ZC(name, fn) SUITE(name, fn)
+#else
+#define SUITE_ZC(name, fn)
+#endif
+#include "test-suites.def"
+#undef SUITE
+#undef SUITE_ZC
+	};
+	const int n_suites = (int)(sizeof(suites) / sizeof(suites[0]));
+	bool run_it[TEST_MAX_SUITES];
+	bool any_selected = false;
 	int i, rc;
 	struct test t;
-	static const struct test_suite_entry suites[] = {
-#ifdef OPT_OSDP_RX_ZERO_COPY
-		/* Fast zero-copy canary first: gives a precise signal before the
-		 * long general suites, which also cover the prebuilt-reply path
-		 * but abort hard if a reply's packet_buf is lost. */
-		{ "pd_zc", run_pd_zc_tests },
-#endif
-		{ "cp_phy", run_cp_phy_tests },
-		{ "pd_phy", run_pd_phy_tests },
-		{ "cp_fsm", run_cp_fsm_tests },
-		{ "busy", run_busy_tests },
-		{ "file_tx", run_file_tx_suite },
-		{ "commands", run_command_tests },
-		{ "events", run_event_tests },
-		{ "bio", run_bio_tests },
-		{ "multipart", run_multipart_tests },
-		{ "piv", run_piv_tests },
-		{ "hotplug", run_hotplug_tests },
-		{ "notifications", run_notification_tests },
-		{ "async_fuzz", run_async_fuzz_tests },
-		{ "codec_fuzz", run_codec_fuzz_tests },
-		{ "sc", run_sc_tests },
-		{ "vectors", run_vector_tests },
-	};
 
-	ARG_UNUSED(argc);
-	ARG_UNUSED(argv);
+	for (i = 0; i < n_suites; i++)
+		run_it[i] = false;
+
+	for (i = 1; i < argc; i++) {
+		char *a = argv[i];
+		char *colon;
+		int j, found = -1;
+
+		if (!strcmp(a, "--list")) {
+			for (j = 0; j < n_suites; j++)
+				fprintf(stdout, "%s\n", suites[j].name);
+			return 0;
+		}
+		if (!strcmp(a, "-h") || !strcmp(a, "--help")) {
+			test_usage(argv[0], suites, n_suites);
+			return 0;
+		}
+		if (!strcmp(a, "--junit")) {
+			if (i + 1 >= argc) {
+				fprintf(stderr, "test: --junit needs a path\n");
+				return 2;
+			}
+			g_junit_path = argv[++i];
+			continue;
+		}
+		if (a[0] == '-') {
+			fprintf(stderr, "test: unknown option '%s'\n", a);
+			return 2;
+		}
+
+		/* positional: suite name, optionally suffixed with :case-glob */
+		colon = strchr(a, ':');
+		if (colon) {
+			*colon = '\0';
+			g_case_glob = colon + 1;
+		}
+		for (j = 0; j < n_suites; j++) {
+			if (!strcmp(a, suites[j].name)) {
+				found = j;
+				break;
+			}
+		}
+		if (found < 0) {
+			fprintf(stderr, "test: unknown suite '%s'\n", a);
+			return 2;
+		}
+		run_it[found] = true;
+		any_selected = true;
+	}
+
+	if (!any_selected) {
+		for (i = 0; i < n_suites; i++)
+			run_it[i] = true;
+	}
+
+	signal(SIGINT, test_on_signal);
+	signal(SIGTERM, test_on_signal);
 
 	srand(time(NULL));
 
@@ -1145,7 +1309,9 @@ int main(int argc, char *argv[])
 
 	test_start(&t, OSDP_LOG_INFO);
 
-	for (i = 0; i < (int)(sizeof(suites) / sizeof(suites[0])); i++) {
+	for (i = 0; i < n_suites && !g_interrupted; i++) {
+		if (!run_it[i])
+			continue;
 		test_suite_begin(&t, suites[i].name);
 		if (suites[i].run) {
 			suites[i].run(&t);
@@ -1156,6 +1322,9 @@ int main(int argc, char *argv[])
 	rc = test_end(&t);
 
 	workqueue_destroy(&test_wq);
+
+	if (g_interrupted)
+		return 130;
 
 	return rc;
 }

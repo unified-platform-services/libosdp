@@ -1,0 +1,34 @@
+/*
+ * Copyright (c) 2026 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Single source of truth for the unit-test suite registry.
+ *
+ * Consumers define SUITE(name, run_fn) before including this file:
+ *   - test.c builds the dispatch table `suites[]`.
+ *   - tests/unit-tests/CMakeLists.txt greps `^SUITE(` / `^SUITE_ZC(` to
+ *     register one CTest test per suite.
+ *
+ * SUITE_ZC(...) marks zero-copy-only suites: compiled into the table only when
+ * OPT_OSDP_RX_ZERO_COPY is set, and registered only for the *_zc CTest lane.
+ * It is listed first so the zero-copy build runs it as an early canary.
+ */
+
+SUITE_ZC(pd_zc, run_pd_zc_tests)
+SUITE(cp_phy, run_cp_phy_tests)
+SUITE(pd_phy, run_pd_phy_tests)
+SUITE(cp_fsm, run_cp_fsm_tests)
+SUITE(busy, run_busy_tests)
+SUITE(file_tx, run_file_tx_suite)
+SUITE(commands, run_command_tests)
+SUITE(events, run_event_tests)
+SUITE(bio, run_bio_tests)
+SUITE(multipart, run_multipart_tests)
+SUITE(piv, run_piv_tests)
+SUITE(hotplug, run_hotplug_tests)
+SUITE(notifications, run_notification_tests)
+SUITE(async_fuzz, run_async_fuzz_tests)
+SUITE(codec_fuzz, run_codec_fuzz_tests)
+SUITE(sc, run_sc_tests)
+SUITE(vectors, run_vector_tests)

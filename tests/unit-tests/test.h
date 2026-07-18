@@ -84,8 +84,10 @@ struct test {
 
 #define DO_TEST(t, m)                                                          \
 	do {                                                                   \
-		test_case_begin((t), #m);                                      \
-		test_case_end((t), (m((t)->mock_data)));                       \
+		if (test_should_run_case(#m)) {                                \
+			test_case_begin((t), #m);                              \
+			test_case_end((t), (m((t)->mock_data)));               \
+		}                                                              \
 	} while (0)
 
 #define TEST_REPORT(t, s)                                                      \
@@ -113,6 +115,15 @@ void test_case_end(struct test *t, int rc);
 void test_report(struct test *t, const char *func, int line, bool status);
 void test_suite_begin(struct test *t, const char *name);
 void test_suite_end(struct test *t);
+
+/*
+ * Case-level gate consulted by DO_TEST: returns false when the run was
+ * interrupted (Ctrl-C) or when a `suite:case-glob` filter excludes this name,
+ * so the case is neither run nor recorded.
+ */
+bool test_should_run_case(const char *name);
+int test_interrupted(void);
+void test_write_junit(struct test *t, const char *path);
 
 /* Helpers */
 int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd);
