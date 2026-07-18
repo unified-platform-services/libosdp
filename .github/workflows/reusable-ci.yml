@@ -38,9 +38,6 @@ jobs:
 
   MakeBuild:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      checks: write
     steps:
     - uses: actions/checkout@v7
       with:
@@ -53,15 +50,13 @@ jobs:
       # JUNIT_DIR makes the parallel runner emit one per-case JUnit file per
       # suite; the steps below publish and archive them even on test failure.
       run: JUNIT_DIR=junit-results make V=1 check
-    - name: Publish unit-test report
-      uses: mikepenz/action-junit-report@v6
+    - name: Publish unit-test summary
+      # Renders a per-case table into the run's job summary. Writes only to
+      # $GITHUB_STEP_SUMMARY, so it needs no GITHUB_TOKEN permissions.
+      uses: test-summary/action@v2
       if: always()
       with:
-        report_paths: junit-results/*.xml
-        check_name: Unit Tests (make)
-        detailed_summary: true
-        include_passed: true
-        fail_on_failure: false
+        paths: junit-results/*.xml
     - name: Upload JUnit XML
       uses: actions/upload-artifact@v7
       if: always()
