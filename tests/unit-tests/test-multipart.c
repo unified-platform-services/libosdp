@@ -830,37 +830,36 @@ static int test_mp_notification_union(void)
 
 void run_multipart_tests(struct test *t)
 {
-	bool result = true;
-
 	printf("\nBegin Multipart Engine Tests\n");
 
-	result &= (test_mp_hdr_roundtrip_w16() == 0);
-	result &= (test_mp_hdr_roundtrip_w32() == 0);
-	result &= (test_mp_hdr_read_short() == 0);
-	result &= (test_mp_tx_single_frame() == 0);
-	result &= (test_mp_tx_multi_frame() == 0);
-	result &= (test_mp_rx_roundtrip() == 0);
-	result &= (test_mp_rx_reject_gap() == 0);
-	result &= (test_mp_rx_reject_oversize() == 0);
-	result &= (test_mp_rx_early_terminate() == 0);
-	result &= (test_mp_rx_reject_differing_total() == 0);
-	result &= (test_mp_rx_first_frame_error_keeps_total_clean() == 0);
-	result &= (test_mp_rx_init_with_total_hint() == 0);
-	result &= (test_mp_rx_reject_truncated() == 0);
-	result &= (test_mp_rx_retransmit_tolerated() == 0);
-	result &= (test_mp_tx_progress_counts() == 0);
-	result &= (test_mp_prefix_roundtrip() == 0);
-	result &= (test_mp_stream_roundtrip() == 0);
-	result &= (test_mp_rx_retry() == 0);
-	result &= (test_mp_tx_keepalive_on_busy() == 0);
-	result &= (test_mp_lifecycle_on_complete() == 0);
-	result &= (test_mp_start_latch() == 0);
-	result &= (test_mp_finish_outcome() == 0);
-	result &= (test_mp_tx_next_action() == 0);
-	result &= (test_mp_finish_idempotent() == 0);
-	result &= (test_mp_notification_union() == 0);
-
-	printf(SUB_1 "Multipart engine tests %s\n",
-	       result ? "succeeded" : "failed");
-	TEST_REPORT(t, result);
+	TEST_CASE(t, "mp_hdr_roundtrip_w16", test_mp_hdr_roundtrip_w16() == 0);
+	TEST_CASE(t, "mp_hdr_roundtrip_w32", test_mp_hdr_roundtrip_w32() == 0);
+	TEST_CASE(t, "mp_hdr_read_short", test_mp_hdr_read_short() == 0);
+	TEST_CASE(t, "mp_tx_single_frame", test_mp_tx_single_frame() == 0);
+	TEST_CASE(t, "mp_tx_multi_frame", test_mp_tx_multi_frame() == 0);
+	TEST_CASE(t, "mp_rx_roundtrip", test_mp_rx_roundtrip() == 0);
+	TEST_CASE(t, "mp_rx_reject_gap", test_mp_rx_reject_gap() == 0);
+	TEST_CASE(t, "mp_rx_reject_oversize", test_mp_rx_reject_oversize() == 0);
+	TEST_CASE(t, "mp_rx_early_terminate", test_mp_rx_early_terminate() == 0);
+	TEST_CASE(t, "mp_rx_reject_differing_total",
+		  test_mp_rx_reject_differing_total() == 0);
+	TEST_CASE(t, "mp_rx_first_frame_error_keeps_total_clean",
+		  test_mp_rx_first_frame_error_keeps_total_clean() == 0);
+	TEST_CASE(t, "mp_rx_init_with_total_hint",
+		  test_mp_rx_init_with_total_hint() == 0);
+	TEST_CASE(t, "mp_rx_reject_truncated", test_mp_rx_reject_truncated() == 0);
+	TEST_CASE(t, "mp_rx_retransmit_tolerated",
+		  test_mp_rx_retransmit_tolerated() == 0);
+	TEST_CASE(t, "mp_tx_progress_counts", test_mp_tx_progress_counts() == 0);
+	TEST_CASE(t, "mp_prefix_roundtrip", test_mp_prefix_roundtrip() == 0);
+	TEST_CASE(t, "mp_stream_roundtrip", test_mp_stream_roundtrip() == 0);
+	TEST_CASE(t, "mp_rx_retry", test_mp_rx_retry() == 0);
+	TEST_CASE(t, "mp_tx_keepalive_on_busy", test_mp_tx_keepalive_on_busy() == 0);
+	TEST_CASE(t, "mp_lifecycle_on_complete",
+		  test_mp_lifecycle_on_complete() == 0);
+	TEST_CASE(t, "mp_start_latch", test_mp_start_latch() == 0);
+	TEST_CASE(t, "mp_finish_outcome", test_mp_finish_outcome() == 0);
+	TEST_CASE(t, "mp_tx_next_action", test_mp_tx_next_action() == 0);
+	TEST_CASE(t, "mp_finish_idempotent", test_mp_finish_idempotent() == 0);
+	TEST_CASE(t, "mp_notification_union", test_mp_notification_union() == 0);
 }

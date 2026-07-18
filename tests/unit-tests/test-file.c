@@ -419,7 +419,7 @@ void run_file_tx_tests(struct test *t, bool line_noise)
 		.verify_content = true,
 	};
 
-	TEST_REPORT(t, run_one_file_tx_case(t, &opts));
+	TEST_CASE(t, "file_tx_baseline", run_one_file_tx_case(t, &opts));
 }
 
 void run_file_tx_intermittent_tests(struct test *t)
@@ -436,7 +436,7 @@ void run_file_tx_intermittent_tests(struct test *t)
 		.verify_content = true,
 	};
 
-	TEST_REPORT(t, run_one_file_tx_case(t, &opts));
+	TEST_CASE(t, "file_tx_intermittent", run_one_file_tx_case(t, &opts));
 }
 
 /* Wire status codes, mirroring the private ones in osdp_file.c. */
@@ -604,7 +604,7 @@ teardown:
 	osdp_cp_teardown(cp_ctx);
 	osdp_pd_teardown(pd_ctx);
 done:
-	TEST_REPORT(t, result);
+	TEST_CASE(t, "file_tx_pd_keep_alive", result);
 }
 
 static int16_t stat_reply_status(const uint8_t *stat)
@@ -713,7 +713,7 @@ teardown:
 	osdp_cp_teardown(cp_ctx);
 	osdp_pd_teardown(pd_ctx);
 done:
-	TEST_REPORT(t, result);
+	TEST_CASE(t, "file_rx_idle_frame", result);
 }
 
 /*
@@ -829,7 +829,7 @@ teardown:
 	osdp_cp_teardown(cp_ctx);
 	osdp_pd_teardown(pd_ctx);
 done:
-	TEST_REPORT(t, result);
+	TEST_CASE(t, "file_rx_reject_paths", result);
 }
 
 void run_file_tx_permanent_busy_tests(struct test *t)
@@ -845,5 +845,5 @@ void run_file_tx_permanent_busy_tests(struct test *t)
 		.verify_content = false,
 	};
 
-	TEST_REPORT(t, run_one_file_tx_case(t, &opts));
+	TEST_CASE(t, "file_tx_permanent_busy", run_one_file_tx_case(t, &opts));
 }

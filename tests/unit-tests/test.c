@@ -205,33 +205,21 @@ static int test_vprintf_colored(const char *prefix_color, const char *fmt,
 int test_printf(const char *fmt, ...)
 {
 	va_list ap;
-	const char *color = NULL;
-	bool warn = false;
-	bool err = false;
+	const char *color = C_DIM;
 	int ret;
 
+	/*
+	 * Colorize by message text as a visual hint only. Do NOT derive
+	 * pass/fail from log text: case outcome comes from the DO_TEST/TEST_CASE
+	 * return code, and libosdp itself logs legitimate "[ERROR] ..." lines
+	 * (e.g. a deliberately-disabled PD) that must not fail the run.
+	 */
 	if (fmt && (text_has(fmt, "Warning") || text_has(fmt, "WARN") ||
 		    text_has(fmt, "skip"))) {
-		warn = true;
+		color = C_YEL;
 	} else if (fmt && (text_has(fmt, "error") || text_has(fmt, "Error") ||
 			   text_has(fmt, "failed") || text_has(fmt, "FAIL"))) {
-		err = true;
-	}
-
-	if (warn) {
-		color = C_YEL;
-		if (g_active_test && g_active_test->current_case_idx >= 0) {
-			g_active_test->warnings++;
-			g_active_test->cases[g_active_test->current_case_idx].warn_count++;
-		}
-	} else if (err) {
 		color = C_RED;
-		if (g_active_test && g_active_test->current_case_idx >= 0) {
-			g_active_test->errors++;
-			g_active_test->cases[g_active_test->current_case_idx].error_count++;
-		}
-	} else {
-		color = C_DIM;
 	}
 
 	va_start(ap, fmt);

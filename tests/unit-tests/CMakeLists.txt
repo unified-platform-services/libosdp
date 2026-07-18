@@ -18,26 +18,9 @@ add_definitions(-DUNIT_TESTING -DOSDP_PD_ONLINE_TOUT_MS=1500
 add_library(${LIB_OSDP_TEST} STATIC EXCLUDE_FROM_ALL
 	    ${LIB_OSDP_SOURCES} ${PROJECT_SOURCE_DIR}/src/osdp_file.c)
 
-list(APPEND OSDP_UNIT_TEST_SRC
-	test.c
-	test-cp-phy.c
-	test-pd-phy.c
-	test-cp-fsm.c
-	test-busy.c
-	test-file.c
-	test-multipart.c
-	test-piv.c
-	test-commands.c
-	test-events.c
-	test-bio.c
-	test-hotplug.c
-	test-notifications.c
-	test-async-fuzz.c
-	test-codec-fuzz.c
-	test-sc.c
-	test-sc-sia-vectors.c
-	test-pd-zc.c
-)
+# Suite source files come from the shared manifest so the lean and CMake
+# builds never drift; see test-sources.list.
+file(STRINGS test-sources.list OSDP_UNIT_TEST_SRC REGEX "\\.c$")
 
 add_executable(${OSDP_UNIT_TEST} EXCLUDE_FROM_ALL ${OSDP_UNIT_TEST_SRC})
 

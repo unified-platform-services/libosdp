@@ -394,8 +394,6 @@ static bool test_mfgstat_events()
 
 void run_event_tests(struct test *t)
 {
-	bool overall_result = true;
-
 	printf("\nBegin Event Tests (pytest-style)\n");
 
 	/* Setup test environment once */
@@ -407,17 +405,13 @@ void run_event_tests(struct test *t)
 
 	printf(SUB_1 "running event tests\n");
 
-	/* Run all event tests */
-	overall_result &= test_cardread_event();
-	overall_result &= test_keypress_event();
-	overall_result &= test_input_status_event();
-	overall_result &= test_output_status_event();
-	overall_result &= test_mfgrep_event();
-	overall_result &= test_mfgstat_events();
+	TEST_CASE(t, "cardread_event", test_cardread_event());
+	TEST_CASE(t, "keypress_event", test_keypress_event());
+	TEST_CASE(t, "input_status_event", test_input_status_event());
+	TEST_CASE(t, "output_status_event", test_output_status_event());
+	TEST_CASE(t, "mfgrep_event", test_mfgrep_event());
+	TEST_CASE(t, "mfgstat_events", test_mfgstat_events());
 
 	/* Teardown test environment */
 	teardown_test_environment();
-
-	printf(SUB_1 "Event tests %s\n", overall_result ? "succeeded" : "failed");
-	TEST_REPORT(t, overall_result);
 }

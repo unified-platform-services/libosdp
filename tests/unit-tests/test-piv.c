@@ -296,7 +296,6 @@ static bool test_pivdata_busy_reject(void)
 
 void run_piv_tests(struct test *t)
 {
-	bool ok = true;
 	int rc = 0;
 	uint8_t status = 0;
 
@@ -317,14 +316,14 @@ void run_piv_tests(struct test *t)
 	g_piv.pd_runner = async_runner_start(g_piv.pd_ctx, osdp_pd_refresh);
 	if (g_piv.cp_runner < 0 || g_piv.pd_runner < 0) {
 		printf(SUB_1 "Failed to create CP/PD runners\n");
-		ok = false;
+		TEST_REPORT(t, false);
 		goto teardown;
 	}
 
 	while (1) {
 		if (rc++ > 20) {
 			printf(SUB_1 "PD failed to come online\n");
-			ok = false;
+			TEST_REPORT(t, false);
 			goto teardown;
 		}
 		osdp_get_status_mask(g_piv.cp_ctx, &status);
@@ -334,22 +333,27 @@ void run_piv_tests(struct test *t)
 		usleep(100 * 1000);
 	}
 
-	ok &= test_pivdata_roundtrip("inline", true);
-	ok &= test_pivdata_roundtrip("deferred", false);
-	ok &= test_auth_roundtrip("GENAUTH", "inline", OSDP_CMD_GENAUTH,
-				  OSDP_EVENT_GENAUTHR, true);
-	ok &= test_auth_roundtrip("GENAUTH", "deferred", OSDP_CMD_GENAUTH,
-				  OSDP_EVENT_GENAUTHR, false);
-	ok &= test_auth_roundtrip("CRAUTH", "inline", OSDP_CMD_CRAUTH,
-				  OSDP_EVENT_CRAUTHR, true);
-	ok &= test_auth_roundtrip("CRAUTH", "deferred", OSDP_CMD_CRAUTH,
-				  OSDP_EVENT_CRAUTHR, false);
-	ok &= test_pivdata_busy_reject();
+	TEST_CASE(t, "pivdata_roundtrip_inline",
+		  test_pivdata_roundtrip("inline", true));
+	TEST_CASE(t, "pivdata_roundtrip_deferred",
+		  test_pivdata_roundtrip("deferred", false));
+	TEST_CASE(t, "genauth_inline",
+		  test_auth_roundtrip("GENAUTH", "inline", OSDP_CMD_GENAUTH,
+				      OSDP_EVENT_GENAUTHR, true));
+	TEST_CASE(t, "genauth_deferred",
+		  test_auth_roundtrip("GENAUTH", "deferred", OSDP_CMD_GENAUTH,
+				      OSDP_EVENT_GENAUTHR, false));
+	TEST_CASE(t, "crauth_inline",
+		  test_auth_roundtrip("CRAUTH", "inline", OSDP_CMD_CRAUTH,
+				      OSDP_EVENT_CRAUTHR, true));
+	TEST_CASE(t, "crauth_deferred",
+		  test_auth_roundtrip("CRAUTH", "deferred", OSDP_CMD_CRAUTH,
+				      OSDP_EVENT_CRAUTHR, false));
+	TEST_CASE(t, "pivdata_busy_reject", test_pivdata_busy_reject());
 
 teardown:
 	async_runner_stop(g_piv.cp_runner);
 	async_runner_stop(g_piv.pd_runner);
 	osdp_cp_teardown(g_piv.cp_ctx);
 	osdp_pd_teardown(g_piv.pd_ctx);
-	TEST_REPORT(t, ok);
 }

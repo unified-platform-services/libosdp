@@ -576,8 +576,6 @@ err:
 
 void run_notification_tests(struct test *t)
 {
-	bool ok = true;
-
 	printf("\nBegin Notification Tests\n");
 
 	g_nx.t = t;
@@ -589,16 +587,18 @@ void run_notification_tests(struct test *t)
 		TEST_REPORT(t, false);
 		return;
 	}
-	ok &= test_pd_online_and_sc_notifications();
-	ok &= test_pd_offline_on_cp_silence();
+	TEST_CASE(t, "pd_online_and_sc_notifications",
+		  test_pd_online_and_sc_notifications());
+	TEST_CASE(t, "pd_offline_on_cp_silence",
+		  test_pd_offline_on_cp_silence());
 	teardown_env();
 
 	/* Group B: file_tx notifications (separate envs so each test
 	 * starts from a freshly-online link) */
-	ok &= test_file_tx_notifies_both_roles();
-	ok &= test_cp_file_tx_abort_on_disable();
-	ok &= test_pd_file_tx_abort_on_offline();
-
-	printf(SUB_1 "Notification tests %s\n", ok ? "succeeded" : "failed");
-	TEST_REPORT(t, ok);
+	TEST_CASE(t, "file_tx_notifies_both_roles",
+		  test_file_tx_notifies_both_roles());
+	TEST_CASE(t, "cp_file_tx_abort_on_disable",
+		  test_cp_file_tx_abort_on_disable());
+	TEST_CASE(t, "pd_file_tx_abort_on_offline",
+		  test_pd_file_tx_abort_on_offline());
 }

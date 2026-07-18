@@ -274,7 +274,6 @@ void run_bio_tests(struct test *t)
 {
 	osdp_t *cp = NULL, *pd_ctx = NULL;
 	struct osdp_pd *pd, *cp_pd;
-	bool result = true;
 
 	printf("\nBegin Biometric Tests\n");
 
@@ -289,19 +288,20 @@ void run_bio_tests(struct test *t)
 	osdp_pd_set_command_callback(pd_ctx, test_bio_command_callback,
 				     &g_bio_ctx);
 
-	result &= test_bio_decode_ok(pd);
-	result &= test_bio_nak_code_mapping(pd);
-	result &= test_bio_capability_gate(pd);
+	TEST_CASE(t, "bio_decode_ok", test_bio_decode_ok(pd));
+	TEST_CASE(t, "bio_nak_code_mapping", test_bio_nak_code_mapping(pd));
+	TEST_CASE(t, "bio_capability_gate", test_bio_capability_gate(pd));
 	/* A template that spans several fragments round-trips, and one that
 	 * fits a single packet stays single-part. */
-	result &= test_bio_multipart_transfer(
-		pd, cp_pd, 200, 64, "multi-fragment BIOREADR reassembles");
-	result &= test_bio_multipart_transfer(
-		pd, cp_pd, 30, 200, "single-packet BIOREADR stays single-part");
+	TEST_CASE(t, "bio_multipart_multi_fragment",
+		  test_bio_multipart_transfer(
+			  pd, cp_pd, 200, 64,
+			  "multi-fragment BIOREADR reassembles"));
+	TEST_CASE(t, "bio_multipart_single_packet",
+		  test_bio_multipart_transfer(
+			  pd, cp_pd, 30, 200,
+			  "single-packet BIOREADR stays single-part"));
 
 	osdp_cp_teardown(cp);
 	osdp_pd_teardown(pd_ctx);
-
-	printf(SUB_1 "Biometric tests %s\n", result ? "succeeded" : "failed");
-	TEST_REPORT(t, result);
 }

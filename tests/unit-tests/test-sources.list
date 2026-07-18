@@ -1,0 +1,23 @@
+# Unit-test binary source files: the harness plus one file per suite.
+# Single source of truth for both build systems, so the two never drift:
+#   - configure.sh reads it into SRC_TEST (lean Makefile path)
+#   - tests/unit-tests/CMakeLists.txt reads it into OSDP_UNIT_TEST_SRC
+# One .c filename per line, relative to tests/unit-tests/.
+test.c
+test-cp-phy.c
+test-pd-phy.c
+test-cp-fsm.c
+test-busy.c
+test-file.c
+test-multipart.c
+test-piv.c
+test-commands.c
+test-events.c
+test-bio.c
+test-hotplug.c
+test-notifications.c
+test-async-fuzz.c
+test-codec-fuzz.c
+test-sc.c
+test-sc-sia-vectors.c
+test-pd-zc.c

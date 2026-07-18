@@ -353,8 +353,6 @@ static bool test_busy_permanent_fails_command_softly(void)
 
 void run_busy_tests(struct test *t)
 {
-	bool result = true;
-
 	printf("\nStarting BUSY reply tests\n");
 
 	if (busy_test_setup(t)) {
@@ -363,12 +361,12 @@ void run_busy_tests(struct test *t)
 		return;
 	}
 
-	result &= test_busy_retry_reuses_sequence(false);
-	result &= test_busy_retry_reuses_sequence(true);
-	result &= test_busy_permanent_fails_command_softly();
+	TEST_CASE(t, "busy_retry_reuses_sequence_plain",
+		  test_busy_retry_reuses_sequence(false));
+	TEST_CASE(t, "busy_retry_reuses_sequence_checksum",
+		  test_busy_retry_reuses_sequence(true));
+	TEST_CASE(t, "busy_permanent_fails_command_softly",
+		  test_busy_permanent_fails_command_softly());
 
 	busy_test_teardown();
-
-	printf(SUB_1 "BUSY reply tests %s\n", result ? "succeeded" : "failed");
-	TEST_REPORT(t, result);
 }

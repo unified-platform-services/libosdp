@@ -1195,13 +1195,11 @@ static bool test_status_command()
 
 void run_command_tests(struct test *t)
 {
-	bool overall_result = true;
-
 	printf("\nBegin Command Tests (pytest-style)\n");
 
 	/* Owns its devices and drives the PD codec directly; must run before
 	 * the shared environment brings up the async runners. */
-	overall_result &= test_output_reply_selection(t);
+	TEST_CASE(t, "output_reply_selection", test_output_reply_selection(t));
 
 	/* Setup test environment once */
 	if (setup_test_environment(t) != 0) {
@@ -1212,27 +1210,26 @@ void run_command_tests(struct test *t)
 
 	printf(SUB_1 "running command tests\n");
 
-	/* Run all command tests */
-	overall_result &= test_buzzer_command();
-	overall_result &= test_led_command();
-	overall_result &= test_led_permanent_command();
-	overall_result &= test_output_command();
-	overall_result &= test_text_command();
-	overall_result &= test_tdset_command();
-	overall_result &= test_tdset_invalid_time_naks();
-	overall_result &= test_comset_command();
-	overall_result &= test_status_command();
-	overall_result &= test_keyset_command();
-	overall_result &= test_mfg_command_simple();
-	overall_result &= test_mfg_command_with_reply();
-	overall_result &= test_mfg_command_inline_replies();
-	overall_result &= test_mfg_command_nack_soft_fail();
-	overall_result &= test_bio_commands();
-	overall_result &= test_led_unsupported_capability_naks();
+	TEST_CASE(t, "buzzer_command", test_buzzer_command());
+	TEST_CASE(t, "led_command", test_led_command());
+	TEST_CASE(t, "led_permanent_command", test_led_permanent_command());
+	TEST_CASE(t, "output_command", test_output_command());
+	TEST_CASE(t, "text_command", test_text_command());
+	TEST_CASE(t, "tdset_command", test_tdset_command());
+	TEST_CASE(t, "tdset_invalid_time_naks", test_tdset_invalid_time_naks());
+	TEST_CASE(t, "comset_command", test_comset_command());
+	TEST_CASE(t, "status_command", test_status_command());
+	TEST_CASE(t, "keyset_command", test_keyset_command());
+	TEST_CASE(t, "mfg_command_simple", test_mfg_command_simple());
+	TEST_CASE(t, "mfg_command_with_reply", test_mfg_command_with_reply());
+	TEST_CASE(t, "mfg_command_inline_replies",
+		  test_mfg_command_inline_replies());
+	TEST_CASE(t, "mfg_command_nack_soft_fail",
+		  test_mfg_command_nack_soft_fail());
+	TEST_CASE(t, "bio_commands", test_bio_commands());
+	TEST_CASE(t, "led_unsupported_capability_naks",
+		  test_led_unsupported_capability_naks());
 
 	/* Teardown test environment */
 	teardown_test_environment();
-
-	printf(SUB_1 "Command tests %s\n", overall_result ? "succeeded" : "failed");
-	TEST_REPORT(t, overall_result);
 }

@@ -215,23 +215,12 @@ fi
 
 TARGETS="cp_app pd_app"
 
-TEST_SOURCES="tests/unit-tests/test.c"
-TEST_SOURCES+=" tests/unit-tests/test-cp-phy.c"
-TEST_SOURCES+=" tests/unit-tests/test-pd-phy.c"
-TEST_SOURCES+=" tests/unit-tests/test-commands.c"
-TEST_SOURCES+=" tests/unit-tests/test-events.c"
-TEST_SOURCES+=" tests/unit-tests/test-cp-fsm.c"
-TEST_SOURCES+=" tests/unit-tests/test-busy.c"
-TEST_SOURCES+=" tests/unit-tests/test-file.c"
-TEST_SOURCES+=" tests/unit-tests/test-multipart.c"
-TEST_SOURCES+=" tests/unit-tests/test-piv.c"
-TEST_SOURCES+=" tests/unit-tests/test-async-fuzz.c"
-TEST_SOURCES+=" tests/unit-tests/test-hotplug.c"
-TEST_SOURCES+=" tests/unit-tests/test-sc.c"
-TEST_SOURCES+=" tests/unit-tests/test-sc-sia-vectors.c"
-TEST_SOURCES+=" tests/unit-tests/test-notifications.c"
-TEST_SOURCES+=" tests/unit-tests/test-codec-fuzz.c"
-TEST_SOURCES+=" tests/unit-tests/test-bio.c"
+# Suite source files come from the shared manifest so the lean and CMake
+# builds never drift; see tests/unit-tests/test-sources.list.
+TEST_SOURCES=""
+for f in $(grep '\.c$' tests/unit-tests/test-sources.list); do
+	TEST_SOURCES+=" tests/unit-tests/$f"
+done
 TEST_SOURCES+=" ${LIBOSDP_SOURCES} ${UTILS_SOURCES}"
 
 if [[ ! -z "${LIB_ONLY}" ]]; then

@@ -484,8 +484,6 @@ static bool test_dynamic_pd_management()
 
 void run_hotplug_tests(struct test *t)
 {
-	bool overall_result = true;
-
 	printf("\nBegin Hot-Plug Tests\n");
 
 	/* Setup test environment once */
@@ -497,16 +495,12 @@ void run_hotplug_tests(struct test *t)
 
 	printf(SUB_1 "running hot-plug tests\n");
 
-	/* Run all hot-plug tests */
-	overall_result &= test_pd_disable_enable_basic();
-	overall_result &= test_pd_command_blocking();
-	overall_result &= test_pd_edge_cases();
-	overall_result &= test_multiple_pd_hotplug();
-	overall_result &= test_dynamic_pd_management();
+	TEST_CASE(t, "pd_disable_enable_basic", test_pd_disable_enable_basic());
+	TEST_CASE(t, "pd_command_blocking", test_pd_command_blocking());
+	TEST_CASE(t, "pd_edge_cases", test_pd_edge_cases());
+	TEST_CASE(t, "multiple_pd_hotplug", test_multiple_pd_hotplug());
+	TEST_CASE(t, "dynamic_pd_management", test_dynamic_pd_management());
 
 	/* Teardown test environment */
 	teardown_test_environment();
-
-	printf(SUB_1 "Hot-plug tests %s\n", overall_result ? "succeeded" : "failed");
-	TEST_REPORT(t, overall_result);
 }

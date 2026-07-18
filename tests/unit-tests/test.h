@@ -90,6 +90,19 @@ struct test {
 		}                                                              \
 	} while (0)
 
+/*
+ * Report a boolean helper (true = pass) as its own named, timed case. Use for
+ * suites whose sub-tests are `bool` helpers -- including parameterized ones that
+ * DO_TEST's fixed `fn(mock_data)` signature cannot wrap. Honors the case filter.
+ */
+#define TEST_CASE(t, name, expr)                                               \
+	do {                                                                   \
+		if (test_should_run_case(name)) {                              \
+			test_case_begin((t), (name));                          \
+			test_case_end((t), (expr) ? 0 : -1);                   \
+		}                                                              \
+	} while (0)
+
 #define TEST_REPORT(t, s)                                                      \
 	do {                                                                   \
 		test_report((t), __func__, __LINE__, (s));                     \
