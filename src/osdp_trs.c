@@ -869,6 +869,15 @@ enum osdp_cp_state_e osdp_trs_state_update_err(struct osdp_pd *pd)
 	pd->trs.failed = true;
 
 	switch (pd->trs.state) {
+	case TRS_STATE_SET_MODE:
+		/*
+		 * The reader gave no usable ACK, but that does not prove it
+		 * stayed in mode 00 -- it may have entered transparent mode
+		 * and had its reply lost or mangled, and a reader stuck in
+		 * mode 01 stops reporting ordinary card reads. Mode-set(00)
+		 * is idempotent, so pay one extra round trip to be sure.
+		 */
+		__fallthrough;
 	case TRS_STATE_XMIT:
 	case TRS_STATE_DISCONNECT_CARD:
 		LOG_WRN("TRS: session error; restoring transparent mode off");
@@ -877,7 +886,6 @@ enum osdp_cp_state_e osdp_trs_state_update_err(struct osdp_pd *pd)
 	case TRS_STATE_TEARDOWN:
 		LOG_ERR("TRS: failed to restore transparent mode off");
 		__fallthrough;
-	case TRS_STATE_SET_MODE: /* mode never took effect; nothing to undo */
 	default:
 		pd->trs.state = TRS_STATE_DONE;
 		return OSDP_CP_STATE_ONLINE;
