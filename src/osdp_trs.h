@@ -44,6 +44,21 @@ int osdp_trs_cmd_decode(struct osdp_pd *pd, struct osdp_cmd *cmd, uint8_t *buf,
 /* Largest C-APDU the negotiated packet size can carry for this PD */
 int osdp_trs_max_apdu_len(struct osdp_pd *pd);
 
+/*
+ * Background presence scan (osdp_cp_trs_scan_enable): probe scheduling and
+ * bookkeeping. The probe rides the ordinary TRS session machinery; these
+ * helpers only decide when one opens/closes and what it must not do (raise
+ * session notifications, flush the band).
+ */
+bool osdp_trs_scan_probe_due(struct osdp_pd *pd);
+bool osdp_trs_probe_expired(struct osdp_pd *pd);
+void osdp_trs_probe_note_open(struct osdp_pd *pd);
+void osdp_trs_probe_note_run(struct osdp_pd *pd);
+void osdp_trs_probe_adopted(struct osdp_pd *pd);
+bool osdp_trs_probe_close(struct osdp_pd *pd);
+void osdp_trs_probe_reset(struct osdp_pd *pd);
+void osdp_trs_scan_note_activity(struct osdp_pd *pd);
+
 #else /* OPT_BUILD_OSDP_TRS */
 
 static inline int osdp_trs_cmd_build(struct osdp_pd *pd,
@@ -80,6 +95,41 @@ static inline int osdp_trs_cmd_decode(struct osdp_pd *pd, struct osdp_cmd *cmd,
 	ARG_UNUSED(buf);
 	ARG_UNUSED(len);
 	return -1;
+}
+static inline bool osdp_trs_scan_probe_due(struct osdp_pd *pd)
+{
+	ARG_UNUSED(pd);
+	return false;
+}
+static inline bool osdp_trs_probe_expired(struct osdp_pd *pd)
+{
+	ARG_UNUSED(pd);
+	return true;
+}
+static inline void osdp_trs_probe_note_open(struct osdp_pd *pd)
+{
+	ARG_UNUSED(pd);
+}
+static inline void osdp_trs_probe_note_run(struct osdp_pd *pd)
+{
+	ARG_UNUSED(pd);
+}
+static inline void osdp_trs_probe_adopted(struct osdp_pd *pd)
+{
+	ARG_UNUSED(pd);
+}
+static inline bool osdp_trs_probe_close(struct osdp_pd *pd)
+{
+	ARG_UNUSED(pd);
+	return false;
+}
+static inline void osdp_trs_probe_reset(struct osdp_pd *pd)
+{
+	ARG_UNUSED(pd);
+}
+static inline void osdp_trs_scan_note_activity(struct osdp_pd *pd)
+{
+	ARG_UNUSED(pd);
 }
 
 #endif /* OPT_BUILD_OSDP_TRS */

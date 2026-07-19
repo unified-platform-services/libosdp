@@ -377,6 +377,32 @@ int osdp_trs_cmd_build(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 /* --- CP: decode incoming REPLY_XRD into an app event --- */
 
 /*
+ * A decoded card sighting feeds the presence scan: during a probe it starts
+ * (or, on a card-gone report, releases) the mode-1 hold that gives the app
+ * time to open a band; outside one it restarts the mode-0 dwell so the scan
+ * stays out of the way of whatever the sighting kicks off.
+ */
+static void trs_scan_note_card(struct osdp_pd *pd, bool present)
+{
+	struct osdp_trs *trs = &pd->trs;
+
+	if (!trs->scan.enabled) {
+		return;
+	}
+	if (!trs->probe) {
+		osdp_trs_scan_note_activity(pd);
+		return;
+	}
+	if (!present) {
+		trs->scan.holding = false; /* card left; let the probe close */
+		return;
+	}
+	trs->scan.holding = true;
+	trs->scan.hold_tstamp = osdp_millis_now();
+	trs->scan.backoff_ms = 0;
+}
+
+/*
  * Decode a REPLY_XRD payload into *event. Returns <0 on error, else one of
  * enum osdp_trs_reply_action_e telling osdp_cp.c whether the reply carried
  * anything for the app: the mode handshake is the library's own business, but
@@ -447,6 +473,7 @@ int osdp_trs_reply_decode(struct osdp_pd *pd, uint8_t *buf, int len,
 		memcpy(event->trs.card_info.protocol_data, buf + pos,
 		       prot_data_len);
 		pos += prot_data_len;
+		trs_scan_note_card(pd, true);
 		break;
 	case REPLY_CARD_PRESENT:
 		event->trs.reply = OSDP_TRS_REPLY_CARD_PRESENT;
@@ -459,6 +486,7 @@ int osdp_trs_reply_decode(struct osdp_pd *pd, uint8_t *buf, int len,
 			 * without it the reply itself is the news that a card
 			 * is there, on an unspecified interface. */
 			event->trs.card_present.status = OSDP_TRS_CARD_PRESENT;
+			trs_scan_note_card(pd, true);
 			break;
 		}
 		card_status = buf[pos++];
@@ -468,6 +496,8 @@ int osdp_trs_reply_decode(struct osdp_pd *pd, uint8_t *buf, int len,
 				card_status);
 			return -1;
 		}
+		trs_scan_note_card(pd, event->trs.card_present.status !=
+					       OSDP_TRS_CARD_NOT_PRESENT);
 		break;
 	case REPLY_ERROR_MODE0:
 	case REPLY_ERROR_MODE1:
@@ -851,5 +881,111 @@ enum osdp_cp_state_e osdp_trs_state_update_err(struct osdp_pd *pd)
 	default:
 		pd->trs.state = TRS_STATE_DONE;
 		return OSDP_CP_STATE_ONLINE;
+	}
+}
+
+/* --- CP: background presence scan --- */
+
+/*
+ * A probe is a library-initiated TRS session with no app band behind it: it
+ * enters mode 01, polls for a card sighting for scan.mode1_dwell_ms (longer if
+ * one arrives and the hold kicks in), and restores mode 00. The ordinary
+ * session machinery drives it on the wire; the pd->trs.probe flag is what
+ * keeps it from raising session notifications or flushing anything.
+ */
+
+bool osdp_trs_scan_probe_due(struct osdp_pd *pd)
+{
+	struct osdp_trs *trs = &pd->trs;
+	tick_t wait = trs->scan.mode0_dwell_ms;
+
+	if (!trs->scan.enabled || !trs_capable(pd) || trs->band_open) {
+		return false;
+	}
+	if (trs->scan.backoff_ms > wait) {
+		wait = trs->scan.backoff_ms;
+	}
+	return osdp_millis_since(trs->scan.tstamp) > wait;
+}
+
+bool osdp_trs_probe_expired(struct osdp_pd *pd)
+{
+	struct osdp_trs *trs = &pd->trs;
+
+	if (!trs->scan.enabled) {
+		return true;
+	}
+	if (trs->scan.holding) {
+		return osdp_millis_since(trs->scan.hold_tstamp) >
+		       trs->scan.hold_ms;
+	}
+	return osdp_millis_since(trs->scan.probe_tstamp) >
+	       trs->scan.mode1_dwell_ms;
+}
+
+/* The probe's session opened; undo the app-band bookkeeping TRS_SETUP set */
+void osdp_trs_probe_note_open(struct osdp_pd *pd)
+{
+	pd->trs.probe = true;
+	pd->trs.stop_pending = false;
+	pd->trs.scan.holding = false;
+}
+
+/* Mode 01 confirmed; the probe's dwell clock starts now */
+void osdp_trs_probe_note_run(struct osdp_pd *pd)
+{
+	pd->trs.scan.probe_tstamp = osdp_millis_now();
+}
+
+/* An app band takes over the probe's transparent session as-is */
+void osdp_trs_probe_adopted(struct osdp_pd *pd)
+{
+	pd->trs.probe = false;
+	pd->trs.stop_pending = true;
+	pd->trs.scan.holding = false;
+}
+
+/*
+ * The probe's session is over (back to ONLINE). Returns true when the reader
+ * refused it, in which case the retry backoff has been advanced and the
+ * caller should raise OSDP_TRS_SCAN_SUSPENDED.
+ */
+bool osdp_trs_probe_close(struct osdp_pd *pd)
+{
+	struct osdp_trs *trs = &pd->trs;
+
+	trs->probe = false;
+	trs->scan.holding = false;
+	trs->scan.tstamp = osdp_millis_now();
+	if (!trs->failed) {
+		trs->scan.backoff_ms = 0;
+		return false;
+	}
+	if (trs->scan.backoff_ms == 0) {
+		trs->scan.backoff_ms = trs->scan.mode0_dwell_ms;
+	}
+	trs->scan.backoff_ms *= 2;
+	if (trs->scan.backoff_ms > OSDP_TRS_SCAN_BACKOFF_MAX_MS) {
+		trs->scan.backoff_ms = OSDP_TRS_SCAN_BACKOFF_MAX_MS;
+	}
+	return true;
+}
+
+/* Forget any probe in flight (PD is re-initializing) */
+void osdp_trs_probe_reset(struct osdp_pd *pd)
+{
+	pd->trs.probe = false;
+	pd->trs.scan.holding = false;
+	pd->trs.scan.tstamp = osdp_millis_now();
+}
+
+/*
+ * Ordinary (mode 00) card or keypad activity: restart the mode-0 dwell so a
+ * probe never slices into a read the user is in the middle of.
+ */
+void osdp_trs_scan_note_activity(struct osdp_pd *pd)
+{
+	if (pd->trs.scan.enabled && !pd->trs.probe) {
+		pd->trs.scan.tstamp = osdp_millis_now();
 	}
 }
