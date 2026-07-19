@@ -1138,11 +1138,13 @@ static bool test_trs_error_reply()
 static struct osdp_event g_unsolicited_ev;
 
 /*
- * A reader left in transparent mode (failed teardown, CP restart) keeps
- * sending XRD poll responses. The CP has no session to route them to; it
- * must shrug them off, not cycle the PD offline.
+ * With no session open, a reader may still announce a card in its field as an
+ * XRD poll response (v2.2 sections 5.11, 7.26.8); the CP must forward that
+ * sighting to the app. Any other out-of-session XRD (a reader left in
+ * transparent mode by a failed teardown or a CP restart) must be shrugged
+ * off -- not surfaced, and never a reason to cycle the PD offline.
  */
-static bool test_trs_unsolicited_xrd_keeps_pd_online(void)
+static bool test_trs_unsolicited_xrd_out_of_session(void)
 {
 	uint8_t status = 0;
 	int rc = 0;
@@ -1166,6 +1168,34 @@ static bool test_trs_unsolicited_xrd_keeps_pd_online(void)
 		return false;
 	}
 
+	if (!wait_for_trs_event(10)) {
+		printf(SUB_2 "out-of-session card sighting must surface\n");
+		return false;
+	}
+	if (g_trs.last_reply.reply != OSDP_TRS_REPLY_CARD_PRESENT ||
+	    g_trs.last_reply.card_present.status != OSDP_TRS_CARD_PRESENT) {
+		printf(SUB_2 "card sighting not intact\n");
+		return false;
+	}
+
+	/* Card data with no session to route it to stays ignored */
+	g_trs.event_seen = false;
+	g_unsolicited_ev = (struct osdp_event){
+		.type = OSDP_EVENT_TRS,
+		.trs = {
+			.reply = OSDP_TRS_REPLY_CARD_DATA,
+			.card_data = {
+				.reader = 0,
+				.status = 0,
+				.apdu = { .length = 2, .data = { 0x90, 0x00 } },
+			},
+		},
+	};
+	if (osdp_pd_submit_event(g_trs.pd_ctx, &g_unsolicited_ev)) {
+		printf(SUB_2 "failed to submit unsolicited card data\n");
+		return false;
+	}
+
 	/* Long enough for the poll loop to carry it across and, were the CP
 	 * still intolerant, for the link to collapse. */
 	while (rc++ < 30) {
@@ -1178,7 +1208,7 @@ static bool test_trs_unsolicited_xrd_keeps_pd_online(void)
 		return false;
 	}
 	if (g_trs.event_seen) {
-		printf(SUB_2 "a stray XRD must not surface as an event\n");
+		printf(SUB_2 "stray card data must not surface as an event\n");
 		return false;
 	}
 	return true;
@@ -1246,7 +1276,7 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_card_present();
 	result &= test_trs_error_reply();
 	result &= test_trs_session_stop();
-	result &= test_trs_unsolicited_xrd_keeps_pd_online();
+	result &= test_trs_unsolicited_xrd_out_of_session();
 
 	teardown_test_environment();
 

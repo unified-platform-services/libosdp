@@ -795,10 +795,21 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		break;
 	case REPLY_XRD:
 		if (!trs_active(pd)) {
-			/* A reader left in transparent mode (failed teardown,
-			 * CP restart) keeps sending these as poll responses;
-			 * shrug them off rather than cycling the PD offline. */
-			LOG_WRN("Ignoring REPLY_XRD outside a TRS session");
+			/* A reader may announce a card in its field as an XRD
+			 * poll response with no session open (v2.2 sections
+			 * 5.11, 7.26.2, 7.26.8); that sighting is for the app.
+			 * Every other out-of-session XRD (a reader left in
+			 * transparent mode after a failed teardown or a CP
+			 * restart) is shrugged off rather than cycling the PD
+			 * offline. */
+			ret = osdp_trs_reply_decode(pd, buf + pos, len, &event);
+			if (ret == OSDP_TRS_REPLY_ACTION_DISPATCH &&
+			    (event.trs.reply == OSDP_TRS_REPLY_CARD_INFO ||
+			     event.trs.reply == OSDP_TRS_REPLY_CARD_PRESENT)) {
+				cp_dispatch_event(pd, &event);
+			} else {
+				LOG_WRN("Ignoring REPLY_XRD outside a TRS session");
+			}
 			ret = OSDP_CP_ERR_NONE;
 			break;
 		}
