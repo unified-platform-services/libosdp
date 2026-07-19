@@ -1217,6 +1217,14 @@ enum osdp_cmd_e {
  * own before its STOP is reached -- the reader rejects transparent mode, say --
  * the APDUs left in the band are completed @c OSDP_COMPLETION_FLUSHED and an
  * @c OSDP_TRS_SESSION_FAILED notification says why.
+ *
+ * Knowing @b when to open a band is the reader's job: a smart card entering
+ * the field is announced as an @c OSDP_EVENT_TRS card-info/card-present event,
+ * either spontaneously (some readers report cards in their default mode) or
+ * because a presence scan (osdp_cp_trs_scan_enable()) is briefly holding the
+ * reader in transparent mode. Either way, react by submitting a START; while
+ * the scan has the reader in transparent mode the new band adopts it directly,
+ * with no extra mode negotiation on the wire.
  */
 enum osdp_trs_cmd_e {
 	OSDP_TRS_CMD_START = 1, /**< Open a card session */
@@ -1235,6 +1243,36 @@ enum osdp_trs_session_status_e {
 	OSDP_TRS_SESSION_CLOSED,     /**< STOP honoured; reader restored */
 	OSDP_TRS_SESSION_FAILED,     /**< PD refused transparent mode, or the
 				      *   session was aborted by a link error */
+	OSDP_TRS_SCAN_SUSPENDED, /**< A presence-scan probe was refused by
+				      *   the reader; probing continues with
+				      *   exponential backoff */
+};
+
+/**
+ * @brief Cadence of the background card presence scan
+ * (osdp_cp_trs_scan_enable()). A zero in any field selects that parameter's
+ * built-in default.
+ */
+struct osdp_trs_scan_params {
+	/**
+	 * Time spent in the reader's default mode between probes, where
+	 * ordinary credential reads work (default 100 ms). Restarted by
+	 * ordinary card/keypad activity so a probe never cuts into an
+	 * in-progress read.
+	 */
+	uint16_t mode0_dwell_ms;
+	/**
+	 * Time spent per probe in transparent mode watching for a smart-card
+	 * sighting (default 100 ms).
+	 */
+	uint16_t mode1_dwell_ms;
+	/**
+	 * Once a probe sights a card, transparent mode is held this long
+	 * (default 500 ms) waiting for the app to open a band in response;
+	 * a band submitted within the hold adopts the reader as-is, with no
+	 * extra mode negotiation on the wire.
+	 */
+	uint16_t hold_ms;
 };
 
 /**
@@ -2084,6 +2122,53 @@ int osdp_cp_submit_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
  */
 OSDP_EXPORT
 int osdp_cp_flush_commands(osdp_t *ctx, int pd);
+
+/**
+ * @brief Enable a background card presence scan on a TRS-capable PD, for
+ * readers that do not announce smart cards while in their default mode.
+ *
+ * While enabled and no card session (band) is open, the library time-slices
+ * the reader: it stays in the default mode for @a mode0_dwell_ms (ordinary
+ * credential reads keep working), then holds transparent mode for
+ * @a mode1_dwell_ms watching for a card sighting, and repeats. A sighting is
+ * delivered as an @c OSDP_EVENT_TRS event and transparent mode is held for
+ * @a hold_ms so the band the app opens in response adopts the reader without
+ * renegotiating the mode. See @ref osdp_trs_scan_params.
+ *
+ * The scan pauses by itself while a band or file transfer is in progress and
+ * resumes after. If the reader refuses a probe, an
+ * @c OSDP_TRS_SCAN_SUSPENDED notification is raised and probing continues
+ * with exponential backoff, so a reader that is only transiently unwilling
+ * recovers on its own; call osdp_cp_trs_scan_disable() to stop entirely.
+ *
+ * Readers that announce cards spontaneously in their default mode do not
+ * need this: their sightings are forwarded as @c OSDP_EVENT_TRS events as-is.
+ *
+ * @param ctx OSDP context
+ * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
+ * osdp_cp_setup()
+ * @param params Scan cadence; NULL (or zero fields) selects the defaults
+ *
+ * @retval 0 on success
+ * @retval -1 on failure (TRS support not compiled in, or bad args)
+ */
+OSDP_EXPORT
+int osdp_cp_trs_scan_enable(osdp_t *ctx, int pd,
+			    const struct osdp_trs_scan_params *params);
+
+/**
+ * @brief Disable the background card presence scan on a PD. If a probe is
+ * in flight, the reader is restored to its default mode first.
+ *
+ * @param ctx OSDP context
+ * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
+ * osdp_cp_setup()
+ *
+ * @retval 0 on success
+ * @retval -1 on failure (TRS support not compiled in, or bad args)
+ */
+OSDP_EXPORT
+int osdp_cp_trs_scan_disable(osdp_t *ctx, int pd);
 
 /**
  * @brief Get PD ID information as reported by the PD. Calling this method

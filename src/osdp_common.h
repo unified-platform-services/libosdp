@@ -388,10 +388,11 @@ static inline __noreturn void die()
 #define CP_REQ_DISABLE	  0x00000008
 #define CP_REQ_ENABLE	  0x00000010
 #ifdef OPT_BUILD_OSDP_TRS
-/* Open a TRS session (a START was dequeued). Posted by the online command
- * selector and consumed like every other transition request in
- * state_update(). */
+/* Open a TRS session: OPEN for an app band (a START was dequeued), SCAN for a
+ * library-initiated presence probe. Posted by the online command selector and
+ * consumed like every other transition request in state_update(). */
 #define CP_REQ_TRS_OPEN 0x00000020
+#define CP_REQ_TRS_SCAN 0x00000040
 #endif
 
 #define TRS_MODE_00 0x00
@@ -451,6 +452,24 @@ struct osdp_trs {
 	 * only for the CMD_XWR it answered.
 	 */
 	bool reply_error;
+	/*
+	 * The TRS session in progress is a presence-scan probe the library
+	 * opened on its own -- no app band, no session notifications; it winds
+	 * down by mode-set alone (there is no card transaction to terminate).
+	 */
+	bool probe;
+	/* Background presence scan (osdp_cp_trs_scan_enable) */
+	struct {
+		bool enabled;
+		bool holding; /* card sighted; hold mode-1 for the app's START */
+		uint16_t mode0_dwell_ms;
+		uint16_t mode1_dwell_ms;
+		uint16_t hold_ms;
+		uint32_t backoff_ms; /* probe refused; 0 = no backoff pending */
+		tick_t tstamp; /* mode-0 dwell / backoff anchor */
+		tick_t probe_tstamp; /* when mode-1 was actually entered */
+		tick_t hold_tstamp; /* last card sighting */
+	} scan;
 };
 #endif
 

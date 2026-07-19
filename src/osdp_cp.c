@@ -664,6 +664,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		memcpy(event.keypress.data, buf + pos, event.keypress.length);
 		cp_dispatch_event(pd, &event);
+		osdp_trs_scan_note_activity(pd);
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_RAW:
@@ -682,6 +683,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		memcpy(event.cardread.data, buf + pos, t);
 		cp_dispatch_event(pd, &event);
+		osdp_trs_scan_note_activity(pd);
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_FMT:
@@ -1335,10 +1337,23 @@ static int cp_get_online_command(struct osdp_pd *pd)
 		return ret;
 	}
 
+#ifdef OPT_BUILD_OSDP_TRS
+	/* Sitting after the staged engines above pauses the presence scan for
+	 * as long as any of them has work; a queued band parks it via
+	 * trs.band_open, which is set at submit time. */
+	if (osdp_trs_scan_probe_due(pd)) {
+		make_request(pd, CP_REQ_TRS_SCAN);
+		return -1;
+	}
+#endif
+
 	return cp_get_poll_command(pd);
 }
 
 #ifdef OPT_BUILD_OSDP_TRS
+static void notify_trs_status(struct osdp_pd *pd,
+			      enum osdp_trs_session_status_e status);
+
 /*
  * Command selector for a TRS session (the band of commands between a START and
  * its STOP). Mode negotiation and teardown are library-generated straight from
@@ -1346,8 +1361,13 @@ static int cp_get_online_command(struct osdp_pd *pd)
  * serialize a session step instead of a card command); in XMIT the band's card
  * commands are drained in order, and CMD_POLL keeps the link warm between them.
  *
- * Everything the queue can hand us here is a card command or the STOP that ends
- * the band; cp_band_admit() turned away anything else when it was submitted.
+ * During an app band the queue can only hand us a card command or the STOP that
+ * ends it; cp_band_admit() turned away anything else when it was submitted.
+ * During a scan probe there is no band, so ordinary app commands may surface
+ * too: they run inline (mode 01 only suppresses the reader's own card
+ * processing) -- except a START, which is the app answering a sighting, and
+ * turns the probe's transparent session into a band with no extra mode
+ * negotiation on the wire.
  */
 static int cp_get_trs_command(struct osdp_pd *pd)
 {
@@ -1356,7 +1376,20 @@ static int cp_get_trs_command(struct osdp_pd *pd)
 	switch (pd->trs.state) {
 	case TRS_STATE_XMIT:
 		if (cp_cmd_dequeue(pd, &cmd)) {
+			if (pd->trs.probe && osdp_trs_probe_expired(pd)) {
+				/* Probe is done: no card transaction to
+				 * disconnect, just restore the default mode */
+				pd->trs.state = TRS_STATE_TEARDOWN;
+				return CMD_XWR;
+			}
 			return cp_get_poll_command(pd);
+		}
+		if (pd->trs.probe && cp_cmd_is_trs(cmd, OSDP_TRS_CMD_START)) {
+			cp_discard_cmd(pd, cmd, OSDP_COMPLETION_OK);
+			osdp_trs_probe_adopted(pd);
+			LOG_INF("TRS session opened (adopted scan probe)");
+			notify_trs_status(pd, OSDP_TRS_SESSION_OPENED);
+			return cp_get_trs_command(pd);
 		}
 		if (cp_cmd_is_trs(cmd, OSDP_TRS_CMD_STOP)) {
 			cp_discard_cmd(pd, cmd, OSDP_COMPLETION_OK);
@@ -1804,6 +1837,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	switch (next) {
 	case OSDP_CP_STATE_INIT:
 		osdp_phy_state_reset(pd, true);
+		osdp_trs_probe_reset(pd);
 		break;
 	case OSDP_CP_STATE_ONLINE:
 		CLEAR_FLAG(pd, PD_FLAG_TRS_ACTIVE);
@@ -1812,6 +1846,16 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		 * session outcome instead of a spurious online transition. */
 		if (cur == OSDP_CP_STATE_TRS_SETUP ||
 		    cur == OSDP_CP_STATE_TRS_RUN) {
+			if (pd->trs.probe) {
+				/* A probe has no band to flush and no session
+				 * to report; a refusal only advances the retry
+				 * backoff and tells the app the scan stalled. */
+				if (osdp_trs_probe_close(pd)) {
+					LOG_WRN("TRS: scan probe refused; backing off");
+					notify_trs_status(pd, OSDP_TRS_SCAN_SUSPENDED);
+				}
+				break;
+			}
 			LOG_INF("TRS session %s",
 				pd->trs.failed ? "failed" : "closed");
 			if (pd->trs.stop_pending) {
@@ -1864,6 +1908,13 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		break;
 	case OSDP_CP_STATE_TRS_RUN:
 		if (cur == OSDP_CP_STATE_TRS_SETUP) {
+			if (pd->trs.probe) {
+				/* Dwell starts when mode 01 is confirmed, not
+				 * when the probe was scheduled */
+				LOG_DBG("TRS: scan probe in transparent mode");
+				osdp_trs_probe_note_run(pd);
+				break;
+			}
 			LOG_INF("TRS session opened");
 			notify_trs_status(pd, OSDP_TRS_SESSION_OPENED);
 		}
@@ -2069,10 +2120,13 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 							OSDP_CMD_BIOMATCH;
 		break;
 	case CMD_XWR:
-		if (status) {
+		if (status || !pd->active_cmd) {
 			/* The card's answer reaches the app as an OSDP_EVENT_TRS
 			 * of its own, now or on a later poll if the PD deferred
-			 * it; only the failure needs a notification. */
+			 * it; only the failure needs a notification. And only
+			 * for an app command: a library-generated session step
+			 * (mode-set, terminate, scan probe) reports its outcome
+			 * through OSDP_NOTIFICATION_TRS_STATUS instead. */
 			return;
 		}
 		app_cmd = OSDP_CMD_XWR;
@@ -2095,6 +2149,9 @@ static void state_update(struct osdp_pd *pd)
 	int err;
 	bool status;
 	enum osdp_cp_state_e next, cur = pd->state;
+#ifdef OPT_BUILD_OSDP_TRS
+	bool trs_probe_open = false;
+#endif
 
 	if (cp_phy_running(pd)) {
 		err = cp_phy_state_update(pd);
@@ -2170,9 +2227,16 @@ static void state_update(struct osdp_pd *pd)
 				next = OSDP_CP_STATE_OFFLINE;
 			}
 #ifdef OPT_BUILD_OSDP_TRS
-			/* A START was dequeued: open a TRS session. */
+			/* A START was dequeued, or a presence probe fell due:
+			 * open a TRS session. SCAN also carries the probe flag
+			 * so the entry bookkeeping below can strip the app-band
+			 * state that TRS_SETUP sets up by default. */
 			if (check_request(pd, CP_REQ_TRS_OPEN)) {
 				next = OSDP_CP_STATE_TRS_SETUP;
+			}
+			if (check_request(pd, CP_REQ_TRS_SCAN)) {
+				next = OSDP_CP_STATE_TRS_SETUP;
+				trs_probe_open = true;
 			}
 #endif
 		}
@@ -2195,6 +2259,13 @@ static void state_update(struct osdp_pd *pd)
 	if (cur != next) {
 		cp_state_change(pd, next);
 	}
+#ifdef OPT_BUILD_OSDP_TRS
+	if (trs_probe_open && next == OSDP_CP_STATE_TRS_SETUP) {
+		/* A probe undoes the app-band bookkeeping the TRS_SETUP entry
+		 * just set up: no band to flush, no session notifications. */
+		osdp_trs_probe_note_open(pd);
+	}
+#endif
 }
 
 #ifdef OPT_BUILD_OSDP_TRS
@@ -2655,6 +2726,56 @@ int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)
 			    pd->trs.stop_pending;
 #endif
 	return count;
+}
+
+int osdp_cp_trs_scan_enable(osdp_t *ctx, int pd_idx,
+			    const struct osdp_trs_scan_params *params)
+{
+	input_check(ctx, pd_idx);
+#ifdef OPT_BUILD_OSDP_TRS
+	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+	struct osdp_trs *trs = &pd->trs;
+
+	trs->scan.mode0_dwell_ms = (params && params->mode0_dwell_ms) ?
+		params->mode0_dwell_ms : OSDP_TRS_SCAN_MODE0_DWELL_MS;
+	trs->scan.mode1_dwell_ms = (params && params->mode1_dwell_ms) ?
+		params->mode1_dwell_ms : OSDP_TRS_SCAN_MODE1_DWELL_MS;
+	trs->scan.hold_ms = (params && params->hold_ms) ?
+		params->hold_ms : OSDP_TRS_SCAN_HOLD_MS;
+	trs->scan.backoff_ms = 0;
+	trs->scan.holding = false;
+	trs->scan.tstamp = osdp_millis_now();
+	trs->scan.enabled = true;
+	/* Capability is only known once the PD has been online; before that the
+	 * probe gate re-checks it every cycle and simply never fires. */
+	if (pd->state == OSDP_CP_STATE_ONLINE && !trs_capable(pd)) {
+		LOG_WRN("TRS: scan enabled on a PD with no smart-card reader");
+	}
+	return 0;
+#else
+	ARG_UNUSED(params);
+	LOG_PRINT("TRS support not built in");
+	return -1;
+#endif
+}
+
+int osdp_cp_trs_scan_disable(osdp_t *ctx, int pd_idx)
+{
+	input_check(ctx, pd_idx);
+#ifdef OPT_BUILD_OSDP_TRS
+	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+
+	/* A probe in flight winds down on its own: with the scan off,
+	 * osdp_trs_probe_expired() is immediately true and the next TRS tick
+	 * restores the reader's default mode. */
+	pd->trs.scan.enabled = false;
+	pd->trs.scan.holding = false;
+	pd->trs.scan.backoff_ms = 0;
+	return 0;
+#else
+	LOG_PRINT("TRS support not built in");
+	return -1;
+#endif
 }
 
 int osdp_cp_get_pd_id(const osdp_t *ctx, int pd_idx, struct osdp_pd_id *id)
