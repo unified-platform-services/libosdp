@@ -42,6 +42,7 @@ struct trs_emu_ctx {
 	enum osdp_trs_session_status_e last_status;
 	bool completion_seen;
 	enum osdp_completion_status last_completion;
+	bool cardread_seen;
 };
 
 static struct trs_emu_ctx g_emu;
@@ -117,6 +118,9 @@ static int emu_cp_event_callback(void *arg, int pd, struct osdp_event *ev)
 	if (ev->type == OSDP_EVENT_TRS) {
 		ctx->event_seen = true;
 		memcpy(&ctx->last_reply, &ev->trs, sizeof(ctx->last_reply));
+	}
+	if (ev->type == OSDP_EVENT_CARDREAD) {
+		ctx->cardread_seen = true;
 	}
 	if (ev->type == OSDP_EVENT_NOTIFICATION &&
 	    ev->notif.type == OSDP_NOTIFICATION_TRS_STATUS) {
@@ -530,6 +534,136 @@ static bool test_emu_card_removed_mid_band(void)
 	return emu_session(OSDP_TRS_CMD_STOP, OSDP_TRS_SESSION_CLOSED);
 }
 
+/* Sample the emulated reader's mode every 10ms until it reads @want */
+static bool emu_wait_mode(uint8_t want, int timeout_ms)
+{
+	struct osdp_pd *pd = osdp_to_pd(g_emu.pd_ctx, 0);
+	int waited = 0;
+
+	while (waited < timeout_ms) {
+		if (pd->trs.mode == want) {
+			return true;
+		}
+		usleep(10 * 1000);
+		waited += 10;
+	}
+	return false;
+}
+
+/* Event submitted by reference; must outlive the callback that ships it */
+static struct osdp_event g_rpk40_ev;
+
+/* An RPK40 reports ordinary credentials only in mode 00: submit one standard
+ * read the next time the reader is in its default mode, and confirm the CP
+ * app received it */
+static bool emu_rpk40_standard_read(void)
+{
+	int rc = 0;
+
+	g_emu.cardread_seen = false;
+	if (!emu_wait_mode(TRS_MODE_00, 5000)) {
+		printf(SUB_2 "reader never in default mode\n");
+		return false;
+	}
+	g_rpk40_ev = (struct osdp_event){
+		.type = OSDP_EVENT_CARDREAD,
+		.cardread = {
+			.reader_no = 0,
+			.format = OSDP_CARD_FMT_RAW_WIEGAND,
+			.length = 32, /* raw formats count bits, not bytes */
+			.data = { 0xde, 0xad, 0xbe, 0xef },
+		},
+	};
+	if (osdp_pd_submit_event(g_emu.pd_ctx, &g_rpk40_ev)) {
+		printf(SUB_2 "failed to submit standard read\n");
+		return false;
+	}
+	while (rc++ < 30 && !g_emu.cardread_seen) {
+		usleep(100 * 1000);
+	}
+	if (!g_emu.cardread_seen) {
+		printf(SUB_2 "standard read never reached the app\n");
+		return false;
+	}
+	return true;
+}
+
+/*
+ * The RPK40 workflow from issue #22: the reader reports ordinary credentials
+ * only in its default mode and gives no smart-card indication there, so the
+ * presence scan is the only way to serve both credential types. A standard
+ * read works; a smart card is sighted during a probe; the full chained PIV
+ * certificate read runs over the adopted session; a standard read works
+ * again once the scan resumes.
+ */
+static bool test_emu_rpk40_time_slice(void)
+{
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 100,
+		.mode1_dwell_ms = 300,
+		.hold_ms = 3000,
+	};
+
+	printf(SUB_2 "testing emu RPK40 mode time-slicing\n");
+
+	emu_card_set_present(&g_emu.card, false);
+	if (osdp_cp_trs_scan_enable(g_emu.cp_ctx, 0, &p)) {
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+
+	/* A standard credential, between probes */
+	if (!emu_rpk40_standard_read()) {
+		return false;
+	}
+
+	/* A smart card arrives; only a probe can see it */
+	g_emu.event_seen = false;
+	emu_card_set_present(&g_emu.card, true);
+	if (!emu_wait_mode(TRS_MODE_01, 5000)) {
+		printf(SUB_2 "no probe to sight the smart card in\n");
+		return false;
+	}
+	g_rpk40_ev = (struct osdp_event){
+		.type = OSDP_EVENT_TRS,
+		.trs = {
+			.reply = OSDP_TRS_REPLY_CARD_PRESENT,
+			.card_present = {
+				.reader = 0,
+				.status = OSDP_TRS_CARD_PRESENT_CONTACTLESS,
+			},
+		},
+	};
+	if (osdp_pd_submit_event(g_emu.pd_ctx, &g_rpk40_ev)) {
+		printf(SUB_2 "failed to submit sighting\n");
+		return false;
+	}
+	int rc = 0;
+	while (rc++ < 30 && !g_emu.event_seen) {
+		usleep(100 * 1000);
+	}
+	if (!g_emu.event_seen ||
+	    g_emu.last_reply.reply != OSDP_TRS_REPLY_CARD_PRESENT) {
+		printf(SUB_2 "sighting never reached the app\n");
+		return false;
+	}
+
+	/* The app answers with a band: the whole PIV workflow, adopted */
+	if (!test_emu_piv_certificate_read()) {
+		printf(SUB_2 "PIV read over the adopted session failed\n");
+		return false;
+	}
+
+	/* The card leaves; ordinary credentials must keep working */
+	emu_card_set_present(&g_emu.card, false);
+	if (!emu_rpk40_standard_read()) {
+		return false;
+	}
+
+	osdp_cp_trs_scan_disable(g_emu.cp_ctx, 0);
+	return emu_wait_mode(TRS_MODE_00, 3000);
+}
+
 void run_trs_emu_tests(struct test *t)
 {
 	bool result = true;
@@ -546,6 +680,7 @@ void run_trs_emu_tests(struct test *t)
 	result &= test_emu_session_survives_busy();
 	result &= test_emu_permanent_busy_fails_softly();
 	result &= test_emu_card_removed_mid_band();
+	result &= test_emu_rpk40_time_slice();
 
 	emu_teardown();
 

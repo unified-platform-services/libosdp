@@ -257,6 +257,26 @@ static bool wait_for_trs_completion(int timeout_sec)
 	return false;
 }
 
+static uint8_t pd_trs_mode(void)
+{
+	return osdp_to_pd(g_trs.pd_ctx, 0)->trs.mode;
+}
+
+/* Sample the PD's reader mode every 10ms until it reads @want */
+static bool wait_for_pd_mode(uint8_t want, int timeout_ms)
+{
+	int waited = 0;
+
+	while (waited < timeout_ms) {
+		if (pd_trs_mode() == want) {
+			return true;
+		}
+		usleep(10 * 1000);
+		waited += 10;
+	}
+	return false;
+}
+
 /*
  * An APDU that cannot fit the negotiated packet size must be turned away at
  * submit time, not fail mysteriously somewhere mid-band.
@@ -716,6 +736,205 @@ static bool test_trs_card_scan_wire_nak(void)
 	}
 
 	return test_trs_apdu_exchange();
+}
+
+/* Count mode-set commands on the wire (plaintext link only: the payload of a
+ * secure frame is encrypted, so there is nothing to parse there) */
+struct trs_mode_set_counter {
+	int set_mode1;
+	int set_mode0;
+};
+
+static enum test_channel_hook_verdict trs_mode_set_count_hook(void *arg,
+		bool cp_to_pd, const uint8_t *frame, int len,
+		uint8_t *out, int *out_len, int out_max)
+{
+	struct trs_mode_set_counter *s = arg;
+	int base, data_off;
+	uint8_t ctrl;
+
+	ARG_UNUSED(out);
+	ARG_UNUSED(out_len);
+	ARG_UNUSED(out_max);
+
+	if (!cp_to_pd)
+		return TEST_HOOK_PASS;
+	base = (len > 0 && frame[0] == 0xff) ? 1 : 0;
+	if (len < base + 6)
+		return TEST_HOOK_PASS;
+	ctrl = frame[base + 4];
+	data_off = base + 5;
+	if (ctrl & 0x08) /* security control block */
+		data_off += frame[base + 5];
+	/* CMD_XWR carrying [XRW_MODE=00, PCMND=02 (mode-set), target mode] */
+	if (data_off + 3 >= len || frame[data_off] != CMD_XWR ||
+	    frame[data_off + 1] != 0x00 || frame[data_off + 2] != 0x02)
+		return TEST_HOOK_PASS;
+	if (frame[data_off + 3] == TRS_MODE_01)
+		s->set_mode1++;
+	else
+		s->set_mode0++;
+	return TEST_HOOK_PASS;
+}
+
+/*
+ * The point of the hold: a sighting during a probe keeps the reader in
+ * transparent mode long enough for the app's START to take the session over
+ * as-is. The wire must show exactly one mode-set(01) -- the probe's -- from
+ * enable to band close: adoption renegotiates nothing.
+ */
+static bool test_trs_scan_hold_and_adopt(void)
+{
+	struct trs_mode_set_counter s = { 0 };
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 80,
+		.mode1_dwell_ms = 300,
+		.hold_ms = 3000,
+	};
+	struct osdp_cmd start, stop;
+
+	printf(SUB_2 "testing TRS sighting hold and band adoption\n");
+
+	g_trs.event_seen = false;
+	g_trs.status_seen = false;
+
+	test_set_channel_hook(trs_mode_set_count_hook, &s);
+	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+	if (!wait_for_pd_mode(TRS_MODE_01, 3000)) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "no probe to sight a card in\n");
+		return false;
+	}
+
+	/* The reader sights a card during the probe */
+	memset(&g_trs.resp_event, 0, sizeof(g_trs.resp_event));
+	g_trs.resp_event.type = OSDP_EVENT_TRS;
+	g_trs.resp_event.trs.reply = OSDP_TRS_REPLY_CARD_PRESENT;
+	g_trs.resp_event.trs.card_present.reader = 0;
+	g_trs.resp_event.trs.card_present.status =
+		OSDP_TRS_CARD_PRESENT_CONTACTLESS;
+	if (osdp_pd_submit_event(g_trs.pd_ctx, &g_trs.resp_event)) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "failed to submit sighting\n");
+		return false;
+	}
+	if (!wait_for_trs_event(10) ||
+	    g_trs.last_reply.reply != OSDP_TRS_REPLY_CARD_PRESENT) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "sighting not delivered to the app\n");
+		return false;
+	}
+
+	/* The app answers with a band */
+	if (submit_trs_cmd(&start, OSDP_TRS_CMD_START) ||
+	    !wait_for_trs_status(OSDP_TRS_SESSION_OPENED, 10)) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "band did not open on the sighting\n");
+		return false;
+	}
+	if (!test_trs_apdu_exchange()) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "adopted session unusable\n");
+		return false;
+	}
+	/* Stop scanning before the band closes so no fresh probe muddies the
+	 * mode-set count between the CLOSED notification and the checks */
+	osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+	g_trs.status_seen = false;
+	if (submit_trs_cmd(&stop, OSDP_TRS_CMD_STOP) ||
+	    !wait_for_trs_status(OSDP_TRS_SESSION_CLOSED, 10)) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "band did not close\n");
+		return false;
+	}
+	test_set_channel_hook(NULL, NULL);
+
+	if (s.set_mode1 != 1) {
+		printf(SUB_2 "adoption must not renegotiate the mode; "
+		       "saw %d mode-set(01)\n", s.set_mode1);
+		return false;
+	}
+	if (s.set_mode0 < 1) {
+		printf(SUB_2 "band close must restore the default mode\n");
+		return false;
+	}
+	return true;
+}
+
+/*
+ * A reader that refuses probes (NAK to every XWR) must cost the app one
+ * SCAN_SUSPENDED notification per attempt and progressively fewer attempts
+ * (exponential backoff) -- never the link. Removing the fault heals the scan.
+ */
+static bool test_trs_scan_probe_failure_backoff(void)
+{
+	struct trs_wire_nak_hook s = { 0 };
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 80,
+		.mode1_dwell_ms = 100,
+	};
+	uint8_t status = 0;
+	int early_count, late_count;
+
+	printf(SUB_2 "testing TRS scan probe failure backoff\n");
+
+	g_trs.status_seen = false;
+
+	test_set_channel_hook(trs_wire_nak_hook, &s);
+	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+
+	/* Give the first refused probes time to happen and back off */
+	usleep(2000 * 1000);
+	early_count = s.xwr_tx_count;
+	if (early_count < 2) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "refused probes never retried (%d)\n", early_count);
+		return false;
+	}
+	if (!g_trs.status_seen ||
+	    g_trs.last_status != OSDP_TRS_SCAN_SUSPENDED) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "refused probe must raise SCAN_SUSPENDED\n");
+		return false;
+	}
+
+	/* Backed off: the next window must see far fewer transmissions than
+	 * the ~25 probes an 80ms cadence would fire. A refused probe costs two
+	 * XWRs -- the mode-set and the just-in-case teardown behind it. */
+	usleep(3000 * 1000);
+	late_count = s.xwr_tx_count - early_count;
+	if (late_count > 4) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "no backoff: %d transmissions in 3s\n", late_count);
+		return false;
+	}
+	osdp_get_status_mask(g_trs.cp_ctx, &status);
+	if (!(status & 1)) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "refused probes must not cost the link\n");
+		return false;
+	}
+
+	/* Fault gone: probing must recover on its own */
+	test_set_channel_hook(NULL, NULL);
+	if (!wait_for_pd_mode(TRS_MODE_01, 8000)) {
+		printf(SUB_2 "scan did not recover after the fault cleared\n");
+		return false;
+	}
+	osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+	if (!wait_for_pd_mode(TRS_MODE_00, 3000)) {
+		printf(SUB_2 "reader stuck in mode 01 after recovery\n");
+		return false;
+	}
+	return true;
 }
 
 /* --- wire-level unit tests: assert exact on-wire bytes vs SIA OSDP 2.2 --- */
@@ -1214,6 +1433,188 @@ static bool test_trs_unsolicited_xrd_out_of_session(void)
 	return true;
 }
 
+/* --- presence scan (osdp_cp_trs_scan_enable) --- */
+
+/*
+ * With the scan on and nothing else going on, the reader must keep flipping
+ * default mode -> transparent -> default, silently: probes are not sessions
+ * (no OPENED/CLOSED notifications) and not app commands (no completions).
+ */
+static bool test_trs_scan_cadence(void)
+{
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 80,
+		.mode1_dwell_ms = 150,
+	};
+	uint8_t status = 0;
+	int flips;
+
+	printf(SUB_2 "testing TRS presence-scan cadence\n");
+
+	g_trs.status_seen = false;
+	g_trs.completion_seen = false;
+
+	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+	for (flips = 0; flips < 3; flips++) {
+		if (!wait_for_pd_mode(TRS_MODE_01, 3000)) {
+			printf(SUB_2 "probe %d never reached the reader\n",
+			       flips);
+			return false;
+		}
+		if (!wait_for_pd_mode(TRS_MODE_00, 3000)) {
+			printf(SUB_2 "probe %d never wound down\n", flips);
+			return false;
+		}
+	}
+	osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+
+	if (g_trs.status_seen) {
+		printf(SUB_2 "probes must not raise session notifications\n");
+		return false;
+	}
+	if (g_trs.completion_seen) {
+		printf(SUB_2 "probes must not complete app commands\n");
+		return false;
+	}
+	osdp_get_status_mask(g_trs.cp_ctx, &status);
+	if (!(status & 1)) {
+		printf(SUB_2 "scanning must not cost the link\n");
+		return false;
+	}
+	return true;
+}
+
+/* Event submitted by reference; must outlive the callback that ships it */
+static struct osdp_event g_activity_ev;
+
+/*
+ * Ordinary keypad/card traffic restarts the default-mode dwell: as long as
+ * the user is interacting with the reader, no probe may cut in.
+ */
+static bool test_trs_scan_mode0_activity_defers_probe(void)
+{
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 500,
+		.mode1_dwell_ms = 100,
+	};
+	int i;
+
+	printf(SUB_2 "testing TRS scan defers to mode-0 activity\n");
+
+	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+	for (i = 0; i < 15; i++) {
+		g_activity_ev = (struct osdp_event){
+			.type = OSDP_EVENT_KEYPRESS,
+			.keypress = {
+				.reader_no = 0,
+				.length = 1,
+				.data = { 0x30 },
+			},
+		};
+		if (osdp_pd_submit_event(g_trs.pd_ctx, &g_activity_ev)) {
+			printf(SUB_2 "failed to submit keypress %d\n", i);
+			return false;
+		}
+		if (pd_trs_mode() != TRS_MODE_00) {
+			printf(SUB_2 "probe sliced into keypad activity\n");
+			return false;
+		}
+		usleep(100 * 1000);
+	}
+	/* activity stops; the next dwell must end in a probe */
+	if (!wait_for_pd_mode(TRS_MODE_01, 3000)) {
+		printf(SUB_2 "scan never resumed after activity\n");
+		return false;
+	}
+	osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+	if (!wait_for_pd_mode(TRS_MODE_00, 3000)) {
+		printf(SUB_2 "reader stuck in mode 01 after disable\n");
+		return false;
+	}
+	return true;
+}
+
+/*
+ * Disabling the scan mid-probe must restore the reader's default mode, and
+ * flushing the (empty) queue mid-probe must leave both the scan and a
+ * subsequent band working.
+ */
+static bool test_trs_scan_disable_and_flush_mid_probe(void)
+{
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 80,
+		.mode1_dwell_ms = 3000, /* long probe: room to interrupt it */
+	};
+	struct osdp_cmd start, stop;
+
+	printf(SUB_2 "testing TRS scan disable/flush mid-probe\n");
+
+	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+	if (!wait_for_pd_mode(TRS_MODE_01, 3000)) {
+		printf(SUB_2 "no probe to disable\n");
+		return false;
+	}
+	osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+	if (!wait_for_pd_mode(TRS_MODE_00, 2000)) {
+		printf(SUB_2 "disable must restore the default mode\n");
+		return false;
+	}
+	usleep(500 * 1000);
+	if (pd_trs_mode() != TRS_MODE_00) {
+		printf(SUB_2 "a disabled scan kept probing\n");
+		return false;
+	}
+
+	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
+		printf(SUB_2 "failed to re-enable scan\n");
+		return false;
+	}
+	if (!wait_for_pd_mode(TRS_MODE_01, 3000)) {
+		printf(SUB_2 "scan did not resume\n");
+		return false;
+	}
+	osdp_cp_flush_commands(g_trs.cp_ctx, 0);
+
+	/* A band right through the probe: adoption, exchange, orderly close */
+	g_trs.status_seen = false;
+	if (submit_trs_cmd(&start, OSDP_TRS_CMD_START)) {
+		printf(SUB_2 "failed to submit START\n");
+		return false;
+	}
+	if (!wait_for_trs_status(OSDP_TRS_SESSION_OPENED, 10)) {
+		printf(SUB_2 "band did not open after flush\n");
+		return false;
+	}
+	if (!test_trs_apdu_exchange()) {
+		printf(SUB_2 "band unusable after flush\n");
+		return false;
+	}
+	g_trs.status_seen = false;
+	if (submit_trs_cmd(&stop, OSDP_TRS_CMD_STOP)) {
+		printf(SUB_2 "failed to submit STOP\n");
+		return false;
+	}
+	if (!wait_for_trs_status(OSDP_TRS_SESSION_CLOSED, 10)) {
+		printf(SUB_2 "band did not close\n");
+		return false;
+	}
+	osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+	if (!wait_for_pd_mode(TRS_MODE_00, 3000)) {
+		printf(SUB_2 "reader stuck in mode 01 after band close\n");
+		return false;
+	}
+	return true;
+}
+
 static bool test_trs_session_stop()
 {
 	printf(SUB_2 "testing TRS session stop\n");
@@ -1277,6 +1678,9 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_error_reply();
 	result &= test_trs_session_stop();
 	result &= test_trs_unsolicited_xrd_out_of_session();
+	result &= test_trs_scan_cadence();
+	result &= test_trs_scan_mode0_activity_defers_probe();
+	result &= test_trs_scan_disable_and_flush_mid_probe();
 
 	teardown_test_environment();
 
@@ -1294,6 +1698,8 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_session_start();
 	result &= test_trs_card_scan_wire_nak();
 	result &= test_trs_session_stop();
+	result &= test_trs_scan_hold_and_adopt();
+	result &= test_trs_scan_probe_failure_backoff();
 
 	teardown_test_environment();
 
