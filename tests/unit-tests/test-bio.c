@@ -29,6 +29,8 @@ struct test_bio_ctx {
 	int nak_ret;   /* what the command callback returns */
 	bool cmd_seen;
 	struct osdp_cmd last_cmd;
+	bool mp_done_seen;
+	int mp_done_outcome;
 };
 
 static struct test_bio_ctx g_bio_ctx;
@@ -37,6 +39,12 @@ static int test_bio_command_callback(void *arg, struct osdp_cmd *cmd)
 {
 	struct test_bio_ctx *ctx = arg;
 
+	if (cmd->id == OSDP_CMD_NOTIFICATION &&
+	    cmd->notif.type == OSDP_NOTIFICATION_MP_DONE) {
+		ctx->mp_done_seen = true;
+		ctx->mp_done_outcome = cmd->notif.mp.outcome;
+		return 0;
+	}
 	ctx->cmd_seen = true;
 	ctx->last_cmd = *cmd;
 	return ctx->nak_ret;
@@ -270,6 +278,59 @@ static bool test_bio_multipart_transfer(struct osdp_pd *pd_tx,
 	return true;
 }
 
+/*
+ * Losing CP activity mid multi-part BIOREADR reply must tear the bio op down
+ * exactly like CMD_ABORT does: the op goes inactive and the app receives
+ * MP_DONE(ABORTED). Drives the real osdp_pd_refresh() offline path by
+ * backdating pd->tstamp past OSDP_PD_ONLINE_TOUT_MS.
+ */
+static bool test_bio_abort_on_pd_offline(struct osdp_pd *pd, osdp_t *pd_ctx)
+{
+	struct osdp_event ev;
+	uint8_t frag[96];
+	bool result = false;
+
+	printf(SUB_2 "testing bio abort on PD link loss\n");
+
+	memset(&ev, 0, sizeof(ev));
+	ev.type = OSDP_EVENT_BIOREADR;
+	ev.bioreadr.reader = 1;
+	ev.bioreadr.status = OSDP_BIO_STATUS_SUCCESS;
+	ev.bioreadr.type = OSDP_BIO_TYPE_RIGHT_THUMB_PRINT;
+	ev.bioreadr.quality = 100;
+	ev.bioreadr.length = 200;
+
+	if (osdp_bio_pd_reply_build(pd, &ev, frag, 64) < 0 ||
+	    !osdp_bio_is_active(pd)) {
+		printf(SUB_2 "failed to start multi-part reply\n");
+		return false;
+	}
+
+	g_bio_ctx.mp_done_seen = false;
+	SET_FLAG(pd, PD_FLAG_ENABLE_NOTIF);
+	pd_set_online(pd);
+	pd->tstamp = osdp_millis_now() - (OSDP_PD_ONLINE_TOUT_MS + 100);
+	osdp_pd_refresh(pd_ctx);
+
+	if (osdp_bio_is_active(pd)) {
+		printf(SUB_2 "bio op still active after link loss\n");
+		goto out;
+	}
+	if (!g_bio_ctx.mp_done_seen) {
+		printf(SUB_2 "no MP_DONE notification on link loss\n");
+		goto out;
+	}
+	if (g_bio_ctx.mp_done_outcome != OSDP_FILE_TX_OUTCOME_ABORTED) {
+		printf(SUB_2 "MP_DONE outcome %d, want ABORTED\n",
+		       g_bio_ctx.mp_done_outcome);
+		goto out;
+	}
+	result = true;
+out:
+	CLEAR_FLAG(pd, PD_FLAG_ENABLE_NOTIF);
+	return result;
+}
+
 void run_bio_tests(struct test *t)
 {
 	osdp_t *cp = NULL, *pd_ctx = NULL;
@@ -301,6 +362,8 @@ void run_bio_tests(struct test *t)
 		  test_bio_multipart_transfer(
 			  pd, cp_pd, 30, 200,
 			  "single-packet BIOREADR stays single-part"));
+	TEST_CASE(t, "bio_abort_on_pd_offline",
+		  test_bio_abort_on_pd_offline(pd, pd_ctx));
 
 	osdp_cp_teardown(cp);
 	osdp_pd_teardown(pd_ctx);

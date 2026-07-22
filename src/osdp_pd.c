@@ -1638,6 +1638,7 @@ static void osdp_pd_update(struct osdp_pd *pd)
 		pd_set_offline(pd);
 		osdp_file_tx_abort(pd);
 		osdp_piv_abort(pd);
+		osdp_bio_abort(pd);
 		notify_pd_status(pd, false);
 	}
 
