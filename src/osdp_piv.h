@@ -38,6 +38,8 @@ struct osdp_piv {
 };
 
 bool osdp_piv_is_active(struct osdp_pd *pd);
+/* True when the active PIV op's wire command is `cmd_id`. */
+bool osdp_piv_owns_cmd(struct osdp_pd *pd, int cmd_id);
 void osdp_piv_abort(struct osdp_pd *pd);
 
 /* --- CP role --- */

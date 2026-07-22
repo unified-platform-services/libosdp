@@ -618,6 +618,12 @@ uint16_t osdp_compute_crc16(const uint8_t *buf, size_t len);
 const char *osdp_cmd_name(int cmd_id);
 const char *osdp_reply_name(int reply_id);
 
+/* Abort every feature engine (file/piv/bio) on this PD. The single owner of
+ * "full engine teardown" -- call it from every link-down path (CP going
+ * OFFLINE/DISABLED, PD losing the CP, CMD_ABORT) instead of listing engines
+ * at the call site. Each engine's abort is idempotent. */
+void osdp_engines_abort(struct osdp_pd *pd);
+
 /* Targeted reader number for commands/events that carry one, else -1. */
 int osdp_cmd_reader_no(const struct osdp_cmd *cmd);
 int osdp_event_reader_no(const struct osdp_event *event);

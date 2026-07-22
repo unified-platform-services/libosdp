@@ -998,9 +998,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != 0) {
 			break;
 		}
-		osdp_file_tx_abort(pd);
-		osdp_piv_abort(pd);
-		osdp_bio_abort(pd);
+		osdp_engines_abort(pd);
 		pd->reply_id = REPLY_ACK;
 		ret = OSDP_PD_ERR_NONE;
 		break;
@@ -1636,9 +1634,7 @@ static void osdp_pd_update(struct osdp_pd *pd)
 	    osdp_millis_since(pd->tstamp) > OSDP_PD_ONLINE_TOUT_MS) {
 		LOG_INF("PD offline; lost CP activity");
 		pd_set_offline(pd);
-		osdp_file_tx_abort(pd);
-		osdp_piv_abort(pd);
-		osdp_bio_abort(pd);
+		osdp_engines_abort(pd);
 		notify_pd_status(pd, false);
 	}
 

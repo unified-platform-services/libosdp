@@ -1099,6 +1099,21 @@ static const char *state_get_name(enum osdp_cp_state_e state)
 	}
 }
 
+/*
+ * Feature-engine contract: each engine below (file/piv/bio) is a polled
+ * command source with private state. To participate here an engine exports:
+ *
+ *   *_is_active(pd)      cheap liveness predicate; false when idle
+ *   *_abort(pd)          idempotent teardown; fires MP START-before-DONE;
+ *                        must be wired into osdp_engines_abort()
+ *   *_cp_get_command(pd) >0 wire cmd to send now, 0 not mine (ask next),
+ *                        -1 mine but hold the bus this tick
+ *   *_pd_reply_pending(pd)  (optional, PD role) continuation to drain on POLL
+ *
+ * Priority is positional: app queue first, then engines in order, then the
+ * paced keep-alive POLL. Engines are consulted *before* the POLL timer so an
+ * active transfer streams at full refresh rate.
+ */
 static int cp_get_online_command(struct osdp_pd *pd)
 {
 	const struct osdp_cmd *cmd;
@@ -1441,9 +1456,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		LOG_ERR("Going offline for %" PRIu32
 			" seconds; Was in '%s' state",
 			pd->wait_ms / 1000, state_get_name(cur));
-		osdp_file_tx_abort(pd);
-		osdp_piv_abort(pd);
-		osdp_bio_abort(pd);
+		osdp_engines_abort(pd);
 		notify_pd_status(pd, false);
 		break;
 	case OSDP_CP_STATE_SC_CHLNG:
@@ -1453,9 +1466,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	case OSDP_CP_STATE_DISABLED:
 		sc_deactivate(pd);
 		notify_sc_status(pd);
-		osdp_file_tx_abort(pd);
-		osdp_piv_abort(pd);
-		osdp_bio_abort(pd);
+		osdp_engines_abort(pd);
 		notify_pd_status(pd, false);
 		osdp_phy_state_reset(pd, true);
 		LOG_INF("PD disabled; going offline until re-enabled");
@@ -1651,8 +1662,8 @@ static int state_update(struct osdp_pd *pd)
 				/* Going offline used to do this for us. */
 				osdp_file_tx_abort(pd);
 			}
-			if (err == OSDP_CP_ERR_NONE && osdp_piv_is_active(pd) &&
-			    pd->cmd_id == TO_PIV(pd)->wire_cmd) {
+			if (err == OSDP_CP_ERR_NONE &&
+			    osdp_piv_owns_cmd(pd, pd->cmd_id)) {
 				/* PD refused the smartcard command (NAK). */
 				osdp_piv_abort(pd);
 			}

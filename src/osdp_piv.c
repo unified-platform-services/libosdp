@@ -154,6 +154,11 @@ bool osdp_piv_is_active(struct osdp_pd *pd)
 	return TO_PIV(pd) && TO_PIV(pd)->phase != OSDP_PIV_IDLE;
 }
 
+bool osdp_piv_owns_cmd(struct osdp_pd *pd, int cmd_id)
+{
+	return osdp_piv_is_active(pd) && TO_PIV(pd)->wire_cmd == cmd_id;
+}
+
 void osdp_piv_abort(struct osdp_pd *pd)
 {
 	struct osdp_piv *p = TO_PIV(pd);
