@@ -371,10 +371,10 @@ static bool test_cp_file_tx_abort_on_disable(void)
 		printf(SUB_2 "file-tx: MP_DONE not seen after disable\n");
 		goto err;
 	}
-	if (g_nx.cp_file_tx_done.last_arg1 != OSDP_FILE_TX_OUTCOME_ABORTED) {
+	if (g_nx.cp_file_tx_done.last_arg1 != OSDP_MP_OUTCOME_ABORTED) {
 		printf(SUB_2 "file-tx: outcome=%d, want ABORTED=%d\n",
 		       g_nx.cp_file_tx_done.last_arg1,
-		       OSDP_FILE_TX_OUTCOME_ABORTED);
+		       OSDP_MP_OUTCOME_ABORTED);
 		goto err;
 	}
 	if (osdp_get_file_tx_status(g_nx.cp_ctx, 0, &size, &offset) != -1) {
@@ -535,11 +535,11 @@ static bool test_file_tx_notifies_both_roles(void)
 		printf(SUB_2 "both-roles: PD never saw MP_DONE\n");
 		goto err;
 	}
-	if (g_nx.cp_file_tx_done.last_arg1 != OSDP_FILE_TX_OUTCOME_OK ||
-	    g_nx.pd_file_tx_done.last_arg1 != OSDP_FILE_TX_OUTCOME_OK) {
+	if (g_nx.cp_file_tx_done.last_arg1 != OSDP_MP_OUTCOME_OK ||
+	    g_nx.pd_file_tx_done.last_arg1 != OSDP_MP_OUTCOME_OK) {
 		printf(SUB_2 "both-roles: outcome cp=%d pd=%d, want OK=%d\n",
 		       g_nx.cp_file_tx_done.last_arg1,
-		       g_nx.pd_file_tx_done.last_arg1, OSDP_FILE_TX_OUTCOME_OK);
+		       g_nx.pd_file_tx_done.last_arg1, OSDP_MP_OUTCOME_OK);
 		goto err;
 	}
 	if (g_nx.cp_file_tx_done.last_arg0 != 1 ||

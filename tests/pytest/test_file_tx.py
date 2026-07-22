@@ -121,10 +121,10 @@ def wait_for_file_tx_done(address, expected_outcome, timeout=10.0,
     assert notif is not None, "MultipartDone notification not received"
     assert notif.file_id == FILE_ID, \
         f"unexpected file_id in notification: {notif.file_id}"
-    assert notif.file_tx_outcome == expected_outcome, \
-        f"unexpected outcome: got {notif.file_tx_outcome}, want {expected_outcome}"
+    assert notif.mp_outcome == expected_outcome, \
+        f"unexpected outcome: got {notif.mp_outcome}, want {expected_outcome}"
     assert saw_start, "MultipartStart notification not received"
-    if expected_outcome == FileTxOutcome.Ok:
+    if expected_outcome == MpOutcome.Ok:
         assert saw_progress, "MultipartProgress notification not received"
 
     # Pin "fires exactly once" — drain for a short window and fail on any dupe
@@ -163,7 +163,7 @@ def test_file_transfer(utils):
     assert pd.get_command() == file_tx_cmd
 
     # Wait for the CP-side completion notification (the new canonical signal)
-    wait_for_file_tx_done(101, FileTxOutcome.Ok)
+    wait_for_file_tx_done(101, MpOutcome.Ok)
 
     # Poll API must report "not in progress" after completion
     assert cp.get_file_tx_status(101) is None
@@ -189,7 +189,7 @@ def test_file_tx_abort(utils):
     assert cp.submit_command(101, file_tx_abort)
 
     # Wait for the abort completion notification
-    wait_for_file_tx_done(101, FileTxOutcome.Aborted)
+    wait_for_file_tx_done(101, MpOutcome.Aborted)
 
     assert cp.get_file_tx_status(101) is None
     assert pd.get_file_tx_status() is None

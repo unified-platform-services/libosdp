@@ -107,7 +107,7 @@ def run_bio_op(reply_event, inline, expect_multipart):
                 object_id=reply_event.reader,
                 total=len(reply_event.data),
                 offset=len(reply_event.data),
-                outcome=int(FileTxOutcome.Ok),
+                outcome=int(MpOutcome.Ok),
             )
             wait_for_notification_event(cp, pd_addr, done)
         wait_for_non_notification_event(cp, pd_addr, reply_event)

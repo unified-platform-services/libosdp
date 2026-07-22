@@ -75,7 +75,7 @@ static inline void file_close_if_open(struct osdp_pd *pd)
 /* Converge every terminal path here: fire MP_DONE, close the file,
  * reset to IDLE. */
 static void file_transition_done(struct osdp_pd *pd,
-				 enum osdp_file_tx_outcome outcome)
+				 enum osdp_mp_outcome outcome)
 {
 	struct osdp_file *f = TO_FILE(pd);
 
@@ -88,26 +88,26 @@ static void file_transition_done(struct osdp_pd *pd,
 	 * state, then tear down. */
 	osdp_mp_finish(&f->mp, (int)outcome);
 	file_close_if_open(pd);
-	if (is_cp_mode(pd) && outcome == OSDP_FILE_TX_OUTCOME_OK_REBOOTING) {
+	if (is_cp_mode(pd) && outcome == OSDP_MP_OUTCOME_OK_REBOOTING) {
 		make_request(pd, CP_REQ_OFFLINE);
 	}
 	file_state_reset(pd);
 }
 
-static enum osdp_file_tx_outcome file_outcome_from_wire_status(int16_t status)
+static enum osdp_mp_outcome file_outcome_from_wire_status(int16_t status)
 {
 	switch (status) {
 	case OSDP_FILE_TX_STATUS_CONTENTS_PROCESSED:
-		return OSDP_FILE_TX_OUTCOME_OK;
+		return OSDP_MP_OUTCOME_OK;
 	case OSDP_FILE_TX_STATUS_PD_RESET:
-		return OSDP_FILE_TX_OUTCOME_OK_REBOOTING;
+		return OSDP_MP_OUTCOME_OK_REBOOTING;
 	case OSDP_FILE_TX_STATUS_ERR_UNKNOWN:
-		return OSDP_FILE_TX_OUTCOME_UNRECOGNIZED;
+		return OSDP_MP_OUTCOME_UNRECOGNIZED;
 	case OSDP_FILE_TX_STATUS_ERR_INVALID:
-		return OSDP_FILE_TX_OUTCOME_INVALID;
+		return OSDP_MP_OUTCOME_INVALID;
 	case OSDP_FILE_TX_STATUS_ERR_ABORT:
 	default:
-		return OSDP_FILE_TX_OUTCOME_ABORTED;
+		return OSDP_MP_OUTCOME_ABORTED;
 	}
 }
 
@@ -147,20 +147,16 @@ int osdp_file_cmd_tx_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 
 	/**
 	 * OSDP File module is a bit different than the rest of LibOSDP: it
-	 * tries to greedily consume all available packet space. We need to
-	 * account for the bytes that phy layer would add and then account for
-	 * the overhead due to encryption if a secure channel is active. For
-	 * now 16 is choosen based on crude observation.
-	 *
-	 * The engine writes its header at buf+1; the type byte occupies
-	 * buf[0].
+	 * tries to greedily consume all available packet space, so the SC
+	 * headroom must be carved out up front. The engine writes its header
+	 * at buf+1; the type byte occupies buf[0].
 	 *
 	 * TODO: Try to add smarts here later.
 	 */
-	engine_max = (max_len - 1) - 16;
+	engine_max = (max_len - 1) - OSDP_MP_SC_RESERVE;
 	if (engine_max <= OSDP_MP_HDR_SIZE(OSDP_MP_W32)) {
 		LOG_ERR("TX_Build: insufficient space; need:%d have:%d",
-			hdr + 16, max_len);
+			hdr + OSDP_MP_SC_RESERVE, max_len);
 		goto reply_abort;
 	}
 
@@ -191,7 +187,7 @@ int osdp_file_cmd_tx_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 
 reply_abort:
 	LOG_ERR("TX_Build: Aborting file transfer due to unrecoverable error!");
-	file_transition_done(pd, OSDP_FILE_TX_OUTCOME_ABORTED);
+	file_transition_done(pd, OSDP_MP_OUTCOME_ABORTED);
 	return -1;
 }
 
@@ -352,7 +348,7 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 		 * behind: tear it back down. A mid-transfer rejection
 		 * legitimately stays open so the CP can retry. */
 		if (opened_now) {
-			file_transition_done(pd, OSDP_FILE_TX_OUTCOME_ABORTED);
+			file_transition_done(pd, OSDP_MP_OUTCOME_ABORTED);
 		}
 		return -1;
 	}
@@ -426,7 +422,7 @@ int osdp_file_cmd_stat_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	if (f->mp.offset == f->mp.total && f->mp.total != 0) { /* EOF */
 		stat.status = OSDP_FILE_TX_STATUS_CONTENTS_PROCESSED;
 		LOG_INF("TX_Decode: File receive complete");
-		file_transition_done(pd, OSDP_FILE_TX_OUTCOME_OK);
+		file_transition_done(pd, OSDP_MP_OUTCOME_OK);
 	}
 
 	/* fill the packet buffer (layout: struct osdp_cmd_file_stat) */
@@ -444,7 +440,7 @@ int osdp_file_cmd_stat_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 void osdp_file_tx_abort(struct osdp_pd *pd)
 {
 	if (osdp_file_tx_is_active(pd)) {
-		file_transition_done(pd, OSDP_FILE_TX_OUTCOME_ABORTED);
+		file_transition_done(pd, OSDP_MP_OUTCOME_ABORTED);
 	}
 }
 
@@ -470,7 +466,7 @@ int osdp_file_tx_get_command(struct osdp_pd *pd)
 
 	if (f->errors > OSDP_FILE_ERROR_RETRY_MAX || f->cancel_req) {
 		LOG_ERR("Aborting transfer of file fd:%d", f->file_id);
-		file_transition_done(pd, OSDP_FILE_TX_OUTCOME_ABORTED);
+		file_transition_done(pd, OSDP_MP_OUTCOME_ABORTED);
 		return CMD_ABORT;
 	}
 
@@ -514,6 +510,12 @@ int osdp_file_tx_command(struct osdp_pd *pd, int file_id, uint32_t flags)
 
 	if (flags & OSDP_CMD_FILE_TX_FLAG_CANCEL) {
 		LOG_ERR("TX_init: invalid cancel request");
+		return -1;
+	}
+
+	/* §5.10.2: a multi-part transfer may not interleave with another. */
+	if (osdp_mp_engine_busy(pd)) {
+		LOG_ERR("TX_init: another multi-part transfer in progress");
 		return -1;
 	}
 

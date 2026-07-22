@@ -23,6 +23,11 @@ enum osdp_mp_state {
 	OSDP_MP_DONE,
 };
 
+/* Every OSDP payload that rides a secure channel needs headroom for the SCS
+ * padding block and MAC; multipart fragment sizing reserves this much of the
+ * peer's advertised RX capacity. */
+#define OSDP_MP_SC_RESERVE 16
+
 enum osdp_mp_rc {
 	OSDP_MP_RC_MORE = 0,
 	OSDP_MP_RC_DONE,

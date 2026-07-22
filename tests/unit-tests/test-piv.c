@@ -253,6 +253,35 @@ static bool test_auth_roundtrip(const char *name, const char *label,
 	return true;
 }
 
+/* Stub file ops so a FILE_TX submit gets far enough to hit the §5.10.2
+ * no-interleave check rather than failing on unregistered ops. */
+static int piv_stub_fopen(void *arg, int file_id, uint32_t *size)
+{
+	ARG_UNUSED(arg); ARG_UNUSED(file_id);
+	*size = 128;
+	return 0;
+}
+
+static int piv_stub_fread(void *arg, void *buf, uint32_t size, uint32_t offset)
+{
+	ARG_UNUSED(arg); ARG_UNUSED(offset);
+	memset(buf, 0xA5, size);
+	return (int)size;
+}
+
+static int piv_stub_fwrite(void *arg, const void *buf, uint32_t size,
+			   uint32_t offset)
+{
+	ARG_UNUSED(arg); ARG_UNUSED(buf); ARG_UNUSED(offset);
+	return (int)size;
+}
+
+static int piv_stub_fclose(void *arg)
+{
+	ARG_UNUSED(arg);
+	return 0;
+}
+
 static bool test_pivdata_busy_reject(void)
 {
 	struct osdp_cmd cmd = {
@@ -274,6 +303,26 @@ static bool test_pivdata_busy_reject(void)
 	}
 	if (osdp_cp_submit_command(g_piv.cp_ctx, 0, &cmd) == 0) {
 		printf(SUB_2 "busy: second submit was accepted\n");
+		return false;
+	}
+
+	/* §5.10.2: a file transfer must also be refused while the PIV op is
+	 * open -- the no-interleave rule cuts both ways. */
+	struct osdp_file_ops fops = {
+		.arg = NULL,
+		.open = piv_stub_fopen, .read = piv_stub_fread,
+		.write = piv_stub_fwrite, .close = piv_stub_fclose,
+	};
+	struct osdp_cmd ftx = {
+		.id = OSDP_CMD_FILE_TX,
+		.file_tx = { .id = 1, .flags = 0 },
+	};
+	if (osdp_file_register_ops(g_piv.cp_ctx, 0, &fops)) {
+		printf(SUB_2 "busy: file ops registration failed\n");
+		return false;
+	}
+	if (osdp_cp_submit_command(g_piv.cp_ctx, 0, &ftx) == 0) {
+		printf(SUB_2 "busy: file tx accepted during PIV op\n");
 		return false;
 	}
 	/* Let the op finish so later tests start clean. */

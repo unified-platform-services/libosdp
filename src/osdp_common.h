@@ -627,6 +627,10 @@ const char *osdp_reply_name(int reply_id);
  * at the call site. Each engine's abort is idempotent. */
 void osdp_engines_abort(struct osdp_pd *pd);
 
+/* Any multi-part engine mid-transfer on this PD? §5.10.2 forbids interleaving
+ * multi-part transfers; every engine's submit path must check this. */
+bool osdp_mp_engine_busy(struct osdp_pd *pd);
+
 /* Targeted reader number for commands/events that carry one, else -1. */
 int osdp_cmd_reader_no(const struct osdp_cmd *cmd);
 int osdp_event_reader_no(const struct osdp_event *event);

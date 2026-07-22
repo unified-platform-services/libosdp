@@ -7,7 +7,6 @@
 #include <stdlib.h>
 
 #include "osdp_piv.h"
-#include "osdp_file.h"
 
 /* Per-family wiring of the §5.10 smartcard/PIV multi-part consumers. */
 struct piv_family {
@@ -169,7 +168,7 @@ void osdp_piv_abort(struct osdp_pd *pd)
 	/* DONE never precedes START, even for an op that dies before its
 	 * first fragment. */
 	piv_emit_start(p);
-	osdp_mp_finish(&p->mp, OSDP_FILE_TX_OUTCOME_ABORTED);
+	osdp_mp_finish(&p->mp, OSDP_MP_OUTCOME_ABORTED);
 	piv_op_reset(p);
 }
 
@@ -188,8 +187,8 @@ int osdp_piv_cp_submit(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		return -1;
 	}
 	/* §5.10.2: a multi-part transfer may not interleave with another. */
-	if (osdp_file_tx_is_active(pd)) {
-		LOG_ERR("PIV: file transfer in progress");
+	if (osdp_mp_engine_busy(pd)) {
+		LOG_ERR("PIV: another multi-part transfer in progress");
 		return -1;
 	}
 
@@ -268,11 +267,12 @@ int osdp_piv_cp_cmd_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	case CMD_CRAUTH: {
 		uint8_t pfx[PIV_AUTH_PFX_LEN] = { p->algorithm, p->key };
 
-		/* Reserve for the command id byte plus the SC padding + MAC
-		 * that the phy adds when finalizing (file transfer does the
-		 * same); the multipart build greedily fills what remains. */
-		len = osdp_mp_tx_build_ex(&p->mp, buf, max_len - 1 - 16, pfx,
-					  sizeof(pfx));
+		/* Reserve for the command id byte plus the SC headroom the
+		 * phy adds when finalizing; the multipart build greedily
+		 * fills what remains. */
+		len = osdp_mp_tx_build_ex(&p->mp, buf,
+					  max_len - 1 - OSDP_MP_SC_RESERVE,
+					  pfx, sizeof(pfx));
 		if (len <= 0) {
 			return -1;
 		}
@@ -361,7 +361,7 @@ int osdp_piv_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 		event->type = p->event_type;
 		event->piv_reply.length = (uint16_t)p->mp.total;
 		memcpy(event->piv_reply.data, p->data, p->mp.total);
-		osdp_mp_finish(&p->mp, OSDP_FILE_TX_OUTCOME_OK);
+		osdp_mp_finish(&p->mp, OSDP_MP_OUTCOME_OK);
 		piv_op_reset(p);
 		return 1;
 	case OSDP_MP_RC_EARLY_TERM:
@@ -517,7 +517,7 @@ int osdp_piv_pd_reply_build(struct osdp_pd *pd, const struct osdp_event *event,
 	osdp_mp_tx_commit(&p->mp);
 	p->tstamp = osdp_millis_now();
 	if (p->mp.offset >= p->mp.total) {
-		osdp_mp_finish(&p->mp, OSDP_FILE_TX_OUTCOME_OK);
+		osdp_mp_finish(&p->mp, OSDP_MP_OUTCOME_OK);
 		piv_op_reset(p);
 	}
 	return n;

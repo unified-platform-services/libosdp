@@ -15,10 +15,6 @@
 _Static_assert(REPLY_BIOREADR_DATA_LEN == OSDP_MP_HDR_SIZE(OSDP_MP_W16),
 	       "BIOREADR header and W16 multipart header must be the same size");
 
-/* SC pad+MAC headroom the phy layer adds when finalizing a packet; reserved by
- * the sender exactly as the PIV and file-transfer builders do. */
-#define BIO_SC_RESERVE 16
-
 #ifdef OPT_OSDP_STATIC
 #ifndef OSDP_BIO_STATIC_SLOTS
 #define OSDP_BIO_STATIC_SLOTS OSDP_CP_MAX_PDS
@@ -93,7 +89,7 @@ void osdp_bio_abort(struct osdp_pd *pd)
 	}
 	/* DONE never precedes START, even for an op that dies early. */
 	bio_emit_start(b);
-	osdp_mp_finish(&b->mp, OSDP_FILE_TX_OUTCOME_ABORTED);
+	osdp_mp_finish(&b->mp, OSDP_MP_OUTCOME_ABORTED);
 	bio_op_reset(b);
 }
 
@@ -144,7 +140,7 @@ int osdp_bio_pd_reply_build(struct osdp_pd *pd, const struct osdp_event *event,
 		b->type = event->bioreadr.type;
 		b->quality = event->bioreadr.quality;
 
-		avail = max_len - REPLY_BIOREADR_DATA_LEN - BIO_SC_RESERVE;
+		avail = max_len - REPLY_BIOREADR_DATA_LEN - OSDP_MP_SC_RESERVE;
 		if ((int)event->bioreadr.length <= avail) {
 			/* Whole template fits in one packet: plain single-part
 			 * reply, no multipart transfer engaged. */
@@ -171,7 +167,7 @@ int osdp_bio_pd_reply_build(struct osdp_pd *pd, const struct osdp_event *event,
 	}
 
 	first = (b->mp.offset == 0);
-	n = osdp_mp_tx_build(&b->mp, buf, max_len - BIO_SC_RESERVE);
+	n = osdp_mp_tx_build(&b->mp, buf, max_len - OSDP_MP_SC_RESERVE);
 	if (n < 0) {
 		LOG_ERR("BIO: reply fragment build failed; aborting");
 		osdp_bio_abort(pd);
@@ -188,7 +184,7 @@ int osdp_bio_pd_reply_build(struct osdp_pd *pd, const struct osdp_event *event,
 	osdp_mp_tx_commit(&b->mp);
 	b->tstamp = osdp_millis_now();
 	if (b->mp.offset >= b->mp.total) {
-		osdp_mp_finish(&b->mp, OSDP_FILE_TX_OUTCOME_OK);
+		osdp_mp_finish(&b->mp, OSDP_MP_OUTCOME_OK);
 		bio_op_reset(b);
 	}
 	return n;
@@ -292,7 +288,7 @@ int osdp_bio_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 	case OSDP_MP_RC_DONE:
 		osdp_mp_rx_commit(&b->mp);
 		bio_cp_fill_event(b, event);
-		osdp_mp_finish(&b->mp, OSDP_FILE_TX_OUTCOME_OK);
+		osdp_mp_finish(&b->mp, OSDP_MP_OUTCOME_OK);
 		bio_op_reset(b);
 		return 1;
 	case OSDP_MP_RC_EARLY_TERM:

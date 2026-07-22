@@ -320,7 +320,7 @@ static bool test_bio_abort_on_pd_offline(struct osdp_pd *pd, osdp_t *pd_ctx)
 		printf(SUB_2 "no MP_DONE notification on link loss\n");
 		goto out;
 	}
-	if (g_bio_ctx.mp_done_outcome != OSDP_FILE_TX_OUTCOME_ABORTED) {
+	if (g_bio_ctx.mp_done_outcome != OSDP_MP_OUTCOME_ABORTED) {
 		printf(SUB_2 "MP_DONE outcome %d, want ABORTED\n",
 		       g_bio_ctx.mp_done_outcome);
 		goto out;

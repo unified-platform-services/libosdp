@@ -22,6 +22,9 @@ enum osdp_piv_phase {
 };
 
 struct osdp_piv {
+	/* `phase` owns op liveness (osdp_piv_is_active); mp.state is
+	 * engine-internal and re-initialized per leg. Every reset path must go
+	 * through piv_op_reset() so the two cannot desync. */
 	enum osdp_piv_phase phase;
 	int mp_msg;         /* OSDP_MP_MSG_* of the active op */
 	uint8_t app_cmd;    /* OSDP_CMD_PIVDATA/... */

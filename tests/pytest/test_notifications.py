@@ -245,8 +245,8 @@ def _wait_file_tx_done(cp, expected_outcome, timeout=5.0):
         if e.type != NotificationType.MultipartDone:
             continue
         assert e.file_id == FILE_ID
-        assert e.file_tx_outcome == expected_outcome, \
-            f"outcome={e.file_tx_outcome}, want {expected_outcome}"
+        assert e.mp_outcome == expected_outcome, \
+            f"outcome={e.mp_outcome}, want {expected_outcome}"
         return e
     pytest.fail(f"MultipartDone({expected_outcome}) not received")
 
@@ -278,7 +278,7 @@ def test_cp_file_tx_aborts_on_disable_pd():
         # call osdp_file_tx_abort() and fire MP_DONE/ABORTED.
         assert cp.disable_pd(PD_ADDR), "disable_pd failed"
 
-        _wait_file_tx_done(cp, FileTxOutcome.Aborted, timeout=5.0)
+        _wait_file_tx_done(cp, MpOutcome.Aborted, timeout=5.0)
         assert cp.get_file_tx_status(PD_ADDR) is None, \
             "CP still reports transfer active after abort"
     finally:

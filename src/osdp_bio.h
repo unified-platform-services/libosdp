@@ -24,6 +24,9 @@ enum osdp_bio_phase {
 };
 
 struct osdp_bio {
+	/* `phase` owns op liveness (osdp_bio_is_active); mp.state is
+	 * engine-internal. Every reset path must go through bio_op_reset()
+	 * so the two cannot desync. */
 	enum osdp_bio_phase phase;
 	bool start_emitted;  /* one MP_START per transfer */
 	uint8_t reader;      /* fragment-0 metadata, cached for the final event */

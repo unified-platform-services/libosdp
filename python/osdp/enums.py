@@ -26,7 +26,7 @@ __all__ = [
     "CompletionStatus",
     "EventId",
     "FileTxFlag",
-    "FileTxOutcome",
+    "MpOutcome",
     "LEDColor",
     "LibFlag",
     "LogLevel",
@@ -290,16 +290,20 @@ class FileTxFlag(IntFlag):
     """Abort an in-progress transfer instead of starting one."""
 
 
-class FileTxOutcome(_WireEnum):
-    """How a file transfer ended. @see osdp_file_tx_outcome"""
+class MpOutcome(_WireEnum):
+    """How a multipart transfer ended, as reported by MultipartDone.
 
-    Ok = _sys.FILE_TX_OUTCOME_OK
-    OkRebooting = _sys.FILE_TX_OUTCOME_OK_REBOOTING
+    ``Ok`` and ``Aborted`` apply to any transfer; the remaining values are
+    file-transfer specific. @see osdp_mp_outcome
+    """
+
+    Ok = _sys.MP_OUTCOME_OK
+    OkRebooting = _sys.MP_OUTCOME_OK_REBOOTING
     """Transfer succeeded and the PD is rebooting to apply it."""
 
-    Aborted = _sys.FILE_TX_OUTCOME_ABORTED
-    Unrecognized = _sys.FILE_TX_OUTCOME_UNRECOGNIZED
-    Invalid = _sys.FILE_TX_OUTCOME_INVALID
+    Aborted = _sys.MP_OUTCOME_ABORTED
+    Unrecognized = _sys.MP_OUTCOME_UNRECOGNIZED
+    Invalid = _sys.MP_OUTCOME_INVALID
 
 
 class CompletionStatus(IntEnum):

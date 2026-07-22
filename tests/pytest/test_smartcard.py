@@ -113,7 +113,7 @@ def run_smartcard_op(cmd, reply_event, mp_msg, object_id, inline):
             object_id=object_id,
             total=len(reply_event.data),
             offset=len(reply_event.data),
-            outcome=int(FileTxOutcome.Ok),
+            outcome=int(MpOutcome.Ok),
         )
         wait_for_notification_event(cp, pd_addr, done)
         wait_for_non_notification_event(cp, pd_addr, reply_event)
@@ -162,7 +162,7 @@ def test_pivdata_rejected_without_smartcard_cap():
         object_id=1,
         total=0,
         offset=0,
-        outcome=int(FileTxOutcome.Aborted),
+        outcome=int(MpOutcome.Aborted),
     )
     wait_for_notification_event(cp, no_cap_pd_addr, done)
     time.sleep(0.5)

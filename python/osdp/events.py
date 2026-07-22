@@ -33,7 +33,7 @@ from .enums import (
     CardFormat,
     CommandId,
     EventId,
-    FileTxOutcome,
+    MpOutcome,
     NotificationType,
     StatusReportType,
 )
@@ -437,12 +437,12 @@ class Notification:
         return self.object_id
 
     @property
-    def file_tx_outcome(self) -> FileTxOutcome:
+    def mp_outcome(self) -> MpOutcome:
         """How the transfer ended.
 
         Only for NotificationType.MultipartDone (reads outcome).
         """
-        return FileTxOutcome(self.outcome)
+        return MpOutcome(self.outcome)
 
 
 

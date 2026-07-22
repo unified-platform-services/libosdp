@@ -500,3 +500,9 @@ void osdp_engines_abort(struct osdp_pd *pd)
 	osdp_piv_abort(pd);
 	osdp_bio_abort(pd);
 }
+
+bool osdp_mp_engine_busy(struct osdp_pd *pd)
+{
+	return osdp_file_tx_is_active(pd) || osdp_piv_is_active(pd) ||
+	       osdp_bio_is_active(pd);
+}

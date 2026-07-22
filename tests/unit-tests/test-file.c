@@ -223,7 +223,7 @@ struct file_tx_opts {
 	bool line_noise;
 	int read_busy_mod;        /* 0 = no busy injection */
 	bool read_always_busy;
-	int expected_outcome;     /* OSDP_FILE_TX_OUTCOME_* */
+	int expected_outcome;     /* OSDP_MP_OUTCOME_* */
 	int wait_deciseconds;     /* notification wait budget, 100ms units */
 	bool verify_content;      /* compare REC_FILE against SEND_FILE */
 };
@@ -414,7 +414,7 @@ void run_file_tx_tests(struct test *t, bool line_noise)
 	struct file_tx_opts opts = {
 		.label = "baseline (no host busy)",
 		.line_noise = line_noise,
-		.expected_outcome = OSDP_FILE_TX_OUTCOME_OK,
+		.expected_outcome = OSDP_MP_OUTCOME_OK,
 		.wait_deciseconds = 600, /* 60s */
 		.verify_content = true,
 	};
@@ -431,7 +431,7 @@ void run_file_tx_intermittent_tests(struct test *t)
 	struct file_tx_opts opts = {
 		.label = "CP host busy intermittently (every 3rd read)",
 		.read_busy_mod = 3,
-		.expected_outcome = OSDP_FILE_TX_OUTCOME_OK,
+		.expected_outcome = OSDP_MP_OUTCOME_OK,
 		.wait_deciseconds = 600, /* 60s */
 		.verify_content = true,
 	};
@@ -589,7 +589,7 @@ void run_file_tx_pd_keep_alive_tests(struct test *t)
 	}
 	/* Completion delivers exactly one MP_DONE with the OK outcome. */
 	if (g_notif.count != 1 || g_notif.type != OSDP_NOTIFICATION_MP_DONE ||
-	    g_notif.arg1 != OSDP_FILE_TX_OUTCOME_OK) {
+	    g_notif.arg1 != OSDP_MP_OUTCOME_OK) {
 		printf(SUB_1 "keep-alive: MP_DONE not delivered on completion "
 		       "(count=%d type=%d outcome=%d)\n",
 		       g_notif.count, g_notif.type, g_notif.arg1);
@@ -840,7 +840,7 @@ void run_file_tx_permanent_busy_tests(struct test *t)
 	struct file_tx_opts opts = {
 		.label = "CP host busy permanently",
 		.read_always_busy = true,
-		.expected_outcome = OSDP_FILE_TX_OUTCOME_ABORTED,
+		.expected_outcome = OSDP_MP_OUTCOME_ABORTED,
 		.wait_deciseconds = 100, /* 10s — abort should be fast */
 		.verify_content = false,
 	};
