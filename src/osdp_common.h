@@ -849,6 +849,17 @@ static inline void make_request(struct osdp_pd *pd, uint32_t req) {
 	pd->request |= req;
 }
 
+/*
+ * "Is this PD up and serving the app?" -- use this over a bare
+ * `state == ONLINE` test wherever that is the real question, so that modes
+ * layered on top of an established link (e.g. a transparent-reader session)
+ * can extend it without touching every call site.
+ */
+static inline bool cp_is_online(struct osdp_pd *pd)
+{
+	return pd->state == OSDP_CP_STATE_ONLINE;
+}
+
 static inline bool check_request(struct osdp_pd *pd, uint32_t req) {
 	if (pd->request & req) {
 		pd->request &= ~req;

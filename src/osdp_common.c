@@ -444,7 +444,7 @@ void osdp_get_status_mask(const osdp_t *ctx, uint8_t *bitmask)
 			*mask = 0;
 		}
 		pd = osdp_to_pd(ctx, i);
-		if (pd->state == OSDP_CP_STATE_ONLINE) {
+		if (cp_is_online(pd)) {
 			*mask |= 1 << pos;
 		}
 	}

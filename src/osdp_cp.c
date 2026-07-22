@@ -1099,6 +1099,39 @@ static const char *state_get_name(enum osdp_cp_state_e state)
 }
 
 /*
+ * Set a dequeued command up as the active command and return the wire cmd_id to
+ * send for it, or -1 if it could not be translated (then it is completed FAILED).
+ */
+static int cp_setup_active_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd)
+{
+	int ret;
+
+	ret = cp_translate_cmd(pd, cmd);
+	if (cmd->flags & OSDP_CMD_FLAG_BROADCAST) {
+		SET_FLAG(pd, PD_FLAG_PKT_BROADCAST);
+	}
+	if (ret < 0) {
+		cp_complete_cmd(pd, cmd, OSDP_COMPLETION_FAILED);
+		pd->active_cmd = NULL;
+	} else {
+		pd->active_cmd = cmd;
+	}
+	cp_cmd_free(pd, cmd);
+	return ret;
+}
+
+/* Poll only as often as OSDP_PD_POLL_TIMEOUT_MS allows; -1 means "not yet" */
+static int cp_get_poll_command(struct osdp_pd *pd)
+{
+	if (osdp_millis_since(pd->tstamp) > OSDP_PD_POLL_TIMEOUT_MS) {
+		pd->tstamp = osdp_millis_now();
+		return CMD_POLL;
+	}
+
+	return -1;
+}
+
+/*
  * Feature-engine contract: each engine below (file/piv/bio) is a polled
  * command source with private state. To participate here an engine exports:
  *
@@ -1119,18 +1152,7 @@ static int cp_get_online_command(struct osdp_pd *pd)
 	int ret;
 
 	if (cp_cmd_dequeue(pd, &cmd) == 0) {
-		ret = cp_translate_cmd(pd, cmd);
-		if (cmd->flags & OSDP_CMD_FLAG_BROADCAST) {
-			SET_FLAG(pd, PD_FLAG_PKT_BROADCAST);
-		}
-		if (ret < 0) {
-			cp_complete_cmd(pd, cmd, OSDP_COMPLETION_FAILED);
-			pd->active_cmd = NULL;
-		} else {
-			pd->active_cmd = cmd;
-		}
-		cp_cmd_free(pd, cmd);
-		return ret;
+		return cp_setup_active_cmd(pd, cmd);
 	}
 
 	ret = osdp_file_tx_get_command(pd);
@@ -1148,12 +1170,7 @@ static int cp_get_online_command(struct osdp_pd *pd)
 		return ret;
 	}
 
-	if (osdp_millis_since(pd->tstamp) > OSDP_PD_POLL_TIMEOUT_MS) {
-		pd->tstamp = osdp_millis_now();
-		return CMD_POLL;
-	}
-
-	return -1;
+	return cp_get_poll_command(pd);
 }
 
 static void notify_pd_status(struct osdp_pd *pd, bool is_online)
@@ -1204,7 +1221,7 @@ static void cp_keyset_complete(struct osdp_pd *pd)
 	}
 	sc_deactivate(pd);
 	notify_sc_status(pd);
-	if (pd->state == OSDP_CP_STATE_ONLINE) {
+	if (cp_is_online(pd)) {
 		make_request(pd, CP_REQ_RESTART_SC);
 		LOG_INF("SCBK set; restarting SC to verify new SCBK");
 	}
@@ -1553,9 +1570,9 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	pd->state = next;
 }
 
-static bool cp_cmd_is_app_owned(int cmd_id)
+static bool cp_cmd_is_app_owned(struct osdp_pd *pd)
 {
-	switch (cmd_id) {
+	switch (pd->cmd_id) {
 	case CMD_OUT:
 	case CMD_LED:
 	case CMD_BUZ:
@@ -1609,9 +1626,9 @@ static bool cp_nak_code_is_app_level(uint8_t nak_code)
  */
 static bool cp_cmd_failure_is_soft(struct osdp_pd *pd)
 {
-	if (pd->state != OSDP_CP_STATE_ONLINE ||
+	if (!cp_is_online(pd) ||
 	    pd->phy_state != OSDP_CP_PHY_STATE_DONE ||
-	    !cp_cmd_is_app_owned(pd->cmd_id)) {
+	    !cp_cmd_is_app_owned(pd)) {
 		return false;
 	}
 
@@ -1795,7 +1812,7 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		return -1;
 	}
 
-	if (pd->state != OSDP_CP_STATE_ONLINE) {
+	if (!cp_is_online(pd)) {
 		LOG_ERR("PD is not online");
 		return -1;
 	}
