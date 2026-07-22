@@ -209,6 +209,25 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
  * which carries application data. Returns -1 for replies built purely from PD
  * state, which need no event at all.
  */
+/*
+ * Poll-driven continuation fragments of a multi-part engine reply are built
+ * from the engine's context alone and carry no backing event; the backing-
+ * event guard in pd_build_reply() must wave them through. One rule for every
+ * engine -- PIV reply ids happen to have no backing-event mapping today, but
+ * listing them here keeps the exemption explicit rather than accidental.
+ */
+static bool pd_engine_reply_pending(struct osdp_pd *pd, int reply_id)
+{
+	if (reply_id == REPLY_BIOREADR && osdp_bio_pd_reply_pending(pd)) {
+		return true;
+	}
+	if (osdp_piv_pd_reply_pending(pd) &&
+	    reply_id == osdp_piv_pd_reply_id(pd)) {
+		return true;
+	}
+	return false;
+}
+
 static int reply_backing_event_type(int reply_id)
 {
 	switch (reply_id) {
@@ -1202,10 +1221,8 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	max_len -= 1;
 
 	event_type = reply_backing_event_type(pd->reply_id);
-	/* A multi-part BIOREADR continuation is built from the bio context alone;
-	 * its poll-driven fragments carry no backing event. */
 	if (event_type >= 0 && (!event || (int)event->type != event_type) &&
-	    !(pd->reply_id == REPLY_BIOREADR && osdp_bio_pd_reply_pending(pd))) {
+	    !pd_engine_reply_pending(pd, pd->reply_id)) {
 		LOG_ERR("REPLY: %s(%02x) has no matching event to build from",
 			osdp_reply_name(pd->reply_id), pd->reply_id);
 		goto out;
