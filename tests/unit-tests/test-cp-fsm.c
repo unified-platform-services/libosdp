@@ -9,9 +9,11 @@
 #include <osdp.h>
 #include "test.h"
 
-extern int test_state_update(struct osdp_pd *);
+extern void test_state_update(struct osdp_pd *);
 extern bool test_cp_cmd_failure_is_soft(struct osdp_pd *);
 extern int test_cp_decode_response(struct osdp_pd *, uint8_t *, int);
+extern enum osdp_cp_state_e test_get_next_ok_state(struct osdp_pd *);
+extern enum osdp_cp_state_e test_get_next_err_state(struct osdp_pd *);
 
 int test_fsm_resp = 0;
 /* When set, every reply is a NAK(SEQ_NUM) regardless of the command sent. */
@@ -352,6 +354,51 @@ static void test_cp_crc_nak_fallback(struct test *t)
 }
 
 /**
+ * The transition tables must be pure: same next state on re-evaluation and
+ * not a single byte of pd modified. Effects belong to cp_transition_effects()
+ * and cp_state_change(); a write sneaking back into a table would make
+ * transitions depend on how often the tables happen to be consulted.
+ */
+static void test_cp_transition_table_purity(struct test *t)
+{
+	static const enum osdp_cp_state_e states[] = {
+		OSDP_CP_STATE_INIT,    OSDP_CP_STATE_CAPDET,
+		OSDP_CP_STATE_SC_CHLNG, OSDP_CP_STATE_SC_SCRYPT,
+		OSDP_CP_STATE_SET_SCBK, OSDP_CP_STATE_ONLINE,
+		OSDP_CP_STATE_OFFLINE,  OSDP_CP_STATE_DISABLED,
+	};
+	struct osdp_pd pd, snap;
+	bool result = true;
+
+	printf(SUB_1 "transition tables are pure\n");
+
+	for (size_t i = 0; i < ARRAY_SIZEOF(states); i++) {
+		memset(&pd, 0, sizeof(pd));
+		pd.state = states[i];
+		/* Park the OFFLINE re-INIT timer far from its boundary so the
+		 * clock cannot flip the answer between two evaluations. */
+		pd.tstamp = osdp_millis_now();
+		pd.wait_ms = 300 * 1000;
+		snap = pd;
+
+		if (test_get_next_ok_state(&pd) != test_get_next_ok_state(&pd) ||
+		    memcmp(&pd, &snap, sizeof(pd)) != 0) {
+			printf(SUB_2 "ok-table impure in state %d\n", states[i]);
+			result = false;
+		}
+		if (test_get_next_err_state(&pd) != test_get_next_err_state(&pd) ||
+		    memcmp(&pd, &snap, sizeof(pd)) != 0) {
+			printf(SUB_2 "err-table impure in state %d\n", states[i]);
+			result = false;
+		}
+	}
+
+	printf(SUB_1 "transition table purity %s\n",
+	       result ? "succeeded" : "failed");
+	TEST_REPORT(t, result);
+}
+
+/**
  * NAK(SEQ_NUM) tells us the PD's link state and ours have diverged. It must
  * take the PD offline through the regular transition path (CP_REQ_LINK_RESET),
  * and any session-scoped request pending at that moment must not survive to
@@ -412,6 +459,7 @@ void run_cp_fsm_tests(struct test *t)
 
 	test_cp_soft_failure_matrix(t);
 	test_cp_crc_nak_fallback(t);
+	test_cp_transition_table_purity(t);
 
 	if (test_cp_fsm_setup(t))
 		return;
