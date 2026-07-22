@@ -843,10 +843,9 @@ static int cp_process_reply(struct osdp_pd *pd)
 		return OSDP_CP_ERR_RETRY_CMD;
 	case OSDP_ERR_PKT_NACK:
 		if (pd->nak_code == OSDP_PD_NAK_SEQ_NUM) {
-			LOG_WRN("NAK(SEQ_NUM); restarting communication");
-			osdp_phy_state_reset(pd, true);
-			sc_deactivate(pd);
-			pd->state = OSDP_CP_STATE_INIT;
+			LOG_WRN("NAK(SEQ_NUM); link out of sync; "
+				"resetting connection");
+			make_request(pd, CP_REQ_LINK_RESET);
 			return OSDP_CP_ERR_SEQ_NUM;
 		}
 		/* Other NACKs: CP cannot do anything about an invalid reply from a PD.
@@ -1451,6 +1450,10 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 	case OSDP_CP_STATE_OFFLINE:
 		pd->tstamp = osdp_millis_now();
 		pd->wait_ms = OSDP_ONLINE_RETRY_WAIT_MAX_MS;
+		/* Session-scoped requests refer to a session that no longer
+		 * exists; a stale one must not fire on the next ONLINE visit.
+		 * Lifecycle bits (DISABLE/ENABLE) survive. */
+		pd->request &= ~(CP_REQ_RESTART_SC | CP_REQ_OFFLINE);
 		sc_deactivate(pd);
 		notify_sc_status(pd);
 		LOG_ERR("Going offline for %" PRIu32
@@ -1464,6 +1467,7 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		osdp_sc_setup(pd);
 		break;
 	case OSDP_CP_STATE_DISABLED:
+		pd->request &= ~(CP_REQ_RESTART_SC | CP_REQ_OFFLINE);
 		sc_deactivate(pd);
 		notify_sc_status(pd);
 		osdp_engines_abort(pd);
@@ -1674,19 +1678,33 @@ static int state_update(struct osdp_pd *pd)
 		BUG();
 	}
 
-	next = get_next_state(pd, err);
+	if (check_request(pd, CP_REQ_LINK_RESET)) {
+		/* Link integrity trumps whatever the transition tables would
+		 * pick (and any pending session-scoped request): reconnect
+		 * from scratch via the OFFLINE dwell. */
+		next = OSDP_CP_STATE_OFFLINE;
+	} else {
+		next = get_next_state(pd, err);
 
-	if (pd->state == OSDP_CP_STATE_ONLINE || next == OSDP_CP_STATE_ONLINE) {
-		if (check_request(pd, CP_REQ_RESTART_SC)) {
-			osdp_phy_state_reset(pd, true);
-			next = OSDP_CP_STATE_SC_CHLNG;
-		}
-		if (check_request(pd, CP_REQ_OFFLINE)) {
-			LOG_INF("Going offline due to request");
-			next = OSDP_CP_STATE_OFFLINE;
+		if (pd->state == OSDP_CP_STATE_ONLINE ||
+		    next == OSDP_CP_STATE_ONLINE) {
+			if (check_request(pd, CP_REQ_RESTART_SC)) {
+				osdp_phy_state_reset(pd, true);
+				next = OSDP_CP_STATE_SC_CHLNG;
+			}
+			if (check_request(pd, CP_REQ_OFFLINE)) {
+				LOG_INF("Going offline due to request");
+				next = OSDP_CP_STATE_OFFLINE;
+			}
 		}
 	}
 
+	/* DISABLE/ENABLE are checked last, unconditionally: the app's
+	 * lifecycle verdict overrides any protocol-derived transition.
+	 * The two bits cannot be pending together -- osdp_cp_enable_pd()
+	 * refuses unless already DISABLED and disable refuses while a
+	 * disable is pending -- so their textual order here never has to
+	 * arbitrate a race. */
 	if (check_request(pd, CP_REQ_DISABLE)) {
 		next = OSDP_CP_STATE_DISABLED;
 	}

@@ -14,6 +14,8 @@ extern bool test_cp_cmd_failure_is_soft(struct osdp_pd *);
 extern int test_cp_decode_response(struct osdp_pd *, uint8_t *, int);
 
 int test_fsm_resp = 0;
+/* When set, every reply is a NAK(SEQ_NUM) regardless of the command sent. */
+static bool s_fsm_force_seq_nak;
 #ifdef OPT_OSDP_RX_ZERO_COPY
 /* One canned reply is served per command; release_pkt marks it consumed so a
  * poll before the next command does not re-deliver a stale frame. */
@@ -75,6 +77,23 @@ static int fsm_fill_response(uint8_t *buf)
 #endif
 		0x53, 0xe5, 0x08, 0x00, 0x06, 0x40, 0xb0, 0xf0
 	};
+	uint8_t resp_nak_seq[] = {
+#ifndef OPT_OSDP_SKIP_MARK_BYTE
+		0xff,
+#endif
+		0x53, 0xe5, 0x09, 0x00, 0x06, 0x41, OSDP_PD_NAK_SEQ_NUM,
+		0x00, 0x00 /* crc filled below */
+	};
+
+	if (s_fsm_force_seq_nak) {
+		int n = sizeof(resp_nak_seq);
+		uint16_t crc = osdp_compute_crc16(resp_nak_seq + (n - 9), 7);
+
+		resp_nak_seq[n - 2] = crc & 0xff;
+		resp_nak_seq[n - 1] = crc >> 8;
+		memcpy(buf, resp_nak_seq, n);
+		return n;
+	}
 
 	switch (test_fsm_resp) {
 	case 1:
@@ -332,6 +351,57 @@ static void test_cp_crc_nak_fallback(struct test *t)
 	TEST_REPORT(t, result);
 }
 
+/**
+ * NAK(SEQ_NUM) tells us the PD's link state and ours have diverged. It must
+ * take the PD offline through the regular transition path (CP_REQ_LINK_RESET),
+ * and any session-scoped request pending at that moment must not survive to
+ * fire on the next ONLINE visit.
+ */
+static bool test_cp_seq_nak_link_reset(struct osdp *ctx)
+{
+	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
+	int count = 0;
+
+	printf(SUB_1 "NAK(SEQ_NUM) resets the link\n");
+
+	if (pd->state != OSDP_CP_STATE_ONLINE) {
+		printf(SUB_2 "CP not online to begin with\n");
+		return false;
+	}
+
+	/* Over the wire: every reply is now NAK(SEQ_NUM). */
+	s_fsm_force_seq_nak = true;
+	while (pd->state != OSDP_CP_STATE_OFFLINE && count++ < 300) {
+		test_state_update(pd);
+		usleep(1000);
+	}
+	s_fsm_force_seq_nak = false;
+	if (pd->state != OSDP_CP_STATE_OFFLINE) {
+		printf(SUB_2 "CP did not go offline on NAK(SEQ_NUM)\n");
+		return false;
+	}
+	if (pd->request & CP_REQ_LINK_RESET) {
+		printf(SUB_2 "LINK_RESET request left pending\n");
+		return false;
+	}
+
+	/* White-box: LINK_RESET outranks a pending session-scoped request,
+	 * and OFFLINE entry clears the stale bit instead of latching it. */
+	pd->state = OSDP_CP_STATE_ONLINE;
+	pd->request |= CP_REQ_LINK_RESET | CP_REQ_RESTART_SC;
+	test_state_update(pd);
+	if (pd->state != OSDP_CP_STATE_OFFLINE) {
+		printf(SUB_2 "LINK_RESET did not win over RESTART_SC\n");
+		return false;
+	}
+	if (pd->request & (CP_REQ_LINK_RESET | CP_REQ_RESTART_SC)) {
+		printf(SUB_2 "stale request bits survived: 0x%x\n",
+		       pd->request);
+		return false;
+	}
+	return true;
+}
+
 void run_cp_fsm_tests(struct test *t)
 {
 	int result = true;
@@ -364,6 +434,8 @@ void run_cp_fsm_tests(struct test *t)
 	printf(SUB_1 "state_update test %s\n", result ? "succeeded" : "failed");
 
 	TEST_REPORT(t, result);
+
+	TEST_REPORT(t, test_cp_seq_nak_link_reset(ctx));
 
 	test_cp_fsm_teardown(t);
 }
