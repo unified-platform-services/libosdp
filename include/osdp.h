@@ -1110,6 +1110,15 @@ enum osdp_notification_type {
 	 * Multipart transfer terminated. `mp.outcome` is set.
 	 */
 	OSDP_NOTIFICATION_MP_DONE,
+	/**
+	 * PD ID collected (CP mode). Payload: `pd_id` (@ref osdp_pd_id).
+	 *
+	 * Fires when the CP reads a PD's identity (osdp_PDID) during the INIT
+	 * handshake and it differs from the last one seen for that PD: on
+	 * first contact, or if the device answering an address changed. A
+	 * reconnect that reports the same identity is silent.
+	 */
+	OSDP_NOTIFICATION_PD_ID,
 };
 
 /**
@@ -1211,6 +1220,7 @@ struct osdp_notification {
 		struct osdp_notification_sc_status sc_status; /**< SC_STATUS */
 		struct osdp_notification_pd_status pd_status; /**< PD_STATUS */
 		struct osdp_mp_notification mp;               /**< MP_* */
+		struct osdp_pd_id pd_id;                      /**< PD_ID */
 	};
 };
 

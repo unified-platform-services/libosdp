@@ -37,6 +37,7 @@ from .enums import (
     NotificationType,
     StatusReportType,
 )
+from .types import PdId
 
 __all__ = [
     "BioMatch",
@@ -402,6 +403,21 @@ class Notification:
     outcome: int = 0
     """Terminal outcome. Only meaningful at NotificationType.MultipartDone."""
 
+    version: int = 0
+    """PD hardware version. Only for NotificationType.PdId."""
+
+    model: int = 0
+    """PD model number. Only for NotificationType.PdId."""
+
+    vendor_code: int = 0
+    """Vendor's 3-byte IEEE OUI. Only for NotificationType.PdId."""
+
+    serial_number: int = 0
+    """PD serial number. Only for NotificationType.PdId."""
+
+    firmware_version: int = 0
+    """PD firmware version. Only for NotificationType.PdId."""
+
     @property
     def command_id(self) -> CommandId:
         """Which command completed. Only for NotificationType.Command."""
@@ -435,6 +451,17 @@ class Notification:
         Only for NotificationType.Multipart* (reads object_id).
         """
         return self.object_id
+
+    @property
+    def pd_id(self) -> PdId:
+        """The collected PD identity. Only for NotificationType.PdId."""
+        return PdId(
+            version=self.version,
+            model=self.model,
+            vendor_code=self.vendor_code,
+            serial_number=self.serial_number,
+            firmware_version=self.firmware_version,
+        )
 
     @property
     def mp_outcome(self) -> MpOutcome:

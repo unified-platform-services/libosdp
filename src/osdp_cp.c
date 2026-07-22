@@ -25,6 +25,8 @@ enum osdp_cp_error_e {
 	OSDP_CP_ERR_APP = -8, /* Application layer error */
 };
 
+static void notify_pd_id(struct osdp_pd *pd);
+
 static void cp_dispatch_event(struct osdp_pd *pd,
 			      const struct osdp_event *event)
 {
@@ -410,6 +412,22 @@ static bool cp_pd_declared_crc(struct osdp_pd *pd)
 	       (cap->compliance_level & 0x01);
 }
 
+static bool pd_id_changed(const struct osdp_pd_id *a,
+			  const struct osdp_pd_id *b)
+{
+	return a->version != b->version || a->model != b->model ||
+	       a->vendor_code != b->vendor_code ||
+	       a->serial_number != b->serial_number ||
+	       a->firmware_version != b->firmware_version;
+}
+
+/* An identity is "known" once collected; a fresh PD context is all-zero. */
+static bool pd_id_known(const struct osdp_pd_id *id)
+{
+	return id->version || id->model || id->vendor_code ||
+	       id->serial_number || id->firmware_version;
+}
+
 static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 {
 	int t, ret = OSDP_CP_ERR_GENERIC, pos = 0;
@@ -464,17 +482,32 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 			pd->nak_code, osdp_cmd_name(pd->cmd_id), pd->cmd_id);
 		ret = OSDP_CP_ERR_NONE;
 		break;
-	case REPLY_PDID:
+	case REPLY_PDID: {
+		struct osdp_pd_id prev;
+
 		if (len != REPLY_PDID_DATA_LEN) {
 			break;
 		}
+		prev = pd->id;
 		pd->id.vendor_code  = bread_u24_le(buf, &pos);
 		pd->id.model = buf[pos++];
 		pd->id.version = buf[pos++];
 		pd->id.serial_number = bread_u32_le(buf, &pos);
 		pd->id.firmware_version = bread_u24_be(buf, &pos);
+		/* Report the identity only when it is new or has changed since
+		 * last collected; pd->id persists across reconnects and starts
+		 * zeroed, so a same-id reconnect stays silent. A change away
+		 * from an already-known identity means a different device is
+		 * answering this address -- worth a warning. */
+		if (pd_id_changed(&prev, &pd->id)) {
+			if (pd_id_known(&prev)) {
+				LOG_WRN("PD ID changed since last contact");
+			}
+			notify_pd_id(pd);
+		}
 		ret = OSDP_CP_ERR_NONE;
 		break;
+	}
 	case REPLY_PDCAP:
 		if ((len % REPLY_PDCAP_ENTITY_LEN) != 0) {
 			LOG_ERR("PDCAP response length is not a multiple of 3");
@@ -1185,6 +1218,22 @@ static void notify_pd_status(struct osdp_pd *pd, bool is_online)
 	evt.type = OSDP_EVENT_NOTIFICATION;
 	evt.notif.type = OSDP_NOTIFICATION_PD_STATUS;
 	evt.notif.pd_status.online = is_online;
+	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
+	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
+}
+
+static void notify_pd_id(struct osdp_pd *pd)
+{
+	struct osdp *ctx = pd_to_osdp(pd);
+	struct osdp_event evt;
+
+	if (!ctx->event_callback || !is_notifications_enabled(pd)) {
+		return;
+	}
+
+	evt.type = OSDP_EVENT_NOTIFICATION;
+	evt.notif.type = OSDP_NOTIFICATION_PD_ID;
+	evt.notif.pd_id = pd->id;
 	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 }

@@ -282,6 +282,10 @@ class NotificationType(IntEnum):
     MultipartProgress = _sys.NOTIFICATION_MP_PROGRESS
     MultipartDone = _sys.NOTIFICATION_MP_DONE
 
+    PdId = _sys.NOTIFICATION_PD_ID
+    """PD identity collected (CP mode). Carries the PD id fields (vendor_code,
+    model, version, serial_number, firmware_version)."""
+
 
 class FileTxFlag(IntFlag):
     """Flags for a `FileTransfer` command. @see osdp_cmd_file_tx"""

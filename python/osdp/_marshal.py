@@ -138,13 +138,22 @@ def _notification_payload(x) -> Payload:
             "offset": x.offset,
             "outcome": x.outcome,
         }
+    if x.type == NotificationType.PdId:
+        return {
+            "type": x.type,
+            "version": x.version,
+            "model": x.model,
+            "vendor_code": x.vendor_code,
+            "serial_number": x.serial_number,
+            "firmware_version": x.firmware_version,
+        }
     return {"type": x.type}
 
 
 def _notification_from_payload(cls, p: Payload):
     """Build a Notification dataclass (`cls`) from a marshalled payload dict,
     reading only the fields the notification's type carries."""
-    return cls(
+    kwargs = dict(
         type=NotificationType(p["type"]),
         command=p.get("command_id", 0),
         success=bool(p.get("success", 0)),
@@ -155,6 +164,15 @@ def _notification_from_payload(cls, p: Payload):
         object_id=p.get("object_id", 0), total=p.get("total", 0),
         offset=p.get("offset", 0), outcome=p.get("outcome", 0),
     )
+    # PdId is CP-only, so only the CP-side Notification carries these fields.
+    if kwargs["type"] == NotificationType.PdId:
+        kwargs.update(
+            version=p.get("version", 0), model=p.get("model", 0),
+            vendor_code=p.get("vendor_code", 0),
+            serial_number=p.get("serial_number", 0),
+            firmware_version=p.get("firmware_version", 0),
+        )
+    return cls(**kwargs)
 
 
 _COMMAND_ENCODERS: dict[type, Callable[[Any], Payload]] = {

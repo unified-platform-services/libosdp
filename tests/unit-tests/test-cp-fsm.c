@@ -449,6 +449,109 @@ static bool test_cp_seq_nak_link_reset(struct osdp *ctx)
 	return true;
 }
 
+/* Records OSDP_NOTIFICATION_PD_ID deliveries for the change-detection test. */
+static struct {
+	int count;
+	struct osdp_pd_id id;
+} g_pdid_note;
+
+static int pdid_event_cb(void *arg, int pd, struct osdp_event *ev)
+{
+	ARG_UNUSED(arg);
+	ARG_UNUSED(pd);
+	if (ev->type == OSDP_EVENT_NOTIFICATION &&
+	    ev->notif.type == OSDP_NOTIFICATION_PD_ID) {
+		g_pdid_note.count++;
+		g_pdid_note.id = ev->notif.pd_id;
+	}
+	return 0;
+}
+
+/* Serialize a REPLY_PDID frame (reply id + 12-byte data block) for `id`. */
+static int fill_pdid_reply(uint8_t *buf, const struct osdp_pd_id *id)
+{
+	int n = 0;
+
+	buf[n++] = REPLY_PDID;
+	buf[n++] = id->vendor_code & 0xff;
+	buf[n++] = (id->vendor_code >> 8) & 0xff;
+	buf[n++] = (id->vendor_code >> 16) & 0xff;
+	buf[n++] = (uint8_t)id->model;
+	buf[n++] = (uint8_t)id->version;
+	buf[n++] = id->serial_number & 0xff;
+	buf[n++] = (id->serial_number >> 8) & 0xff;
+	buf[n++] = (id->serial_number >> 16) & 0xff;
+	buf[n++] = (id->serial_number >> 24) & 0xff;
+	buf[n++] = (id->firmware_version >> 16) & 0xff;
+	buf[n++] = (id->firmware_version >> 8) & 0xff;
+	buf[n++] = id->firmware_version & 0xff;
+	return n;
+}
+
+static bool pdid_note_matches(const struct osdp_pd_id *want)
+{
+	return g_pdid_note.id.version == want->version &&
+	       g_pdid_note.id.model == want->model &&
+	       g_pdid_note.id.vendor_code == want->vendor_code &&
+	       g_pdid_note.id.serial_number == want->serial_number &&
+	       g_pdid_note.id.firmware_version == want->firmware_version;
+}
+
+/*
+ * The CP reports a collected PD identity to the app once, and again only when
+ * it changes: a same-id reconnect is silent, a different device answering the
+ * address fires a fresh notification carrying the new identity.
+ */
+static bool test_cp_pd_id_notification(void)
+{
+	const struct osdp_pd_id id_a = {
+		.version = 2, .model = 42, .vendor_code = 0x00CAFE,
+		.serial_number = 0x01020304, .firmware_version = 0x0A0B0C,
+	};
+	const struct osdp_pd_id id_b = {
+		.version = 2, .model = 42, .vendor_code = 0x00CAFE,
+		.serial_number = 0x05060708, .firmware_version = 0x0A0B0C,
+	};
+	uint8_t buf[16];
+	struct osdp_pd pd;
+	struct osdp ctx;
+
+	printf(SUB_1 "PD id notification fires on first sight and on change\n");
+
+	memset(&pd, 0, sizeof(pd));
+	memset(&ctx, 0, sizeof(ctx));
+	memset(&g_pdid_note, 0, sizeof(g_pdid_note));
+	pd.osdp_ctx = &ctx;
+	ctx.event_callback = pdid_event_cb;
+	SET_FLAG(&pd, PD_FLAG_ENABLE_NOTIF);
+
+	/* First sight: fires with the reported identity. */
+	test_cp_decode_response(&pd, buf, fill_pdid_reply(buf, &id_a));
+	if (g_pdid_note.count != 1 || !pdid_note_matches(&id_a)) {
+		printf(SUB_2 "first PD id was not reported (count=%d)\n",
+		       g_pdid_note.count);
+		return false;
+	}
+
+	/* Same identity again (a reconnect): stays silent. */
+	test_cp_decode_response(&pd, buf, fill_pdid_reply(buf, &id_a));
+	if (g_pdid_note.count != 1) {
+		printf(SUB_2 "unchanged PD id must not re-notify (count=%d)\n",
+		       g_pdid_note.count);
+		return false;
+	}
+
+	/* Different identity: fires again with the new id. */
+	test_cp_decode_response(&pd, buf, fill_pdid_reply(buf, &id_b));
+	if (g_pdid_note.count != 2 || !pdid_note_matches(&id_b)) {
+		printf(SUB_2 "changed PD id was not reported (count=%d)\n",
+		       g_pdid_note.count);
+		return false;
+	}
+
+	return true;
+}
+
 void run_cp_fsm_tests(struct test *t)
 {
 	int result = true;
@@ -460,6 +563,7 @@ void run_cp_fsm_tests(struct test *t)
 	test_cp_soft_failure_matrix(t);
 	test_cp_crc_nak_fallback(t);
 	test_cp_transition_table_purity(t);
+	TEST_REPORT(t, test_cp_pd_id_notification());
 
 	if (test_cp_fsm_setup(t))
 		return;

@@ -311,3 +311,53 @@ def test_pd_file_tx_aborts_on_cp_silence():
             "PD still reports file_tx active after CP went silent"
     finally:
         _teardown_pair(cp, pd, "notif-fabort-pd")
+
+
+# -----------------------------------------------------------------------------
+# PD id notification
+# -----------------------------------------------------------------------------
+
+def _wait_pd_id(cp, timeout=5.0):
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        remaining = deadline - time.time()
+        e = cp.get_event(PD_ADDR, timeout=max(0.05, remaining))
+        if e is None:
+            continue
+        if isinstance(e, events.Notification) and \
+                e.type == NotificationType.PdId:
+            return e
+    pytest.fail("PdId notification not received")
+
+
+def test_cp_receives_pd_id_notification():
+    """CP side: on connect the CP collects the PD's identity during the INIT
+    handshake and delivers it to the app as a PdId notification carrying the
+    reported fields."""
+    key = KeyStore.gen_key()
+    f1, f2 = make_fifo_pair("notif-pdid")
+    want = PdId(version=2, model=42, vendor_code=0x00CAFE,
+                serial_number=0x01020304, firmware_version=0x0A0B0C)
+    pd = PeripheralDevice(
+        PDInfo(PD_ADDR, f1, scbk=key, id=want, flags=[LibFlag.EnforceSecure]),
+        PDCapabilities([]),
+        log_level=LogLevel.Debug,
+    )
+    cp = ControlPanel(
+        [PDInfo(PD_ADDR, f2, scbk=key,
+                flags=[LibFlag.EnforceSecure, LibFlag.EnableNotification])],
+        log_level=LogLevel.Debug,
+    )
+    try:
+        pd.start()
+        cp.start()
+        note = _wait_pd_id(cp, timeout=5.0)
+        assert note.type == NotificationType.PdId
+        got = note.pd_id
+        assert got.version == want.version
+        assert got.model == want.model
+        assert got.vendor_code == want.vendor_code
+        assert got.serial_number == want.serial_number
+        assert got.firmware_version == want.firmware_version
+    finally:
+        _teardown_pair(cp, pd, "notif-pdid")

@@ -558,6 +558,17 @@ static int pyosdp_make_dict_notification(PyObject *obj, const void *payload)
 		    pyosdp_dict_add_int(obj, "outcome", n->mp.outcome))
 			return -1;
 		break;
+	case OSDP_NOTIFICATION_PD_ID:
+		if (pyosdp_dict_add_int(obj, "version", n->pd_id.version) ||
+		    pyosdp_dict_add_int(obj, "model", n->pd_id.model) ||
+		    pyosdp_dict_add_int(obj, "vendor_code",
+					n->pd_id.vendor_code) ||
+		    pyosdp_dict_add_int(obj, "serial_number",
+					n->pd_id.serial_number) ||
+		    pyosdp_dict_add_int(obj, "firmware_version",
+					n->pd_id.firmware_version))
+			return -1;
+		break;
 	default:
 		break;
 	}
@@ -612,6 +623,23 @@ static int pyosdp_make_struct_notification(void *payload, PyObject *dict)
 		if (pyosdp_dict_get_int(dict, "outcome", &val))
 			return -1;
 		n->mp.outcome = val;
+		break;
+	case OSDP_NOTIFICATION_PD_ID:
+		if (pyosdp_dict_get_int(dict, "version", &val))
+			return -1;
+		n->pd_id.version = val;
+		if (pyosdp_dict_get_int(dict, "model", &val))
+			return -1;
+		n->pd_id.model = val;
+		if (pyosdp_dict_get_int(dict, "vendor_code", &val))
+			return -1;
+		n->pd_id.vendor_code = (uint32_t)val;
+		if (pyosdp_dict_get_int(dict, "serial_number", &val))
+			return -1;
+		n->pd_id.serial_number = (uint32_t)val;
+		if (pyosdp_dict_get_int(dict, "firmware_version", &val))
+			return -1;
+		n->pd_id.firmware_version = (uint32_t)val;
 		break;
 	default:
 		break;
