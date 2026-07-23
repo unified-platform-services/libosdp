@@ -46,9 +46,8 @@ static const char *osdp_basename(const char *file)
 	return base ? base + 1 : file;
 }
 
-static int osdp_log_emit_v(int log_level, int pd_address,
-			   const char *file, unsigned long line,
-			   const char *fmt, va_list ap)
+static int osdp_log_emit_v(int log_level, int pd_address, const char *file,
+			   unsigned long line, const char *fmt, va_list ap)
 {
 	int n;
 	const char *base = osdp_basename(file);
@@ -169,35 +168,35 @@ tick_t osdp_millis_since(tick_t last)
 const char *osdp_cmd_name(int cmd_id)
 {
 	const char *name;
-	static const char * const names[] = {
-		[CMD_POLL         - CMD_POLL] = "POLL",
-		[CMD_ID           - CMD_POLL] = "ID",
-		[CMD_CAP          - CMD_POLL] = "CAP",
-		[CMD_LSTAT        - CMD_POLL] = "LSTAT",
-		[CMD_ISTAT        - CMD_POLL] = "ISTAT",
-		[CMD_OSTAT        - CMD_POLL] = "OSTAT",
-		[CMD_RSTAT        - CMD_POLL] = "RSTAT",
-		[CMD_OUT          - CMD_POLL] = "OUT",
-		[CMD_LED          - CMD_POLL] = "LED",
-		[CMD_BUZ          - CMD_POLL] = "BUZ",
-		[CMD_TEXT         - CMD_POLL] = "TEXT",
-		[CMD_RMODE        - CMD_POLL] = "RMODE",
-		[CMD_TDSET        - CMD_POLL] = "TDSET",
-		[CMD_COMSET       - CMD_POLL] = "COMSET",
-		[CMD_BIOREAD      - CMD_POLL] = "BIOREAD",
-		[CMD_BIOMATCH     - CMD_POLL] = "BIOMATCH",
-		[CMD_KEYSET       - CMD_POLL] = "KEYSET",
-		[CMD_CHLNG        - CMD_POLL] = "CHLNG",
-		[CMD_SCRYPT       - CMD_POLL] = "SCRYPT",
-		[CMD_ACURXSIZE    - CMD_POLL] = "ACURXSIZE",
+	static const char *const names[] = {
+		[CMD_POLL - CMD_POLL] = "POLL",
+		[CMD_ID - CMD_POLL] = "ID",
+		[CMD_CAP - CMD_POLL] = "CAP",
+		[CMD_LSTAT - CMD_POLL] = "LSTAT",
+		[CMD_ISTAT - CMD_POLL] = "ISTAT",
+		[CMD_OSTAT - CMD_POLL] = "OSTAT",
+		[CMD_RSTAT - CMD_POLL] = "RSTAT",
+		[CMD_OUT - CMD_POLL] = "OUT",
+		[CMD_LED - CMD_POLL] = "LED",
+		[CMD_BUZ - CMD_POLL] = "BUZ",
+		[CMD_TEXT - CMD_POLL] = "TEXT",
+		[CMD_RMODE - CMD_POLL] = "RMODE",
+		[CMD_TDSET - CMD_POLL] = "TDSET",
+		[CMD_COMSET - CMD_POLL] = "COMSET",
+		[CMD_BIOREAD - CMD_POLL] = "BIOREAD",
+		[CMD_BIOMATCH - CMD_POLL] = "BIOMATCH",
+		[CMD_KEYSET - CMD_POLL] = "KEYSET",
+		[CMD_CHLNG - CMD_POLL] = "CHLNG",
+		[CMD_SCRYPT - CMD_POLL] = "SCRYPT",
+		[CMD_ACURXSIZE - CMD_POLL] = "ACURXSIZE",
 		[CMD_FILETRANSFER - CMD_POLL] = "FILETRANSFER",
-		[CMD_MFG          - CMD_POLL] = "MFG",
-		[CMD_XWR          - CMD_POLL] = "XWR",
-		[CMD_ABORT        - CMD_POLL] = "ABORT",
-		[CMD_PIVDATA      - CMD_POLL] = "PIVDATA",
-		[CMD_CRAUTH       - CMD_POLL] = "CRAUTH",
-		[CMD_GENAUTH      - CMD_POLL] = "GENAUTH",
-		[CMD_KEEPACTIVE   - CMD_POLL] = "KEEPACTIVE",
+		[CMD_MFG - CMD_POLL] = "MFG",
+		[CMD_XWR - CMD_POLL] = "XWR",
+		[CMD_ABORT - CMD_POLL] = "ABORT",
+		[CMD_PIVDATA - CMD_POLL] = "PIVDATA",
+		[CMD_CRAUTH - CMD_POLL] = "CRAUTH",
+		[CMD_GENAUTH - CMD_POLL] = "GENAUTH",
+		[CMD_KEEPACTIVE - CMD_POLL] = "KEEPACTIVE",
 	};
 
 	if (cmd_id < CMD_POLL || cmd_id > CMD_KEEPACTIVE) {
@@ -213,32 +212,32 @@ const char *osdp_cmd_name(int cmd_id)
 const char *osdp_reply_name(int reply_id)
 {
 	const char *name;
-	static const char * const names[] = {
-		[REPLY_ACK       - REPLY_ACK] = "ACK",
-		[REPLY_NAK       - REPLY_ACK] = "NAK",
-		[REPLY_PDID      - REPLY_ACK] = "PDID",
-		[REPLY_PDCAP     - REPLY_ACK] = "PDCAP",
-		[REPLY_LSTATR    - REPLY_ACK] = "LSTATR",
-		[REPLY_ISTATR    - REPLY_ACK] = "ISTATR",
-		[REPLY_OSTATR    - REPLY_ACK] = "OSTATR",
-		[REPLY_RSTATR    - REPLY_ACK] = "RSTATR",
-		[REPLY_RAW       - REPLY_ACK] = "RAW",
-		[REPLY_FMT       - REPLY_ACK] = "FMT",
-		[REPLY_KEYPAD    - REPLY_ACK] = "KEYPAD",
-		[REPLY_COM       - REPLY_ACK] = "COM",
-		[REPLY_BIOREADR  - REPLY_ACK] = "BIOREADR",
+	static const char *const names[] = {
+		[REPLY_ACK - REPLY_ACK] = "ACK",
+		[REPLY_NAK - REPLY_ACK] = "NAK",
+		[REPLY_PDID - REPLY_ACK] = "PDID",
+		[REPLY_PDCAP - REPLY_ACK] = "PDCAP",
+		[REPLY_LSTATR - REPLY_ACK] = "LSTATR",
+		[REPLY_ISTATR - REPLY_ACK] = "ISTATR",
+		[REPLY_OSTATR - REPLY_ACK] = "OSTATR",
+		[REPLY_RSTATR - REPLY_ACK] = "RSTATR",
+		[REPLY_RAW - REPLY_ACK] = "RAW",
+		[REPLY_FMT - REPLY_ACK] = "FMT",
+		[REPLY_KEYPAD - REPLY_ACK] = "KEYPAD",
+		[REPLY_COM - REPLY_ACK] = "COM",
+		[REPLY_BIOREADR - REPLY_ACK] = "BIOREADR",
 		[REPLY_BIOMATCHR - REPLY_ACK] = "BIOMATCHR",
-		[REPLY_CCRYPT    - REPLY_ACK] = "CCRYPT",
-		[REPLY_RMAC_I    - REPLY_ACK] = "RMAC_I",
-		[REPLY_FTSTAT    - REPLY_ACK] = "FTSTAT",
-		[REPLY_MFGREP    - REPLY_ACK] = "MFGREP",
-		[REPLY_BUSY      - REPLY_ACK] = "BUSY",
-		[REPLY_PIVDATAR  - REPLY_ACK] = "PIVDATAR",
-		[REPLY_GENAUTHR  - REPLY_ACK] = "GENAUTHR",
-		[REPLY_CRAUTHR   - REPLY_ACK] = "CRAUTHR",
-		[REPLY_MFGSTATR  - REPLY_ACK] = "MFGSTATR",
-		[REPLY_MFGERRR   - REPLY_ACK] = "MFGERRR",
-		[REPLY_XRD       - REPLY_ACK] = "XRD",
+		[REPLY_CCRYPT - REPLY_ACK] = "CCRYPT",
+		[REPLY_RMAC_I - REPLY_ACK] = "RMAC_I",
+		[REPLY_FTSTAT - REPLY_ACK] = "FTSTAT",
+		[REPLY_MFGREP - REPLY_ACK] = "MFGREP",
+		[REPLY_BUSY - REPLY_ACK] = "BUSY",
+		[REPLY_PIVDATAR - REPLY_ACK] = "PIVDATAR",
+		[REPLY_GENAUTHR - REPLY_ACK] = "GENAUTHR",
+		[REPLY_CRAUTHR - REPLY_ACK] = "CRAUTHR",
+		[REPLY_MFGSTATR - REPLY_ACK] = "MFGSTATR",
+		[REPLY_MFGERRR - REPLY_ACK] = "MFGERRR",
+		[REPLY_XRD - REPLY_ACK] = "XRD",
 	};
 
 	if (reply_id < REPLY_ACK || reply_id > REPLY_XRD) {
@@ -454,9 +453,9 @@ void osdp_mp_pd_notify(void *arg, enum osdp_mp_phase phase,
 		       const struct osdp_mp_progress *p)
 {
 	static const enum osdp_notification_type ph2t[] = {
-		[OSDP_MP_PHASE_START]    = OSDP_NOTIFICATION_MP_START,
+		[OSDP_MP_PHASE_START] = OSDP_NOTIFICATION_MP_START,
 		[OSDP_MP_PHASE_PROGRESS] = OSDP_NOTIFICATION_MP_PROGRESS,
-		[OSDP_MP_PHASE_DONE]     = OSDP_NOTIFICATION_MP_DONE,
+		[OSDP_MP_PHASE_DONE] = OSDP_NOTIFICATION_MP_DONE,
 	};
 	struct osdp_pd *pd = arg;
 	struct osdp_notification notif;

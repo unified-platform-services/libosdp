@@ -8,12 +8,12 @@
 #include "osdp_diag.h"
 #include "osdp_metrics.h"
 
-#define OSDP_PKT_MARK                  0xFF
-#define OSDP_PKT_SOM                   0x53
-#define PKT_CONTROL_SQN                0x03
-#define PKT_CONTROL_CRC                0x04
-#define PKT_CONTROL_SCB                0x08
-#define PKT_TRACE_MANGLED              0x80
+#define OSDP_PKT_MARK	  0xFF
+#define OSDP_PKT_SOM	  0x53
+#define PKT_CONTROL_SQN	  0x03
+#define PKT_CONTROL_CRC	  0x04
+#define PKT_CONTROL_SCB	  0x08
+#define PKT_TRACE_MANGLED 0x80
 
 PACK(struct osdp_packet_header {
 	uint8_t som;
@@ -226,7 +226,7 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	/* Fill packet header */
 	pkt = (struct osdp_packet_header *)buf;
 	pkt->som = OSDP_PKT_SOM;
-	pkt->pd_address = pd->address & 0x7F;	/* Use only the lower 7 bits */
+	pkt->pd_address = pd->address & 0x7F; /* Use only the lower 7 bits */
 	if (ISSET_FLAG(pd, PD_FLAG_PKT_BROADCAST)) {
 		pkt->pd_address = 0x7F;
 		CLEAR_FLAG(pd, PD_FLAG_PKT_BROADCAST);
@@ -405,7 +405,7 @@ int osdp_phy_send_packet(struct osdp_pd *pd, uint8_t *buf, int len)
 }
 
 static int phy_validate_header(struct osdp_pd *pd, uint8_t *buf,
-                               unsigned long buf_len, unsigned long max_len)
+			       unsigned long buf_len, unsigned long max_len)
 {
 	struct osdp_packet_header *pkt;
 	unsigned long pkt_len;
@@ -618,8 +618,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 			phy_reset_seq_number(pd);
 			pd->last_tx_len = 0;
 			sc_deactivate(pd);
-		}
-		else if (comp == pd->seq_number) {
+		} else if (comp == pd->seq_number) {
 			/**
 			 * CP re-sent the same command without incrementing the
 			 * sequence number. Per OSDP spec, we must re-emit the
@@ -853,7 +852,8 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 			 * secure channel is actually discarded from the CP
 			 * state machine.
 			 */
-			if (pd->cmd_id == CMD_KEYSET && pkt->data[0] == REPLY_ACK) {
+			if (pd->cmd_id == CMD_KEYSET &&
+			    pkt->data[0] == REPLY_ACK) {
 				is_sc_active = false;
 			}
 			/**
@@ -873,8 +873,8 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 		}
 	}
 
-	if (is_sc_active &&
-	    pkt->control & PKT_CONTROL_SCB && pkt->data[1] >= SCS_15) {
+	if (is_sc_active && pkt->control & PKT_CONTROL_SCB &&
+	    pkt->data[1] >= SCS_15) {
 		/* validate MAC */
 		is_cmd = is_pd_mode(pd);
 		osdp_compute_mac(pd, is_cmd, buf, mac_offset);

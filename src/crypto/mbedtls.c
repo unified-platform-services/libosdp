@@ -40,10 +40,8 @@ void osdp_crypt_setup()
 
 	mbedtls_entropy_init(&entropy_ctx);
 	mbedtls_ctr_drbg_init(&ctr_drbg_ctx);
-	rc = mbedtls_ctr_drbg_seed(&ctr_drbg_ctx,
-				   mbedtls_entropy_func,
-				   &entropy_ctx,
-				   (const unsigned char *)version,
+	rc = mbedtls_ctr_drbg_seed(&ctr_drbg_ctx, mbedtls_entropy_func,
+				   &entropy_ctx, (const unsigned char *)version,
 				   strlen(version));
 	assert(rc == 0);
 #endif
@@ -56,15 +54,15 @@ void osdp_encrypt(uint8_t *key, uint8_t *iv, uint8_t *data, int len)
 	if (iv != NULL) {
 		rc = mbedtls_aes_setkey_enc(&aes_ctx, key, 128);
 		assert(rc == 0);
-		rc = mbedtls_aes_crypt_cbc(&aes_ctx, MBEDTLS_AES_ENCRYPT,
-					   len, iv, data, data);
+		rc = mbedtls_aes_crypt_cbc(&aes_ctx, MBEDTLS_AES_ENCRYPT, len,
+					   iv, data, data);
 		assert(rc == 0);
 	} else {
 		assert(len <= 16);
 		rc = mbedtls_aes_setkey_enc(&aes_ctx, key, 128);
 		assert(rc == 0);
-		rc = mbedtls_aes_crypt_ecb(&aes_ctx, MBEDTLS_AES_ENCRYPT,
-					   data, data);
+		rc = mbedtls_aes_crypt_ecb(&aes_ctx, MBEDTLS_AES_ENCRYPT, data,
+					   data);
 		assert(rc == 0);
 	}
 }
@@ -76,15 +74,15 @@ void osdp_decrypt(uint8_t *key, uint8_t *iv, uint8_t *data, int len)
 	if (iv != NULL) {
 		rc = mbedtls_aes_setkey_dec(&aes_ctx, key, 128);
 		assert(rc == 0);
-		rc = mbedtls_aes_crypt_cbc(&aes_ctx, MBEDTLS_AES_DECRYPT,
-					   len, iv, data, data);
+		rc = mbedtls_aes_crypt_cbc(&aes_ctx, MBEDTLS_AES_DECRYPT, len,
+					   iv, data, data);
 		assert(rc == 0);
 	} else {
 		assert(len <= 16);
 		rc = mbedtls_aes_setkey_dec(&aes_ctx, key, 128);
 		assert(rc == 0);
-		rc = mbedtls_aes_crypt_ecb(&aes_ctx, MBEDTLS_AES_DECRYPT,
-					   data, data);
+		rc = mbedtls_aes_crypt_ecb(&aes_ctx, MBEDTLS_AES_DECRYPT, data,
+					   data);
 		assert(rc == 0);
 	}
 }

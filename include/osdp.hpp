@@ -68,7 +68,7 @@ public:
 		return osdp_get_metrics(_ctx, pd, metrics);
 	}
 
-protected:
+    protected:
 	osdp_t *_ctx;
 };
 
@@ -168,7 +168,6 @@ public:
 	{
 		return osdp_cp_is_pd_enabled(_ctx, pd);
 	}
-
 };
 
 class OSDP_EXPORT PeripheralDevice : public Common {
@@ -206,7 +205,7 @@ public:
 		osdp_pd_set_capabilities(_ctx, cap);
 	}
 
-	void set_command_callback(pd_command_callback_t cb, void* args)
+	void set_command_callback(pd_command_callback_t cb, void *args)
 	{
 		osdp_pd_set_command_callback(_ctx, cb, args);
 	}

@@ -38,7 +38,7 @@ enum osdp_mp_rc {
 	 * as the CP's idle keep-alive sent after FTSTAT status 3 (§7.25). */
 	OSDP_MP_RC_EARLY_TERM,
 	OSDP_MP_RC_ERR,
-	OSDP_MP_RC_RETRY,   /* receiver transient failure; do not advance */
+	OSDP_MP_RC_RETRY, /* receiver transient failure; do not advance */
 };
 
 enum osdp_mp_action {
@@ -69,9 +69,9 @@ struct osdp_mp_ops {
 
 /* Lifecycle phases reported to the consumer's event callback. */
 enum osdp_mp_phase {
-	OSDP_MP_PHASE_START,     /* transfer opened */
-	OSDP_MP_PHASE_PROGRESS,  /* a data fragment just committed */
-	OSDP_MP_PHASE_DONE,      /* terminal; outcome is meaningful */
+	OSDP_MP_PHASE_START, /* transfer opened */
+	OSDP_MP_PHASE_PROGRESS, /* a data fragment just committed */
+	OSDP_MP_PHASE_DONE, /* terminal; outcome is meaningful */
 };
 
 /* Progress record handed to the callback. msg_type/object_id are opaque relay
@@ -81,7 +81,7 @@ struct osdp_mp_progress {
 	int object_id;
 	uint32_t total;
 	uint32_t offset;
-	int outcome;   /* meaningful at DONE */
+	int outcome; /* meaningful at DONE */
 };
 
 typedef void (*osdp_mp_event_fn)(void *arg, enum osdp_mp_phase phase,
@@ -99,9 +99,9 @@ struct osdp_multipart {
 	uint32_t buf_len;
 	osdp_mp_event_fn event_cb;
 	void *event_arg;
-	int msg_type;      /* opaque relay: multipart family */
-	int object_id;     /* opaque relay: consumer id */
-	int done_outcome;  /* relayed at DONE */
+	int msg_type; /* opaque relay: multipart family */
+	int object_id; /* opaque relay: consumer id */
+	int done_outcome; /* relayed at DONE */
 	bool start_emitted; /* START fires at most once per transfer */
 	uint32_t wait_time_ms; /* sender throttle (set by consumer)   */
 	tick_t tstamp;

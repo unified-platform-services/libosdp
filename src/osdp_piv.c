@@ -11,8 +11,8 @@
 /* Per-family wiring of the §5.10 smartcard/PIV multi-part consumers. */
 struct piv_family {
 	int mp_msg;
-	uint8_t app_cmd;    /* OSDP_CMD_* */
-	uint8_t wire_cmd;   /* CMD_* */
+	uint8_t app_cmd; /* OSDP_CMD_* */
+	uint8_t wire_cmd; /* CMD_* */
 	uint8_t wire_reply; /* REPLY_* */
 	uint8_t event_type; /* OSDP_EVENT_* */
 };

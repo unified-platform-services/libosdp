@@ -38,4 +38,3 @@ static inline void osdp_capture_packet(struct osdp_pd *pd,
 #endif
 
 #endif /* _OSDP_PCAP_H_ */
-

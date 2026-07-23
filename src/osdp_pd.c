@@ -127,7 +127,8 @@ static bool event_is_reply_to(int cmd_id, const struct osdp_event *event)
 	}
 }
 
-static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event)
+static int pd_translate_event(struct osdp_pd *pd,
+			      const struct osdp_event *event)
 {
 	int reply_code = 0;
 
@@ -154,7 +155,7 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 		reply_code = REPLY_KEYPAD;
 		break;
 	case OSDP_EVENT_STATUS:
-		switch(event->status.type) {
+		switch (event->status.type) {
 		case OSDP_STATUS_REPORT_INPUT:
 			reply_code = REPLY_ISTATR;
 			break;
@@ -266,7 +267,8 @@ static bool pd_take_inline_reply(struct osdp_pd *pd)
 {
 	const struct osdp_event *event;
 
-	if (pd_event_peek(pd, &event) || !event_is_reply_to(pd->cmd_id, event)) {
+	if (pd_event_peek(pd, &event) ||
+	    !event_is_reply_to(pd->cmd_id, event)) {
 		return false;
 	}
 	pd_event_dequeue(pd, &event);
@@ -633,8 +635,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 	}
 
 	switch (pd->cmd_id) {
-	case CMD_POLL:
-	{
+	case CMD_POLL: {
 		const struct osdp_event *queued_event;
 
 		if (len != 0) {
@@ -741,7 +742,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != CMD_ID_DATA_LEN) {
 			break;
 		}
-		pos++;		/* Skip reply type info. */
+		pos++; /* Skip reply type info. */
 		pd->reply_id = REPLY_PDID;
 		ret = OSDP_PD_ERR_NONE;
 		break;
@@ -749,7 +750,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		if (len != CMD_CAP_DATA_LEN) {
 			break;
 		}
-		pos++;		/* Skip reply type info. */
+		pos++; /* Skip reply type info. */
 		pd->reply_id = REPLY_PDCAP;
 		ret = OSDP_PD_ERR_NONE;
 		break;
@@ -1124,7 +1125,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		ret = OSDP_PD_ERR_NONE;
 		pd->reply_id = REPLY_ACK;
-			memcpy(pd->keyset_pending, cmd.keyset.data, 16);
+		memcpy(pd->keyset_pending, cmd.keyset.data, 16);
 		break;
 	case CMD_CHLNG:
 		if (len != CMD_CHLNG_DATA_LEN) {
@@ -1394,7 +1395,8 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	case REPLY_MFGSTATR:
 	case REPLY_MFGERRR:
 		mfgstat = (event->type == OSDP_EVENT_MFGSTATR) ?
-			  &event->mfgstatr : &event->mfgerrr;
+				  &event->mfgstatr :
+				  &event->mfgerrr;
 		if (max_len < mfgstat->length) {
 			break;
 		}
@@ -1468,7 +1470,7 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		memcpy(buf + len + 8, pd->sc.pd_random, 8);
 		memcpy(buf + len + 16, pd->sc.pd_cryptogram, 16);
 		len += 32;
-		smb[0] = 3;      /* length */
+		smb[0] = 3; /* length */
 		smb[1] = SCS_12; /* type */
 		smb[2] = sc_use_scbkd(pd) ? 0 : 1;
 		ret = OSDP_PD_ERR_NONE;
@@ -1483,9 +1485,9 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		osdp_compute_rmac_i(pd);
 		memcpy(buf + len, pd->sc.r_mac, 16);
 		len += 16;
-		smb[0] = 3;       /* length */
-		smb[1] = SCS_14;  /* type */
-		smb[2] = 1;       /* CP auth succeeded */
+		smb[0] = 3; /* length */
+		smb[1] = SCS_14; /* type */
+		smb[2] = 1; /* CP auth succeeded */
 		sc_activate(pd);
 		notify_sc_status(pd);
 		pd->sc_tstamp = osdp_millis_now();
@@ -1496,7 +1498,8 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		}
 		ret = OSDP_PD_ERR_NONE;
 		break;
-	default: BUG();
+	default:
+		BUG();
 	}
 
 out:
@@ -2031,8 +2034,7 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 	input_check(ctx);
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 
-	if (event->type <= 0 ||
-	    event->type >= OSDP_EVENT_SENTINEL) {
+	if (event->type <= 0 || event->type >= OSDP_EVENT_SENTINEL) {
 		return -1;
 	}
 

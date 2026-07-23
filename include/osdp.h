@@ -229,17 +229,17 @@ enum osdp_pd_cap_function_code_e {
  * @brief OSDP specified NAK codes
  */
 enum osdp_pd_nak_code_e {
-	OSDP_PD_NAK_NONE,     /**< No error */
-	OSDP_PD_NAK_MSG_CHK,  /**< Message check character(s) error (bad cksum/crc) */
-	OSDP_PD_NAK_CMD_LEN,  /**< Command length error */
+	OSDP_PD_NAK_NONE, /**< No error */
+	OSDP_PD_NAK_MSG_CHK, /**< Message check character(s) error (bad cksum/crc) */
+	OSDP_PD_NAK_CMD_LEN, /**< Command length error */
 	OSDP_PD_NAK_CMD_UNKNOWN, /**< Unknown Command Code – Command not implemented by PD */
-	OSDP_PD_NAK_SEQ_NUM,  /**< Sequence number error */
+	OSDP_PD_NAK_SEQ_NUM, /**< Sequence number error */
 	OSDP_PD_NAK_SC_UNSUP, /**< Secure Channel is not supported by PD */
-	OSDP_PD_NAK_SC_COND,  /**< unsupported security block or security conditions not met */
+	OSDP_PD_NAK_SC_COND, /**< unsupported security block or security conditions not met */
 	OSDP_PD_NAK_BIO_TYPE, /**< BIO_TYPE not supported */
-	OSDP_PD_NAK_BIO_FMT,  /**< BIO_FORMAT not supported */
-	OSDP_PD_NAK_RECORD,   /**< Unable to process command record */
-	OSDP_PD_NAK_SENTINEL  /**< NAK codes max value */
+	OSDP_PD_NAK_BIO_FMT, /**< BIO_FORMAT not supported */
+	OSDP_PD_NAK_RECORD, /**< Unable to process command record */
+	OSDP_PD_NAK_SENTINEL /**< NAK codes max value */
 };
 
 /**
@@ -266,10 +266,10 @@ struct osdp_pd_cap {
  * @brief PD ID information advertised by the PD.
  */
 struct osdp_pd_id {
-	int version;               /**< 1-Byte Manufacturer's version number */
-	int model;                 /**< 1-byte Manufacturer's model number */
-	uint32_t vendor_code;      /**< 3-bytes IEEE assigned OUI */
-	uint32_t serial_number;    /**< 4-byte serial number for the PD */
+	int version; /**< 1-Byte Manufacturer's version number */
+	int model; /**< 1-byte Manufacturer's model number */
+	uint32_t vendor_code; /**< 3-bytes IEEE assigned OUI */
+	uint32_t serial_number; /**< 4-byte serial number for the PD */
 	uint32_t firmware_version; /**< 3-byte version (major, minor, build) */
 };
 
@@ -517,7 +517,7 @@ struct osdp_status_report {
  * @brief Max text, in bytes, that a text command can carry to a PD's display.
  */
 #ifndef OSDP_CMD_TEXT_MAX_LEN
-#define OSDP_CMD_TEXT_MAX_LEN          32
+#define OSDP_CMD_TEXT_MAX_LEN 32
 #endif
 
 /**
@@ -525,14 +525,14 @@ struct osdp_status_report {
  * overridable: it must stay large enough to hold the 16-byte SCBK that secure
  * channel is built on.
  */
-#define OSDP_CMD_KEYSET_KEY_MAX_LEN    32
+#define OSDP_CMD_KEYSET_KEY_MAX_LEN 32
 
 /**
  * @brief Max vendor defined data, in bytes, that a manufacturer specific
  * command can carry.
  */
 #ifndef OSDP_CMD_MFG_MAX_DATALEN
-#define OSDP_CMD_MFG_MAX_DATALEN       64
+#define OSDP_CMD_MFG_MAX_DATALEN 64
 #endif
 
 /**
@@ -550,25 +550,25 @@ struct osdp_status_report {
  * @brief Biometric type; the body part to scan. See OSDP spec Table 24.
  */
 enum osdp_biometric_type_e {
-	OSDP_BIO_TYPE_NOT_SPECIFIED,             /**< 0x00 Default */
-	OSDP_BIO_TYPE_RIGHT_THUMB_PRINT,         /**< 0x01 */
-	OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT,  /**< 0x02 */
+	OSDP_BIO_TYPE_NOT_SPECIFIED, /**< 0x00 Default */
+	OSDP_BIO_TYPE_RIGHT_THUMB_PRINT, /**< 0x01 */
+	OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT, /**< 0x02 */
 	OSDP_BIO_TYPE_RIGHT_MIDDLE_FINGER_PRINT, /**< 0x03 */
-	OSDP_BIO_TYPE_RIGHT_RING_FINGER_PRINT,   /**< 0x04 */
+	OSDP_BIO_TYPE_RIGHT_RING_FINGER_PRINT, /**< 0x04 */
 	OSDP_BIO_TYPE_RIGHT_LITTLE_FINGER_PRINT, /**< 0x05 */
-	OSDP_BIO_TYPE_LEFT_THUMB_PRINT,          /**< 0x06 */
-	OSDP_BIO_TYPE_LEFT_INDEX_FINGER_PRINT,   /**< 0x07 */
-	OSDP_BIO_TYPE_LEFT_MIDDLE_FINGER_PRINT,  /**< 0x08 */
-	OSDP_BIO_TYPE_LEFT_RING_FINGER_PRINT,    /**< 0x09 */
-	OSDP_BIO_TYPE_LEFT_LITTLE_FINGER_PRINT,  /**< 0x0A */
-	OSDP_BIO_TYPE_RIGHT_IRIS_SCAN,           /**< 0x0B */
-	OSDP_BIO_TYPE_RIGHT_RETINA_SCAN,         /**< 0x0C */
-	OSDP_BIO_TYPE_LEFT_IRIS_SCAN,            /**< 0x0D */
-	OSDP_BIO_TYPE_LEFT_RETINA_SCAN,          /**< 0x0E */
-	OSDP_BIO_TYPE_FULL_FACE_IMAGE,           /**< 0x0F */
-	OSDP_BIO_TYPE_RIGHT_HAND_GEOMETRY,       /**< 0x10 */
-	OSDP_BIO_TYPE_LEFT_HAND_GEOMETRY,        /**< 0x11 */
-	OSDP_BIO_TYPE_SENTINEL                   /**< Max biometric type value */
+	OSDP_BIO_TYPE_LEFT_THUMB_PRINT, /**< 0x06 */
+	OSDP_BIO_TYPE_LEFT_INDEX_FINGER_PRINT, /**< 0x07 */
+	OSDP_BIO_TYPE_LEFT_MIDDLE_FINGER_PRINT, /**< 0x08 */
+	OSDP_BIO_TYPE_LEFT_RING_FINGER_PRINT, /**< 0x09 */
+	OSDP_BIO_TYPE_LEFT_LITTLE_FINGER_PRINT, /**< 0x0A */
+	OSDP_BIO_TYPE_RIGHT_IRIS_SCAN, /**< 0x0B */
+	OSDP_BIO_TYPE_RIGHT_RETINA_SCAN, /**< 0x0C */
+	OSDP_BIO_TYPE_LEFT_IRIS_SCAN, /**< 0x0D */
+	OSDP_BIO_TYPE_LEFT_RETINA_SCAN, /**< 0x0E */
+	OSDP_BIO_TYPE_FULL_FACE_IMAGE, /**< 0x0F */
+	OSDP_BIO_TYPE_RIGHT_HAND_GEOMETRY, /**< 0x10 */
+	OSDP_BIO_TYPE_LEFT_HAND_GEOMETRY, /**< 0x11 */
+	OSDP_BIO_TYPE_SENTINEL /**< Max biometric type value */
 };
 
 /**
@@ -598,8 +598,8 @@ enum osdp_biometric_format_e {
  * @brief Outcome of a biometric scan, as reported by the PD.
  */
 enum osdp_biometric_status_e {
-	OSDP_BIO_STATUS_SUCCESS = 0x00,      /**< Rest of the fields are valid */
-	OSDP_BIO_STATUS_TIMEOUT = 0x01,      /**< The scan timed out */
+	OSDP_BIO_STATUS_SUCCESS = 0x00, /**< Rest of the fields are valid */
+	OSDP_BIO_STATUS_TIMEOUT = 0x01, /**< The scan timed out */
 	OSDP_BIO_STATUS_UNKNOWN_ERROR = 0xFF /**< Unknown error */
 };
 
@@ -794,15 +794,15 @@ struct osdp_cmd_output {
  * parameters.
  */
 enum osdp_led_color_e {
-	OSDP_LED_COLOR_NONE,     /**< No color */
-	OSDP_LED_COLOR_RED,      /**< Red */
-	OSDP_LED_COLOR_GREEN,    /**< Green */
-	OSDP_LED_COLOR_AMBER,    /**< Amber */
-	OSDP_LED_COLOR_BLUE,     /**< Blue */
-	OSDP_LED_COLOR_MAGENTA,  /**< Magenta */
-	OSDP_LED_COLOR_CYAN,     /**< Cyan */
-	OSDP_LED_COLOR_WHITE,    /**< White */
-	OSDP_LED_COLOR_SENTINEL  /**< Max value */
+	OSDP_LED_COLOR_NONE, /**< No color */
+	OSDP_LED_COLOR_RED, /**< Red */
+	OSDP_LED_COLOR_GREEN, /**< Green */
+	OSDP_LED_COLOR_AMBER, /**< Amber */
+	OSDP_LED_COLOR_BLUE, /**< Blue */
+	OSDP_LED_COLOR_MAGENTA, /**< Magenta */
+	OSDP_LED_COLOR_CYAN, /**< Cyan */
+	OSDP_LED_COLOR_WHITE, /**< White */
+	OSDP_LED_COLOR_SENTINEL /**< Max value */
 };
 
 /**
@@ -1141,10 +1141,10 @@ enum osdp_mp_outcome {
  */
 enum osdp_mp_msg_type {
 	OSDP_MP_MSG_FILE_TRANSFER = 1, /**< File transfer */
-	OSDP_MP_MSG_PIV,               /**< PIV data (reserved) */
-	OSDP_MP_MSG_GENAUTH,           /**< General auth (reserved) */
-	OSDP_MP_MSG_CRAUTH,            /**< Challenge/response auth (reserved) */
-	OSDP_MP_MSG_BIOREAD,           /**< Biometric read reply */
+	OSDP_MP_MSG_PIV, /**< PIV data (reserved) */
+	OSDP_MP_MSG_GENAUTH, /**< General auth (reserved) */
+	OSDP_MP_MSG_CRAUTH, /**< Challenge/response auth (reserved) */
+	OSDP_MP_MSG_BIOREAD, /**< Biometric read reply */
 };
 
 /**
@@ -1152,34 +1152,34 @@ enum osdp_mp_msg_type {
  */
 struct osdp_mp_notification {
 	enum osdp_mp_msg_type mp_type; /**< Multipart family */
-	int object_id;                 /**< File id for file transfer; 0 reserved */
-	uint32_t total;                /**< Full payload length */
-	uint32_t offset;                /**< Bytes transferred so far */
-	enum osdp_mp_outcome outcome;  /**< Meaningful at MP_DONE */
+	int object_id; /**< File id for file transfer; 0 reserved */
+	uint32_t total; /**< Full payload length */
+	uint32_t offset; /**< Bytes transferred so far */
+	enum osdp_mp_outcome outcome; /**< Meaningful at MP_DONE */
 };
 
 /**
  * @brief OSDP application exposed commands
  */
 enum osdp_cmd_e {
-	OSDP_CMD_OUTPUT = 1,  /**< Output control command */
-	OSDP_CMD_LED,         /**< Reader LED control command */
-	OSDP_CMD_BUZZER,      /**< Reader buzzer control command */
-	OSDP_CMD_TEXT,        /**< Reader text output command */
-	OSDP_CMD_KEYSET,      /**< Encryption Key Set Command */
-	OSDP_CMD_COMSET,      /**< PD communication configuration command */
-	OSDP_CMD_MFG,         /**< Manufacturer specific command */
-	OSDP_CMD_FILE_TX,     /**< File transfer command */
-	OSDP_CMD_STATUS,      /**< Status report command */
+	OSDP_CMD_OUTPUT = 1, /**< Output control command */
+	OSDP_CMD_LED, /**< Reader LED control command */
+	OSDP_CMD_BUZZER, /**< Reader buzzer control command */
+	OSDP_CMD_TEXT, /**< Reader text output command */
+	OSDP_CMD_KEYSET, /**< Encryption Key Set Command */
+	OSDP_CMD_COMSET, /**< PD communication configuration command */
+	OSDP_CMD_MFG, /**< Manufacturer specific command */
+	OSDP_CMD_FILE_TX, /**< File transfer command */
+	OSDP_CMD_STATUS, /**< Status report command */
 	OSDP_CMD_COMSET_DONE, /**< Comset completed; Alias for OSDP_CMD_COMSET */
-	OSDP_CMD_NOTIFICATION,/**< LibOSDP notification (PD mode, synthesized) */
-	OSDP_CMD_BIOREAD,     /**< Scan and send biometric data command */
-	OSDP_CMD_BIOMATCH,    /**< Scan and match biometric template command */
-	OSDP_CMD_TDSET,       /**< Time and date set command */
-	OSDP_CMD_PIVDATA,     /**< Retrieve PIV object data command */
-	OSDP_CMD_GENAUTH,     /**< General authenticate command */
-	OSDP_CMD_CRAUTH,      /**< Challenge/response authenticate command */
-	OSDP_CMD_SENTINEL     /**< Max command value */
+	OSDP_CMD_NOTIFICATION, /**< LibOSDP notification (PD mode, synthesized) */
+	OSDP_CMD_BIOREAD, /**< Scan and send biometric data command */
+	OSDP_CMD_BIOMATCH, /**< Scan and match biometric template command */
+	OSDP_CMD_TDSET, /**< Time and date set command */
+	OSDP_CMD_PIVDATA, /**< Retrieve PIV object data command */
+	OSDP_CMD_GENAUTH, /**< General authenticate command */
+	OSDP_CMD_CRAUTH, /**< Challenge/response authenticate command */
+	OSDP_CMD_SENTINEL /**< Max command value */
 };
 
 /**
@@ -1187,22 +1187,22 @@ enum osdp_cmd_e {
  */
 struct osdp_notification_command {
 	enum osdp_cmd_e command; /**< Which application command completed */
-	bool success;            /**< true: succeeded; false: failed */
+	bool success; /**< true: succeeded; false: failed */
 };
 
 /**
  * @brief Payload for OSDP_NOTIFICATION_SC_STATUS.
  */
 struct osdp_notification_sc_status {
-	bool active;   /**< Secure channel session is up */
-	bool scbk_d;   /**< true: SCBK-D (install key); false: SCBK */
+	bool active; /**< Secure channel session is up */
+	bool scbk_d; /**< true: SCBK-D (install key); false: SCBK */
 };
 
 /**
  * @brief Payload for OSDP_NOTIFICATION_PD_STATUS.
  */
 struct osdp_notification_pd_status {
-	bool online;   /**< Peer link is online/reachable */
+	bool online; /**< Peer link is online/reachable */
 };
 
 /**
@@ -1214,13 +1214,13 @@ struct osdp_notification_pd_status {
  * @ref osdp_notification_type.
  */
 struct osdp_notification {
-	enum osdp_notification_type type;  /**< Notification type */
+	enum osdp_notification_type type; /**< Notification type */
 	union {
-		struct osdp_notification_command command;     /**< COMMAND */
+		struct osdp_notification_command command; /**< COMMAND */
 		struct osdp_notification_sc_status sc_status; /**< SC_STATUS */
 		struct osdp_notification_pd_status pd_status; /**< PD_STATUS */
-		struct osdp_mp_notification mp;               /**< MP_* */
-		struct osdp_pd_id pd_id;                      /**< PD_ID */
+		struct osdp_mp_notification mp; /**< MP_* */
+		struct osdp_pd_id pd_id; /**< PD_ID */
 	};
 };
 
@@ -1283,7 +1283,7 @@ struct osdp_cmd {
  * but this bound is always in bytes.
  */
 #ifndef OSDP_EVENT_CARDREAD_MAX_DATALEN
-#define OSDP_EVENT_CARDREAD_MAX_DATALEN   64
+#define OSDP_EVENT_CARDREAD_MAX_DATALEN 64
 #endif
 
 /**
@@ -1291,7 +1291,7 @@ struct osdp_cmd {
  * per key, so this bounds the number of keys a PD can report in one event.
  */
 #ifndef OSDP_EVENT_KEYPRESS_MAX_DATALEN
-#define OSDP_EVENT_KEYPRESS_MAX_DATALEN   64
+#define OSDP_EVENT_KEYPRESS_MAX_DATALEN 64
 #endif
 
 /**
@@ -1299,7 +1299,7 @@ struct osdp_cmd {
  * reply can carry.
  */
 #ifndef OSDP_EVENT_MFGREP_MAX_DATALEN
-#define OSDP_EVENT_MFGREP_MAX_DATALEN     128
+#define OSDP_EVENT_MFGREP_MAX_DATALEN 128
 #endif
 
 /**
@@ -1307,7 +1307,7 @@ struct osdp_cmd {
  * status or error reply can carry.
  */
 #ifndef OSDP_EVENT_MFGSTAT_MAX_DATALEN
-#define OSDP_EVENT_MFGSTAT_MAX_DATALEN    128
+#define OSDP_EVENT_MFGSTAT_MAX_DATALEN 128
 #endif
 
 /**
@@ -1328,9 +1328,9 @@ struct osdp_cmd {
  */
 enum osdp_event_cardread_format_e {
 	OSDP_CARD_FMT_RAW_UNSPECIFIED, /**< Unspecified card format */
-	OSDP_CARD_FMT_RAW_WIEGAND,     /**< Wiegand card format */
-	OSDP_CARD_FMT_ASCII,           /**< ASCII card format (deprecated; don't use) */
-	OSDP_CARD_FMT_SENTINEL         /**< Max card format value */
+	OSDP_CARD_FMT_RAW_WIEGAND, /**< Wiegand card format */
+	OSDP_CARD_FMT_ASCII, /**< ASCII card format (deprecated; don't use) */
+	OSDP_CARD_FMT_SENTINEL /**< Max card format value */
 };
 
 /**
@@ -1511,19 +1511,19 @@ struct osdp_event_piv_reply {
  * @brief OSDP PD Events
  */
 enum osdp_event_type {
-	OSDP_EVENT_CARDREAD = 1,  /**< Card read event */
-	OSDP_EVENT_KEYPRESS,      /**< Keypad press event */
-	OSDP_EVENT_MFGREP,        /**< Manufacturer specific reply event */
-	OSDP_EVENT_STATUS,        /**< Status event */
-	OSDP_EVENT_NOTIFICATION,  /**< LibOSDP notification event */
-	OSDP_EVENT_MFGSTATR,      /**< Manufacturer specific status reply event */
-	OSDP_EVENT_MFGERRR,       /**< Manufacturer specific error reply event */
-	OSDP_EVENT_BIOREADR,      /**< Scan and send biometric data event */
-	OSDP_EVENT_BIOMATCHR,     /**< Scan and match biometric template event */
-	OSDP_EVENT_PIVDATAR,      /**< PIV data reply event */
-	OSDP_EVENT_GENAUTHR,      /**< General authenticate reply event */
-	OSDP_EVENT_CRAUTHR,       /**< Challenge/response authenticate reply event */
-	OSDP_EVENT_SENTINEL       /**< Max event value */
+	OSDP_EVENT_CARDREAD = 1, /**< Card read event */
+	OSDP_EVENT_KEYPRESS, /**< Keypad press event */
+	OSDP_EVENT_MFGREP, /**< Manufacturer specific reply event */
+	OSDP_EVENT_STATUS, /**< Status event */
+	OSDP_EVENT_NOTIFICATION, /**< LibOSDP notification event */
+	OSDP_EVENT_MFGSTATR, /**< Manufacturer specific status reply event */
+	OSDP_EVENT_MFGERRR, /**< Manufacturer specific error reply event */
+	OSDP_EVENT_BIOREADR, /**< Scan and send biometric data event */
+	OSDP_EVENT_BIOMATCHR, /**< Scan and match biometric template event */
+	OSDP_EVENT_PIVDATAR, /**< PIV data reply event */
+	OSDP_EVENT_GENAUTHR, /**< General authenticate reply event */
+	OSDP_EVENT_CRAUTHR, /**< Challenge/response authenticate reply event */
+	OSDP_EVENT_SENTINEL /**< Max event value */
 };
 
 /**
@@ -1598,8 +1598,8 @@ typedef int (*cp_event_callback_t)(void *arg, int pd, struct osdp_event *ev);
  * @brief Terminal status of a submitted command/event object.
  */
 enum osdp_completion_status {
-	OSDP_COMPLETION_OK = 0,  /**< Successfully completed */
-	OSDP_COMPLETION_FAILED,  /**< Transport/protocol failure */
+	OSDP_COMPLETION_OK = 0, /**< Successfully completed */
+	OSDP_COMPLETION_FAILED, /**< Transport/protocol failure */
 	OSDP_COMPLETION_FLUSHED, /**< Removed by flush API */
 	OSDP_COMPLETION_ABORTED, /**< Removed during teardown */
 };
@@ -1974,15 +1974,15 @@ bool osdp_cp_is_pd_enabled(const osdp_t *ctx, int pd);
  * with LOG_EMERG being most critical to LOG_DEBUG being the least.
  */
 enum osdp_log_level_e {
-	OSDP_LOG_EMERG,     /**< Log level Emergency */
-	OSDP_LOG_ALERT,     /**< Log level Alert */
-	OSDP_LOG_CRIT,      /**< Log level Critical */
-	OSDP_LOG_ERROR,     /**< Log level Error */
-	OSDP_LOG_WARNING,   /**< Log level Warning */
-	OSDP_LOG_NOTICE,    /**< Log level Notice */
-	OSDP_LOG_INFO,      /**< Log level Info */
-	OSDP_LOG_DEBUG,     /**< Log level Debug */
-	OSDP_LOG_MAX_LEVEL  /**< Log level max value */
+	OSDP_LOG_EMERG, /**< Log level Emergency */
+	OSDP_LOG_ALERT, /**< Log level Alert */
+	OSDP_LOG_CRIT, /**< Log level Critical */
+	OSDP_LOG_ERROR, /**< Log level Error */
+	OSDP_LOG_WARNING, /**< Log level Warning */
+	OSDP_LOG_NOTICE, /**< Log level Notice */
+	OSDP_LOG_INFO, /**< Log level Info */
+	OSDP_LOG_DEBUG, /**< Log level Debug */
+	OSDP_LOG_MAX_LEVEL /**< Log level max value */
 };
 
 /**
@@ -2220,8 +2220,8 @@ struct osdp_file_ops {
 	 * such as the open file descriptors or any other private data here.
 	 */
 	void *arg;
-	osdp_file_open_fn_t open;   /**< open handler function */
-	osdp_file_read_fn_t read;   /**< read handler function */
+	osdp_file_open_fn_t open; /**< open handler function */
+	osdp_file_read_fn_t read; /**< read handler function */
 	osdp_file_write_fn_t write; /**< write handler function */
 	osdp_file_close_fn_t close; /**< close handler function */
 };
@@ -2258,4 +2258,4 @@ int osdp_get_file_tx_status(const osdp_t *ctx, int pd, uint32_t *size,
 }
 #endif
 
-#endif	/* _OSDP_H_ */
+#endif /* _OSDP_H_ */

@@ -253,7 +253,8 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 		break;
 	case CMD_MFG:
 		if (cmd->mfg.length > OSDP_CMD_MFG_MAX_DATALEN) {
-			LOG_ERR("Invalid MFG data length (%d)", cmd->mfg.length);
+			LOG_ERR("Invalid MFG data length (%d)",
+				cmd->mfg.length);
 			return OSDP_CP_ERR_GENERIC;
 		}
 		if (max_len < CMD_MFG_DATA_LEN + cmd->mfg.length) {
@@ -333,12 +334,13 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 		if (max_len < CMD_KEYSET_DATA_LEN) {
 			goto out_of_space;
 		}
-		buf[len++] = 1;  /* key type (1: SCBK) */
+		buf[len++] = 1; /* key type (1: SCBK) */
 		buf[len++] = 16; /* key length in bytes */
 		if (cmd->keyset.type == 1) { /* SCBK */
 			memcpy(buf + len, cmd->keyset.data, 16);
-		} else if (cmd->keyset.type == 0) {  /* master_key */
-			osdp_compute_scbk(pd, (uint8_t *)cmd->keyset.data, buf + len);
+		} else if (cmd->keyset.type == 0) { /* master_key */
+			osdp_compute_scbk(pd, (uint8_t *)cmd->keyset.data,
+					  buf + len);
 		} else {
 			LOG_ERR("Unknown key type (%d)", cmd->keyset.type);
 			return OSDP_CP_ERR_GENERIC;
@@ -353,8 +355,8 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 		if (max_len < CMD_CHLNG_DATA_LEN) {
 			goto out_of_space;
 		}
-		smb[0] = 3;       /* length */
-		smb[1] = SCS_11;  /* type */
+		smb[0] = 3; /* length */
+		smb[1] = SCS_11; /* type */
 		smb[2] = sc_use_scbkd(pd) ? 0 : 1;
 		memcpy(buf + len, pd->sc.cp_random, 8);
 		len += 8;
@@ -368,8 +370,8 @@ static int cp_build_command(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 			goto out_of_space;
 		}
 		osdp_compute_cp_cryptogram(pd);
-		smb[0] = 3;       /* length */
-		smb[1] = SCS_13;  /* type */
+		smb[0] = 3; /* length */
+		smb[1] = SCS_13; /* type */
 		smb[2] = sc_use_scbkd(pd) ? 0 : 1;
 		memcpy(buf + len, pd->sc.cp_cryptogram, 16);
 		len += 16;
@@ -489,7 +491,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		prev = pd->id;
-		pd->id.vendor_code  = bread_u24_le(buf, &pos);
+		pd->id.vendor_code = bread_u24_le(buf, &pos);
 		pd->id.model = buf[pos++];
 		pd->id.version = buf[pos++];
 		pd->id.serial_number = bread_u32_le(buf, &pos);
@@ -793,8 +795,8 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	default:
-		LOG_WRN("Unknown reply %s(%02x)",
-			osdp_reply_name(pd->reply_id), pd->reply_id);
+		LOG_WRN("Unknown reply %s(%02x)", osdp_reply_name(pd->reply_id),
+			pd->reply_id);
 		return OSDP_CP_ERR_UNKNOWN;
 	}
 
@@ -908,22 +910,36 @@ static inline bool cp_sc_should_retry(struct osdp_pd *pd)
 static int cp_translate_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 {
 	switch (cmd->id) {
-	case OSDP_CMD_OUTPUT: return CMD_OUT;
-	case OSDP_CMD_LED:    return CMD_LED;
-	case OSDP_CMD_BUZZER: return CMD_BUZ;
-	case OSDP_CMD_TEXT:   return CMD_TEXT;
-	case OSDP_CMD_TDSET:  return CMD_TDSET;
-	case OSDP_CMD_COMSET: return CMD_COMSET;
-	case OSDP_CMD_MFG:    return CMD_MFG;
-	case OSDP_CMD_BIOREAD:  return CMD_BIOREAD;
-	case OSDP_CMD_BIOMATCH: return CMD_BIOMATCH;
+	case OSDP_CMD_OUTPUT:
+		return CMD_OUT;
+	case OSDP_CMD_LED:
+		return CMD_LED;
+	case OSDP_CMD_BUZZER:
+		return CMD_BUZ;
+	case OSDP_CMD_TEXT:
+		return CMD_TEXT;
+	case OSDP_CMD_TDSET:
+		return CMD_TDSET;
+	case OSDP_CMD_COMSET:
+		return CMD_COMSET;
+	case OSDP_CMD_MFG:
+		return CMD_MFG;
+	case OSDP_CMD_BIOREAD:
+		return CMD_BIOREAD;
+	case OSDP_CMD_BIOMATCH:
+		return CMD_BIOMATCH;
 	case OSDP_CMD_STATUS:
 		switch (cmd->status.type) {
-		case OSDP_STATUS_REPORT_INPUT:  return CMD_ISTAT;
-		case OSDP_STATUS_REPORT_OUTPUT: return CMD_OSTAT;
-		case OSDP_STATUS_REPORT_LOCAL:  return CMD_LSTAT;
-		case OSDP_STATUS_REPORT_READER: return CMD_RSTAT;
-		default: return -1;
+		case OSDP_STATUS_REPORT_INPUT:
+			return CMD_ISTAT;
+		case OSDP_STATUS_REPORT_OUTPUT:
+			return CMD_OSTAT;
+		case OSDP_STATUS_REPORT_LOCAL:
+			return CMD_LSTAT;
+		case OSDP_STATUS_REPORT_READER:
+			return CMD_RSTAT;
+		default:
+			return -1;
 		}
 	case OSDP_CMD_KEYSET:
 		if (cmd->keyset.type != 1 || !sc_is_active(pd)) {
@@ -938,7 +954,8 @@ static int cp_translate_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		 * should never reach here unless something is wrong.
 		 */
 		__fallthrough;
-	default: BUG();
+	default:
+		BUG();
 	}
 
 	return -1;
@@ -1068,15 +1085,13 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 			pd->tstamp = osdp_millis_now();
 			osdp_phy_progress_sequence(pd);
 		}
-		if (rc == OSDP_CP_ERR_NONE ||
-		    rc == OSDP_CP_ERR_SEQ_NUM ||
+		if (rc == OSDP_CP_ERR_NONE || rc == OSDP_CP_ERR_SEQ_NUM ||
 		    (rc == OSDP_CP_ERR_UNKNOWN && pd->cmd_id == CMD_POLL &&
 		     is_ignore_unsolicited_messages(pd))) {
 			cp_phy_state_done(pd);
 			return OSDP_CP_ERR_NONE;
 		}
-		if (rc == OSDP_CP_ERR_GENERIC ||
-		    rc == OSDP_CP_ERR_UNKNOWN ||
+		if (rc == OSDP_CP_ERR_GENERIC || rc == OSDP_CP_ERR_UNKNOWN ||
 		    rc == OSDP_CP_ERR_APP) {
 			goto error;
 		}
@@ -1096,8 +1111,7 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 			if (pd->phy_retry_count < OSDP_CMD_MAX_RETRIES) {
 				pd->phy_retry_count += 1;
 				LOG_DBG("No response in %dms post-transmit; probing (%d)",
-					OSDP_RESP_TOUT_MS,
-					pd->phy_retry_count);
+					OSDP_RESP_TOUT_MS, pd->phy_retry_count);
 				cp_phy_state_wait(pd, OSDP_CMD_RETRY_WAIT_MS);
 				return OSDP_CP_ERR_DEFER;
 			}
@@ -1118,14 +1132,22 @@ error:
 static const char *state_get_name(enum osdp_cp_state_e state)
 {
 	switch (state) {
-	case OSDP_CP_STATE_INIT:      return "ID-Request";
-	case OSDP_CP_STATE_CAPDET:    return "Cap-Detect";
-	case OSDP_CP_STATE_SC_CHLNG:  return "SC-Chlng";
-	case OSDP_CP_STATE_SC_SCRYPT: return "SC-Scrypt";
-	case OSDP_CP_STATE_SET_SCBK:  return "SC-SetSCBK";
-	case OSDP_CP_STATE_ONLINE:    return "Online";
-	case OSDP_CP_STATE_OFFLINE:   return "Offline";
-	case OSDP_CP_STATE_DISABLED:  return "Disabled";
+	case OSDP_CP_STATE_INIT:
+		return "ID-Request";
+	case OSDP_CP_STATE_CAPDET:
+		return "Cap-Detect";
+	case OSDP_CP_STATE_SC_CHLNG:
+		return "SC-Chlng";
+	case OSDP_CP_STATE_SC_SCRYPT:
+		return "SC-Scrypt";
+	case OSDP_CP_STATE_SET_SCBK:
+		return "SC-SetSCBK";
+	case OSDP_CP_STATE_ONLINE:
+		return "Online";
+	case OSDP_CP_STATE_OFFLINE:
+		return "Offline";
+	case OSDP_CP_STATE_DISABLED:
+		return "Disabled";
 	default:
 		BUG();
 	}
@@ -1320,8 +1342,10 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 
 	/* Otherwise, we permit only expected responses */
 	switch (pd->cmd_id) {
-	case CMD_FILETRANSFER: return pd->reply_id == REPLY_FTSTAT;
-	case CMD_COMSET:       return pd->reply_id == REPLY_COM;
+	case CMD_FILETRANSFER:
+		return pd->reply_id == REPLY_FTSTAT;
+	case CMD_COMSET:
+		return pd->reply_id == REPLY_COM;
 	case CMD_MFG:
 		/* REPLY_MFGERRR is a valid reply, but it reports that the
 		 * vendor command failed; see the soft-failure handling in
@@ -1350,11 +1374,16 @@ static bool cp_check_online_response(struct osdp_pd *pd)
 		       (pd->cmd_id == CMD_GENAUTH ?
 				pd->reply_id == REPLY_GENAUTHR :
 				pd->reply_id == REPLY_CRAUTHR);
-	case CMD_LSTAT:        return pd->reply_id == REPLY_LSTATR;
-	case CMD_ISTAT:        return pd->reply_id == REPLY_ISTATR;
-	case CMD_OSTAT:        return pd->reply_id == REPLY_OSTATR;
-	case CMD_OUT:          return pd->reply_id == REPLY_OSTATR;
-	case CMD_RSTAT:        return pd->reply_id == REPLY_RSTATR;
+	case CMD_LSTAT:
+		return pd->reply_id == REPLY_LSTATR;
+	case CMD_ISTAT:
+		return pd->reply_id == REPLY_ISTATR;
+	case CMD_OSTAT:
+		return pd->reply_id == REPLY_OSTATR;
+	case CMD_OUT:
+		return pd->reply_id == REPLY_OSTATR;
+	case CMD_RSTAT:
+		return pd->reply_id == REPLY_RSTATR;
 	default:
 		LOG_ERR("Unexpected respose: CMD: %s(%02x) REPLY: %s(%02x)",
 			osdp_cmd_name(pd->cmd_id), pd->cmd_id,
@@ -1368,13 +1397,20 @@ static inline int state_get_cmd(struct osdp_pd *pd)
 	enum osdp_cp_state_e state = pd->state;
 
 	switch (state) {
-	case OSDP_CP_STATE_INIT:      return CMD_ID;
-	case OSDP_CP_STATE_CAPDET:    return CMD_CAP;
-	case OSDP_CP_STATE_SC_CHLNG:  return CMD_CHLNG;
-	case OSDP_CP_STATE_SC_SCRYPT: return CMD_SCRYPT;
-	case OSDP_CP_STATE_SET_SCBK:  return CMD_KEYSET;
-	case OSDP_CP_STATE_ONLINE:    return cp_get_online_command(pd);
-	default: return -1;
+	case OSDP_CP_STATE_INIT:
+		return CMD_ID;
+	case OSDP_CP_STATE_CAPDET:
+		return CMD_CAP;
+	case OSDP_CP_STATE_SC_CHLNG:
+		return CMD_CHLNG;
+	case OSDP_CP_STATE_SC_SCRYPT:
+		return CMD_SCRYPT;
+	case OSDP_CP_STATE_SET_SCBK:
+		return CMD_KEYSET;
+	case OSDP_CP_STATE_ONLINE:
+		return cp_get_online_command(pd);
+	default:
+		return -1;
 	}
 }
 
@@ -1383,13 +1419,20 @@ static inline bool state_check_reply(struct osdp_pd *pd)
 	enum osdp_cp_state_e state = pd->state;
 
 	switch (state) {
-	case OSDP_CP_STATE_INIT:      return pd->reply_id == REPLY_PDID;
-	case OSDP_CP_STATE_CAPDET:    return pd->reply_id == REPLY_PDCAP;
-	case OSDP_CP_STATE_SC_CHLNG:  return pd->reply_id == REPLY_CCRYPT;
-	case OSDP_CP_STATE_SC_SCRYPT: return pd->reply_id == REPLY_RMAC_I;
-	case OSDP_CP_STATE_SET_SCBK:  return pd->reply_id == REPLY_ACK;
-	case OSDP_CP_STATE_ONLINE:    return cp_check_online_response(pd);
-	default: return false;
+	case OSDP_CP_STATE_INIT:
+		return pd->reply_id == REPLY_PDID;
+	case OSDP_CP_STATE_CAPDET:
+		return pd->reply_id == REPLY_PDCAP;
+	case OSDP_CP_STATE_SC_CHLNG:
+		return pd->reply_id == REPLY_CCRYPT;
+	case OSDP_CP_STATE_SC_SCRYPT:
+		return pd->reply_id == REPLY_RMAC_I;
+	case OSDP_CP_STATE_SET_SCBK:
+		return pd->reply_id == REPLY_ACK;
+	case OSDP_CP_STATE_ONLINE:
+		return cp_check_online_response(pd);
+	default:
+		return false;
 	}
 }
 
@@ -1434,7 +1477,8 @@ static enum osdp_cp_state_e get_next_ok_state(struct osdp_pd *pd)
 		return OSDP_CP_STATE_OFFLINE;
 	case OSDP_CP_STATE_DISABLED:
 		return OSDP_CP_STATE_DISABLED;
-	default: BUG();
+	default:
+		BUG();
 	}
 }
 
@@ -1470,7 +1514,8 @@ static enum osdp_cp_state_e get_next_err_state(struct osdp_pd *pd)
 		return OSDP_CP_STATE_OFFLINE;
 	case OSDP_CP_STATE_DISABLED:
 		return OSDP_CP_STATE_DISABLED;
-	default: BUG();
+	default:
+		BUG();
 	}
 }
 
@@ -1491,8 +1536,7 @@ static inline enum osdp_cp_state_e get_next_state(struct osdp_pd *pd, int err)
  * next handshake attempt uses). Promoting it to explicit states is possible
  * but not worth the churn; this function is the only writer.
  */
-static void cp_transition_effects(struct osdp_pd *pd,
-				  enum osdp_cp_state_e cur,
+static void cp_transition_effects(struct osdp_pd *pd, enum osdp_cp_state_e cur,
 				  enum osdp_cp_state_e next, int err)
 {
 	if (err == 0) {
@@ -1521,7 +1565,8 @@ static void cp_transition_effects(struct osdp_pd *pd,
 		case OSDP_CP_STATE_ONLINE:
 			if (next == OSDP_CP_STATE_SC_CHLNG) {
 				LOG_INF("Attempting to restart SC after %d "
-					"seconds", OSDP_PD_SC_RETRY_MS/1000);
+					"seconds",
+					OSDP_PD_SC_RETRY_MS / 1000);
 			}
 			break;
 		default:
@@ -1606,15 +1651,13 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		osdp_phy_state_reset(pd, true);
 		LOG_INF("PD disabled; going offline until re-enabled");
 		break;
-	default: break;
+	default:
+		break;
 	}
 
-	LOG_DBG("StateChange: [%s] -> [%s] (SC-%s%s)",
-		state_get_name(cur),
-		state_get_name(next),
-		sc_is_active(pd) ? "Active" : "Inactive",
-		(sc_is_active(pd) && sc_use_scbkd(pd)) ? " with SCBK-D" : ""
-	);
+	LOG_DBG("StateChange: [%s] -> [%s] (SC-%s%s)", state_get_name(cur),
+		state_get_name(next), sc_is_active(pd) ? "Active" : "Inactive",
+		(sc_is_active(pd) && sc_use_scbkd(pd)) ? " with SCBK-D" : "");
 
 	pd->state = next;
 }
@@ -1675,8 +1718,7 @@ static bool cp_nak_code_is_app_level(uint8_t nak_code)
  */
 static bool cp_cmd_failure_is_soft(struct osdp_pd *pd)
 {
-	if (!cp_is_online(pd) ||
-	    pd->phy_state != OSDP_CP_PHY_STATE_DONE ||
+	if (!cp_is_online(pd) || pd->phy_state != OSDP_CP_PHY_STATE_DONE ||
 	    !cp_cmd_is_app_owned(pd)) {
 		return false;
 	}
@@ -1709,17 +1751,39 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 	}
 
 	switch (pd->cmd_id) {
-	case CMD_OUT:    app_cmd = OSDP_CMD_OUTPUT; break;
-	case CMD_LED:    app_cmd = OSDP_CMD_LED;    break;
-	case CMD_BUZ:    app_cmd = OSDP_CMD_BUZZER; break;
-	case CMD_TEXT:   app_cmd = OSDP_CMD_TEXT;   break;
-	case CMD_TDSET:  app_cmd = OSDP_CMD_TDSET;  break;
-	case CMD_COMSET: app_cmd = OSDP_CMD_COMSET; break;
-	case CMD_ISTAT:  app_cmd = OSDP_CMD_STATUS; break;
-	case CMD_OSTAT:  app_cmd = OSDP_CMD_STATUS; break;
-	case CMD_LSTAT:  app_cmd = OSDP_CMD_STATUS; break;
-	case CMD_RSTAT:  app_cmd = OSDP_CMD_STATUS; break;
-	case CMD_KEYSET: app_cmd = OSDP_CMD_KEYSET; break;
+	case CMD_OUT:
+		app_cmd = OSDP_CMD_OUTPUT;
+		break;
+	case CMD_LED:
+		app_cmd = OSDP_CMD_LED;
+		break;
+	case CMD_BUZ:
+		app_cmd = OSDP_CMD_BUZZER;
+		break;
+	case CMD_TEXT:
+		app_cmd = OSDP_CMD_TEXT;
+		break;
+	case CMD_TDSET:
+		app_cmd = OSDP_CMD_TDSET;
+		break;
+	case CMD_COMSET:
+		app_cmd = OSDP_CMD_COMSET;
+		break;
+	case CMD_ISTAT:
+		app_cmd = OSDP_CMD_STATUS;
+		break;
+	case CMD_OSTAT:
+		app_cmd = OSDP_CMD_STATUS;
+		break;
+	case CMD_LSTAT:
+		app_cmd = OSDP_CMD_STATUS;
+		break;
+	case CMD_RSTAT:
+		app_cmd = OSDP_CMD_STATUS;
+		break;
+	case CMD_KEYSET:
+		app_cmd = OSDP_CMD_KEYSET;
+		break;
 	case CMD_MFG:
 		if (pd->reply_id == REPLY_MFGREP ||
 		    pd->reply_id == REPLY_MFGSTATR) {
@@ -1743,8 +1807,8 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 			 * redundant notification. */
 			return;
 		}
-		app_cmd = (pd->cmd_id == CMD_BIOREAD) ? OSDP_CMD_BIOREAD
-						      : OSDP_CMD_BIOMATCH;
+		app_cmd = (pd->cmd_id == CMD_BIOREAD) ? OSDP_CMD_BIOREAD :
+							OSDP_CMD_BIOMATCH;
 		break;
 	default:
 		return;
@@ -1787,11 +1851,12 @@ static void state_update(struct osdp_pd *pd)
 		status = state_check_reply(pd);
 		notify_command_status(pd, status);
 		cp_complete_cmd(pd, pd->active_cmd,
-				status ? OSDP_COMPLETION_OK : OSDP_COMPLETION_FAILED);
+				status ? OSDP_COMPLETION_OK :
+					 OSDP_COMPLETION_FAILED);
 		pd->active_cmd = NULL;
 		if (!status) {
-			err = cp_cmd_failure_is_soft(pd) ? OSDP_CP_ERR_NONE
-							 : OSDP_CP_ERR_GENERIC;
+			err = cp_cmd_failure_is_soft(pd) ? OSDP_CP_ERR_NONE :
+							   OSDP_CP_ERR_GENERIC;
 			if (err == OSDP_CP_ERR_NONE &&
 			    pd->cmd_id == CMD_FILETRANSFER) {
 				/* Going offline used to do this for us. */
@@ -1936,8 +2001,7 @@ static void cp_collect_init_flags(struct osdp_pd *pd, uint32_t flags)
 
 static int cp_expand_pd_array(struct osdp *ctx, int num_pd,
 			      struct osdp_pd **old_pd_array,
-			      struct osdp_pd **new_pd_array,
-			      int *old_num_pd)
+			      struct osdp_pd **new_pd_array, int *old_num_pd)
 {
 	*old_num_pd = ctx->_num_pd;
 	*old_pd_array = ctx->pd;
@@ -2084,8 +2148,7 @@ osdp_t *osdp_cp_setup(const struct osdp_channel *channel, int num_pd,
 	}
 
 	LOG_PRINT("CP Setup complete; LibOSDP-%s %s NumPDs:%d",
-		  osdp_get_version(), osdp_get_source_info(),
-		  NUM_PD(ctx));
+		  osdp_get_version(), osdp_get_source_info(), NUM_PD(ctx));
 	return ctx;
 error:
 	osdp_cp_teardown((osdp_t *)ctx);
@@ -2142,7 +2205,6 @@ void osdp_cp_teardown(osdp_t *ctx)
 		safe_free(pd->rx_rb);
 #endif
 #endif /* OPT_OSDP_STATIC */
-
 	}
 
 	if (cp_ctx->channel.close) {

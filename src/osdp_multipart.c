@@ -276,7 +276,7 @@ enum osdp_mp_rc osdp_mp_rx_consume_ex(struct osdp_multipart *mp,
 			return OSDP_MP_RC_RETRY; /* offset/last_len unchanged */
 		}
 		if (st != OSDP_MP_RX_OK) {
-			return OSDP_MP_RC_ERR;   /* ABORT or unexpected */
+			return OSDP_MP_RC_ERR; /* ABORT or unexpected */
 		}
 	}
 	mp->total = cur_total; /* all ERR checks passed: commit total */
