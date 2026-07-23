@@ -18,3 +18,17 @@ fi
 
 ---
 chmod a+x .git/hooks/pre-commit && echo "Installed hook: .git/hooks/pre-commit"
+
+# Signed-off-by is a commit-*message* requirement, so it must live in the
+# commit-msg hook — the message does not exist yet when pre-commit runs.
+cat > .git/hooks/commit-msg << ---
+#!/bin/bash
+
+# Require a DCO sign-off on every commit; add one with 'git commit -s'.
+if ! grep -q '^Signed-off-by: .\+ <.\+@.\+>' "\$1"; then
+	echo "commit-msg: missing Signed-off-by line; commit with 'git commit -s'" >&2
+	exit 1
+fi
+
+---
+chmod a+x .git/hooks/commit-msg && echo "Installed hook: .git/hooks/commit-msg"

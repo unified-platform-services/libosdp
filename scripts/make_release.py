@@ -420,7 +420,7 @@ def cmd_prepare(root: Path, args: argparse.Namespace) -> None:
     print(f"  edited + staged: {', '.join(STAGE_FILES)}")
     print(f"  scaffolded:      {path.relative_to(root)}")
     print("\nReview, then commit:")
-    print(f'  git commit -m "Prepare v{nxt}"')
+    print(f'  git commit -s -m "Prepare v{nxt}"')
     print(f"\nEdit {path.relative_to(root)} over the cycle; before publishing, fold "
           "the ## Changes hints\ninto Enhancements/Fixes and delete that section.")
 
