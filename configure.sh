@@ -156,6 +156,14 @@ fi
 LIBOSDP_PRERELEASE=$(perl -ne 'print $1 if /^set\(LIBOSDP_PRERELEASE "([^"]*)"\)/' CMakeLists.txt)
 if [[ -z "${LIBOSDP_PRERELEASE}" ]]; then
 	LIBOSDP_VERSION_STR="${PROJECT_VERSION}"
+	# Off the tag, decorate with the git position (see cmake/GitInfo.cmake).
+	if [[ -z "${GIT_TAG}" ]]; then
+		if [[ "${GIT_DESC}" =~ -([0-9]+)-g([0-9a-f]+)$ ]]; then
+			LIBOSDP_VERSION_STR+="+${BASH_REMATCH[1]}.g${BASH_REMATCH[2]}"
+		elif [[ -n "${GIT_DESC}" ]]; then
+			LIBOSDP_VERSION_STR+="+g${GIT_DESC}"
+		fi
+	fi
 else
 	LIBOSDP_VERSION_STR="${PROJECT_VERSION}-${LIBOSDP_PRERELEASE}"
 	if [[ "${GIT_DESC}" =~ -([0-9]+)-g([0-9a-f]+)$ ]]; then

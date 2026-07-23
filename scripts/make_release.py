@@ -5,24 +5,37 @@
 #  SPDX-License-Identifier: Apache-2.0
 #
 """
-LibOSDP release helper — a two-phase, human-in-the-loop release flow.
+LibOSDP release helper — a human-in-the-loop release flow in two shapes.
 
-    1) prepare  — enter the next release cycle: bump the version in all five
-                  files, set the pre-release marker (so master builds report
-                  e.g. 4.0.0-dev.37+ga1b2c3d, clearly unreleased), and scaffold
-                  CHANGELOG/RELEASE-v<next>.md with commit hints. Staged, NOT
-                  committed. You review and commit "Prepare v<next>".
+QUICK (the default) — one commit, for patch releases and anything else that
+does not need a long cycle:
 
-    2) (develop over days/months, editing the changelog as you go)
+    1) prepare  — bump the version in all four files to their final released
+                  state and scaffold CHANGELOG/RELEASE-v<next>.md with commit
+                  hints. Staged, NOT committed. No pre-release marker.
 
-    3) publish  — leave the cycle: validate the changelog, clear the marker,
-                  commit "Release v<next>", and create a GPG-signed tag whose
-                  signature must match https://github.com/sidcha.gpg. Never
-                  pushes — it prints the push command for you to run.
+    2) (edit the changelog: fold the ## Changes hints in and delete them)
 
-A single committed marker (LIBOSDP_PRERELEASE in CMakeLists.txt) is the state
-machine: set ⇒ prepared (only publish allowed); empty ⇒ released (only prepare
-allowed). This makes double-prepare and double-publish impossible.
+    3) publish  — validate the changelog, then fold the version bump and the
+                  changelog into a single "Release v<next>" commit and lay a
+                  GPG-signed tag.
+
+CYCLE (prepare --cycle) — two commits, for a release prepared long before it
+ships. Identical, except that prepare also sets the pre-release marker and you
+commit "Prepare v<next>"; master then reports e.g. 4.0.0-dev.37+ga1b2c3d for
+the whole cycle, and publish clears the marker in the "Release v<next>" commit.
+
+Either way the tag's signature must match https://github.com/sidcha.gpg, and
+nothing is ever pushed — the push command is printed for you to run.
+
+publish infers which shape it is finishing by comparing the worktree's version
+against HEAD's: differing ⇒ the prepare was never committed ⇒ quick. So a
+--cycle prepare you decide not to commit simply publishes as a quick release.
+
+The committed marker (LIBOSDP_PRERELEASE in CMakeLists.txt) makes double-prepare
+and double-publish impossible during a cycle, and tells the gates (check-staged,
+check-changelog) which release file is still WIP and so exempt from the
+finalized-changelog rules.
 
 Re-releasing a failed publish:
 
@@ -34,8 +47,9 @@ Re-releasing a failed publish:
                                     wheel can never reuse X.Y.Z.
 
 Examples:
+    scripts/make_release.py prepare                 # patch bump, single commit
     scripts/make_release.py prepare --minor
-    scripts/make_release.py prepare --set 4.0.0
+    scripts/make_release.py prepare --cycle --set 5.0.0
     scripts/make_release.py publish
     scripts/make_release.py publish --re-release
     scripts/make_release.py publish --re-release --post 1
@@ -165,6 +179,19 @@ def read_state(root: Path) -> State:
     if marker.group(1) not in ("", MARKER):
         die(f"CMakeLists.txt: unexpected LIBOSDP_PRERELEASE {marker.group(1)!r}")
     return State(parse_version(ver.group(1)), prerelease=bool(marker.group(1)))
+
+
+def head_state(root: Path) -> tuple[Version, bool]:
+    """The (numeric, is_prerelease) state recorded in the last commit.
+
+    Compared against the worktree, this is what distinguishes a quick release
+    (bump still uncommitted) from a cycle whose Prepare commit already landed.
+    """
+    text = git(["show", "HEAD:CMakeLists.txt"], root, check=False)
+    if not text:
+        die("cannot read CMakeLists.txt at HEAD — not a libosdp checkout, or "
+            "the branch has no commits yet")
+    return parse_version_file("CMakeLists.txt", text)
 
 
 def parse_version_file(name: str, text: str) -> tuple[Version, bool]:
@@ -384,6 +411,26 @@ def require_clean_tree(root: Path) -> None:
             "commit or stash them before publishing")
 
 
+def require_release_only_dirt(root: Path, path: Path) -> None:
+    """Quick-release counterpart of require_clean_tree: the release's own files
+    are expected to be uncommitted (that is the whole point), but nothing else
+    may be, or the single Release commit would absorb unrelated work."""
+    allowed = set(VERSION_FILES) | {str(path.relative_to(root))}
+    stray = set()
+    for line in git(["status", "--porcelain", "--untracked-files=no"],
+                    root).splitlines():
+        name = line[3:]
+        if " -> " in name:  # rename entries read "R  old -> new"
+            name = name.split(" -> ", 1)[1]
+        name = name.strip('"')
+        if name not in allowed:
+            stray.add(name)
+    if stray:
+        die("working tree has uncommitted changes outside the release: "
+            + ", ".join(sorted(stray))
+            + "\ncommit or stash them before publishing")
+
+
 # ---------------------------------------------------------------------------
 # commands
 # ---------------------------------------------------------------------------
@@ -397,6 +444,11 @@ def cmd_prepare(root: Path, args: argparse.Namespace) -> None:
     if state.prerelease:
         die(f"already in a prepared cycle for v{state.version}; run 'publish', "
             "or revert the Prepare commit to abandon it")
+    head_version, _ = head_state(root)
+    if state.version != head_version:
+        die(f"a release of v{state.version} is already prepared and staged; run "
+            f"'publish', or abandon it with:\n"
+            f"  git restore --staged --worktree {' '.join(VERSION_FILES)}")
     check_agreement(root)
 
     if args.set:
@@ -412,17 +464,28 @@ def cmd_prepare(root: Path, args: argparse.Namespace) -> None:
     if path.exists():
         die(f"Release file already exists: {path}")
 
-    write_state(root, State(nxt, prerelease=True))
+    write_state(root, State(nxt, prerelease=args.cycle))
     scaffold_changelog(root, nxt)
 
     git(["add", *STAGE_FILES, str(path.relative_to(root))], root)
-    print(f"Prepared v{nxt} (marker set: builds now report {nxt}-{MARKER}...).")
+    rel = path.relative_to(root)
+    if args.cycle:
+        print(f"Prepared v{nxt} for an extended cycle "
+              f"(marker set: builds now report {nxt}-{MARKER}...).")
+    else:
+        print(f"Prepared v{nxt} (staged, not committed — publish makes the "
+              "one and only commit).")
     print(f"  edited + staged: {', '.join(STAGE_FILES)}")
-    print(f"  scaffolded:      {path.relative_to(root)}")
-    print("\nReview, then commit:")
-    print(f'  git commit -s -m "Prepare v{nxt}"')
-    print(f"\nEdit {path.relative_to(root)} over the cycle; before publishing, fold "
-          "the ## Changes hints\ninto Enhancements/Fixes and delete that section.")
+    print(f"  scaffolded:      {rel}")
+    if args.cycle:
+        print("\nReview, then commit:")
+        print(f'  git commit -s -m "Prepare v{nxt}"')
+        print(f"\nEdit {rel} over the cycle; before publishing, fold the "
+              "## Changes hints\ninto Enhancements/Fixes and delete that section.")
+    else:
+        print(f"\nEdit {rel} — fold the ## Changes hints into Enhancements/Fixes\n"
+              "and delete that section — then:")
+        print("  scripts/make_release.py publish")
 
 
 def cmd_publish(root: Path, args: argparse.Namespace) -> None:
@@ -431,18 +494,29 @@ def cmd_publish(root: Path, args: argparse.Namespace) -> None:
         return
 
     state = read_state(root)
-    if not state.prerelease:
+    head_version, head_prerelease = head_state(root)
+    # The bump is uncommitted ⇒ this is a quick release and the Release commit
+    # carries it; equal versions ⇒ a committed Prepare, i.e. a cycle.
+    quick = state.version != head_version
+    if not quick and not state.prerelease:
         die("nothing prepared to publish; run 'prepare' first "
             "(or 'publish --re-release' to re-cut an existing release)")
+    if quick and head_prerelease:
+        die(f"HEAD is in a prepared cycle for v{head_version} but the worktree "
+            f"says v{state.version}; reconcile the version files before publishing")
     check_agreement(root)
-    require_clean_tree(root)
 
     version = state.version
     tag = f"v{version}"
+    path = release_file(root, version)
+    if quick:
+        require_release_only_dirt(root, path)
+    else:
+        require_clean_tree(root)
+
     if tag_exists(root, tag):
         die(f"tag {tag} already exists; use 'publish --re-release' to re-cut it")
 
-    path = release_file(root, version)
     # Validate and fail fast on a wrong signing key BEFORE touching anything, so a
     # rejected release leaves the tree clean and the command re-runnable.
     validate_changelog(root, path, tag)
@@ -450,7 +524,8 @@ def cmd_publish(root: Path, args: argparse.Namespace) -> None:
 
     saved = git(["rev-parse", "HEAD"], root)
     stamp_release_date(path)
-    write_state(root, State(version, prerelease=False))
+    if state.prerelease:
+        write_state(root, State(version, prerelease=False))
     git(["add", *STAGE_FILES, str(path.relative_to(root))], root)
     git(["commit", "-s", "-m", f"Release {tag}"], root)
     git(["tag", "-s", "-a", tag, "-m", f"Release {tag}"], root)
@@ -459,12 +534,16 @@ def cmd_publish(root: Path, args: argparse.Namespace) -> None:
         verify_tag_signature(root, tag, args.key_url)
     except SystemExit:
         git(["tag", "-d", tag], root, check=False)
-        git(["reset", "--hard", saved], root, check=False)
-        die(f"signature check failed — rolled back to the prepared state "
-            f"(tag {tag} deleted, Release commit undone). Fix your signing key "
-            "and re-run publish.")
+        # A quick release's changelog prose exists only in the index and worktree,
+        # so --hard would destroy it. --soft restores exactly the pre-publish
+        # state, and publish stays re-runnable: the bump is still uncommitted.
+        git(["reset", "--soft" if quick else "--hard", saved], root, check=False)
+        kept = ("the release files are left staged" if quick
+                else "Release commit undone")
+        die(f"signature check failed — rolled back (tag {tag} deleted, {kept}). "
+            "Fix your signing key and re-run publish.")
 
-    print(f"Released {tag} (marker cleared; builds now report {version}).")
+    print(f"Released {tag} (builds now report {version}).")
     print(f"Signed and verified against {args.key_url}. Push with:")
     print(f"  git push origin {branch(root)} {tag}")
 
@@ -591,12 +670,16 @@ def parse_args() -> argparse.Namespace:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    prepare = sub.add_parser("prepare", help="enter the next release cycle")
+    prepare = sub.add_parser("prepare", help="stage the next release")
     bump = prepare.add_mutually_exclusive_group()
     bump.add_argument("--major", dest="bump", action="store_const", const="major")
     bump.add_argument("--minor", dest="bump", action="store_const", const="minor")
     bump.add_argument("--patch", dest="bump", action="store_const", const="patch")
     prepare.add_argument("--set", help="set an explicit X.Y.Z instead of bumping")
+    prepare.add_argument("--cycle", action="store_true",
+                         help="extended release cycle: set the pre-release marker "
+                              "and expect a 'Prepare vX.Y.Z' commit (default: a "
+                              "single-commit release, published without one)")
     prepare.set_defaults(bump="patch")
 
     publish = sub.add_parser("publish", help="finalize + sign the prepared release")

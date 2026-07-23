@@ -67,6 +67,16 @@ endif()
 # reads as released rather than tripping the marker branch.
 if("${LIBOSDP_PRERELEASE}" STREQUAL "")
 	set(LIBOSDP_VERSION_STR "${PROJECT_VERSION}")
+	# Only a build sitting exactly on the tag is that release; anything past it
+	# carries the git position, so a mid-cycle build of a quick-released version
+	# (no marker to decorate it) still cannot be mistaken for the release.
+	if("${GIT_TAG}" STREQUAL "")
+		if("${GIT_REV}" MATCHES "-([0-9]+)-g([0-9a-f]+)$")
+			set(LIBOSDP_VERSION_STR "${LIBOSDP_VERSION_STR}+${CMAKE_MATCH_1}.g${CMAKE_MATCH_2}")
+		elseif(NOT "${GIT_REV}" STREQUAL "")
+			set(LIBOSDP_VERSION_STR "${LIBOSDP_VERSION_STR}+g${GIT_REV}")
+		endif()
+	endif()
 else()
 	set(LIBOSDP_VERSION_STR "${PROJECT_VERSION}-${LIBOSDP_PRERELEASE}")
 	if("${GIT_REV}" MATCHES "-([0-9]+)-g([0-9a-f]+)$")

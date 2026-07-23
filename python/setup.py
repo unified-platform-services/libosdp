@@ -80,15 +80,21 @@ def get_git_info():
 
 def compose_version_str(pyproject_version, git):
     # Human-visible version, mirroring cmake/GitInfo.cmake. A released version
-    # (X.Y.Z or the X.Y.Z.postN PyPI re-release form) is reported verbatim; a
-    # prepared cycle (PEP 440 X.Y.Z.devN in pyproject.toml) is decorated with the
-    # pre-release marker plus git position so a source build never looks released.
-    match = re.fullmatch(r"(\d+\.\d+\.\d+)\.dev\d+", pyproject_version)
-    if not match:
-        return pyproject_version
-    version = f"{match.group(1)}-dev"
+    # (X.Y.Z or the X.Y.Z.postN PyPI re-release form) is reported verbatim only
+    # when the build sits exactly on its tag; a prepared cycle (PEP 440
+    # X.Y.Z.devN in pyproject.toml) is decorated with the pre-release marker.
+    # Either way an off-tag build carries the git position, so a source build
+    # never looks like a release.
     rev = git.get("rev", "")
     described = re.search(r"-(\d+)-g([0-9a-f]+)$", rev)
+    match = re.fullmatch(r"(\d+\.\d+\.\d+)\.dev\d+", pyproject_version)
+    if not match:
+        if git.get("tag", ""):
+            return pyproject_version
+        if described:
+            return f"{pyproject_version}+{described.group(1)}.g{described.group(2)}"
+        return f"{pyproject_version}+g{rev}" if rev else pyproject_version
+    version = f"{match.group(1)}-dev"
     if described:
         version += f".{described.group(1)}+g{described.group(2)}"
     elif rev:
