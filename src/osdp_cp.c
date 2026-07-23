@@ -969,9 +969,18 @@ static void fill_local_keyset_cmd(struct osdp_pd *pd, struct osdp_cmd *cmd)
 	memcpy(cmd->keyset.data, pd->sc.scbk, sizeof(pd->sc.scbk));
 }
 
+/*
+ * States in which this PD owns the shared bus: a command is being built,
+ * its finalized bytes are still waiting for the transport to accept them,
+ * or a reply is outstanding. SEND_CMD_WAIT belongs here -- the packet is
+ * already finalized (sequence number and SC MAC advanced) and parked in
+ * pd->packet_buf, so no other PD may take the bus, and state_update() must
+ * keep re-entering the phy FSM to retry the send.
+ */
 static inline bool cp_phy_bus_is_busy(struct osdp_pd *pd)
 {
 	return (pd->phy_state == OSDP_CP_PHY_STATE_SEND_CMD ||
+		pd->phy_state == OSDP_CP_PHY_STATE_SEND_CMD_WAIT ||
 		pd->phy_state == OSDP_CP_PHY_STATE_REPLY_WAIT);
 }
 
