@@ -556,6 +556,33 @@ def cmd_check_staged(root: Path) -> None:
             die(f"pre-commit: {rf} failed changelog validation")
 
 
+def cmd_check_changelog(root: Path) -> None:
+    """CI gate over the whole CHANGELOG directory. Only *published* releases are
+    held to the finalized format; the in-flight file of a prepared cycle is a WIP
+    stub by design (TODO markers, ## Changes hints) until publish clears the
+    marker, so it is skipped."""
+    state = read_state(root)
+    directory = root / "CHANGELOG"
+    files = changelog_tool.release_files_in_dir(directory)
+    if not files:
+        die(f"no release files found in {directory}")
+
+    in_flight = f"v{state.version}" if state.prerelease else None
+    checked = 0
+    for path in files:
+        version = changelog_tool.RELEASE_FILE_RE.fullmatch(path.name).group(1)
+        if version == in_flight:
+            continue
+        validate_changelog(root, path, version)
+        checked += 1
+
+    if in_flight:
+        print(f"{checked} published release file(s) valid; "
+              f"skipped {in_flight} (prepared, not published)")
+    else:
+        print(f"{checked} published release file(s) valid")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="LibOSDP two-phase release helper",
@@ -585,6 +612,10 @@ def parse_args() -> argparse.Namespace:
                    help="pre-commit gate: verify staged version files agree and a "
                         "staged release changelog is consistent")
 
+    sub.add_parser("check-changelog",
+                   help="CI gate: validate every published release file, skipping "
+                        "the in-flight file of a prepared cycle")
+
     args = parser.parse_args()
     if getattr(args, "post", None) is not None and not args.re_release:
         parser.error("--post requires --re-release")
@@ -602,6 +633,8 @@ def main() -> None:
         cmd_publish(root, args)
     elif args.command == "check-staged":
         cmd_check_staged(root)
+    elif args.command == "check-changelog":
+        cmd_check_changelog(root)
 
 
 if __name__ == "__main__":

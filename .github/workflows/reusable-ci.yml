@@ -17,7 +17,7 @@ jobs:
       with:
         submodules: recursive
     - name: Validate changelog files
-      run: python3 scripts/changelog_tool.py validate --dir CHANGELOG --quiet
+      run: python3 scripts/make_release.py check-changelog
 
   CmakeBuild:
     runs-on: ubuntu-latest
