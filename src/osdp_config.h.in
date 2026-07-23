@@ -12,6 +12,11 @@
  * files. All @XXX@ are replaced by the value of XXX as resolved by cmake.
  */
 #define PROJECT_VERSION                "@PROJECT_VERSION@"
+/* Human-visible version. Equals PROJECT_VERSION when released; carries the
+ * pre-release marker and git position (e.g. "4.0.0-dev.37+ga1b2c3d") while a
+ * release cycle is prepared but unpublished. This is what osdp_get_version()
+ * returns. */
+#define LIBOSDP_VERSION_STR            "@LIBOSDP_VERSION_STR@"
 #define PROJECT_NAME                   "@PROJECT_NAME@"
 #define GIT_BRANCH                     "@GIT_BRANCH@"
 #define GIT_REV                        "@GIT_REV@"

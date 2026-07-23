@@ -12,6 +12,12 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(libosdp VERSION 3.2.0)
 
+# Pre-release marker: "dev" while the next release is prepared but unpublished,
+# empty once published. Kept separate from the numeric project() version (which
+# SOVERSION/CPack/pkg-config derive from) — it only decorates the human-visible
+# version string composed in cmake/GitInfo.cmake. Owned by scripts/make_release.py.
+set(LIBOSDP_PRERELEASE "")
+
 set(PROJECT_AUTHOR       "Siddharth Chandrasekaran")
 set(PROJECT_AUTHOR_EMAIL "sidcha.dev@gmail.com")
 set(PROJECT_YEAR         "2019")

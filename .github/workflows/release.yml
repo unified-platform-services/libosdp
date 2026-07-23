@@ -27,6 +27,19 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.ref }}
           submodules: recursive
+      - name: Verify tag is signed by the maintainer key
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Import ONLY the maintainer's published key into a throwaway keyring,
+          # so verify-tag can only succeed against that key. Gates the whole
+          # pipeline: every downstream job needs this preflight.
+          GNUPGHOME="$(mktemp -d)"; export GNUPGHOME; chmod 700 "$GNUPGHOME"
+          curl -fsSL https://github.com/sidcha.gpg | gpg --batch --import
+          if ! git -c gpg.program=gpg verify-tag "${GITHUB_REF_NAME}"; then
+            echo "Tag ${GITHUB_REF_NAME} is not signed by the maintainer's published key" >&2
+            exit 1
+          fi
       - name: Validate tag matches project versions
         id: meta
         shell: bash
@@ -40,12 +53,24 @@ jobs:
           fi
 
           cmake_version="$(perl -ne 'print $1 if (/project\(libosdp VERSION (\d+\.\d+\.\d+)\)/)' CMakeLists.txt)"
-          py_version="$(perl -ne 'print $1 if (/^version = "(\d+\.\d+\.\d+)"/)' python/pyproject.toml)"
-          platformio_version="$(perl -ne 'print $1 if (/^  "version": "(\d+\.\d+\.\d+)",$/)' library.json)"
+          cmake_marker="$(perl -ne 'print $1 if (/^set\(LIBOSDP_PRERELEASE "([^"]*)"\)/)' CMakeLists.txt)"
+          # pyproject tolerates a .postN suffix (PyPI re-release); .dev is rejected below
+          py_version="$(perl -ne 'print $1 if (/^version = "(\d+\.\d+\.\d+)(?:\.post\d+)?"/)' python/pyproject.toml)"
+          py_dev="$(perl -ne 'print "dev" if (/^version = "\d+\.\d+\.\d+\.dev/)' python/pyproject.toml)"
+          lib_version="$(perl -ne 'print $1 if (/^  "version": "(\d+\.\d+\.\d+)(?:-dev)?",$/)' library.json)"
+          lib_dev="$(perl -ne 'print "dev" if (/^  "version": "\d+\.\d+\.\d+-dev",$/)' library.json)"
           config_version="$(perl -ne 'print $1 if (/^#define PROJECT_VERSION\s+"(\d+\.\d+\.\d+)"/)' platformio/osdp_config.h)"
+          verstr_dev="$(perl -ne 'print "dev" if (/^#define LIBOSDP_VERSION_STR\s+"\d+\.\d+\.\d+-dev"/)' platformio/osdp_config.h)"
           release_file="CHANGELOG/RELEASE-${tag}.md"
 
-          for declared in "${cmake_version}" "${py_version}" "${platformio_version}" "${config_version}"; do
+          # A release tag must point at a published (marker-cleared) commit; a
+          # tag on a prepared -dev commit is a mistake and must fail fast.
+          if [[ -n "${cmake_marker}" || -n "${py_dev}" || -n "${lib_dev}" || -n "${verstr_dev}" ]]; then
+            echo "Tag ${tag} points at a prepared (pre-release) commit: the release marker is not cleared" >&2
+            exit 1
+          fi
+
+          for declared in "${cmake_version}" "${py_version}" "${lib_version}" "${config_version}"; do
             if [[ "${declared}" != "${version}" ]]; then
               echo "Version mismatch for tag ${tag}: expected ${version}, found ${declared}" >&2
               exit 1

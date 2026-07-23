@@ -388,7 +388,7 @@ void osdp_set_log_callback(osdp_log_callback_fn_t cb)
 
 const char *osdp_get_version()
 {
-	return PROJECT_VERSION;
+	return LIBOSDP_VERSION_STR;
 }
 
 const char *osdp_get_source_info()

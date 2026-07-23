@@ -142,11 +142,27 @@ if [[ -z "${PROJECT_VERSION}" ]]; then
 fi
 
 PROJECT_NAME=libosdp
+GIT_DESC=""
 if [[ -d .git ]]; then
 	GIT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 	GIT_REV=$(git log --pretty=format:'%h' -n 1)
 	GIT_TAG=$(git describe --exact-match --tags 2>/dev/null)
 	GIT_DIFF=$(git diff --quiet --exit-code || echo +)
+	GIT_DESC=$(git describe --tags --long --always --abbrev=7 2>/dev/null)
+fi
+
+# Compose the human-visible version string; mirrors cmake/GitInfo.cmake so the
+# lean and CMake builds report the same osdp_get_version() string.
+LIBOSDP_PRERELEASE=$(perl -ne 'print $1 if /^set\(LIBOSDP_PRERELEASE "([^"]*)"\)/' CMakeLists.txt)
+if [[ -z "${LIBOSDP_PRERELEASE}" ]]; then
+	LIBOSDP_VERSION_STR="${PROJECT_VERSION}"
+else
+	LIBOSDP_VERSION_STR="${PROJECT_VERSION}-${LIBOSDP_PRERELEASE}"
+	if [[ "${GIT_DESC}" =~ -([0-9]+)-g([0-9a-f]+)$ ]]; then
+		LIBOSDP_VERSION_STR+=".${BASH_REMATCH[1]}+g${BASH_REMATCH[2]}"
+	elif [[ -n "${GIT_DESC}" ]]; then
+		LIBOSDP_VERSION_STR+="+g${GIT_DESC}"
+	fi
 fi
 
 ## Crypto backend selection: auto probes openssl → mbedtls → tinyaes by
@@ -246,6 +262,7 @@ sed -e "s|@CMAKE_INSTALL_PREFIX@|${PREFIX}|" \
 ## Generate osdp_config.h
 echo "Generating osdp_config.h"
 sed -e "s|@PROJECT_VERSION@|${PROJECT_VERSION}|" \
+    -e "s|@LIBOSDP_VERSION_STR@|${LIBOSDP_VERSION_STR}|" \
     -e "s|@PROJECT_NAME@|${PROJECT_NAME}|" \
     -e "s|@GIT_BRANCH@|${GIT_BRANCH}|" \
     -e "s|@GIT_REV@|${GIT_REV}|" \

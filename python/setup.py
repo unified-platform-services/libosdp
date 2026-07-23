@@ -78,6 +78,23 @@ def get_git_info():
 
     return d
 
+def compose_version_str(pyproject_version, git):
+    # Human-visible version, mirroring cmake/GitInfo.cmake. A released version
+    # (X.Y.Z or the X.Y.Z.postN PyPI re-release form) is reported verbatim; a
+    # prepared cycle (PEP 440 X.Y.Z.devN in pyproject.toml) is decorated with the
+    # pre-release marker plus git position so a source build never looks released.
+    match = re.fullmatch(r"(\d+\.\d+\.\d+)\.dev\d+", pyproject_version)
+    if not match:
+        return pyproject_version
+    version = f"{match.group(1)}-dev"
+    rev = git.get("rev", "")
+    described = re.search(r"-(\d+)-g([0-9a-f]+)$", rev)
+    if described:
+        version += f".{described.group(1)}+g{described.group(2)}"
+    elif rev:
+        version += f"+g{rev}"
+    return version
+
 def configure_file(file, replacements):
     with open(file) as f:
         contents = f.read()
@@ -109,6 +126,7 @@ def try_vendor_sources(src_dir, src_files, vendor_dir):
     shutil.move("vendor/src/osdp_config.h.in", "vendor/src/osdp_config.h")
     configure_file("vendor/src/osdp_config.h", {
         "PROJECT_VERSION": project_version,
+        "LIBOSDP_VERSION_STR": compose_version_str(project_version, git),
         "PROJECT_NAME": project_name,
         "GIT_BRANCH": git["branch"],
         "GIT_REV": git["rev"],

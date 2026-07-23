@@ -59,3 +59,19 @@ if(_git_ok EQUAL 0)
 		endif()
 	endif()
 endif()
+
+# Compose the human-visible version string (osdp_get_version). The numeric
+# PROJECT_VERSION is left untouched; only this string carries the pre-release
+# marker plus git position so a build off master never looks like a release.
+# Quoted expansion so an undefined LIBOSDP_PRERELEASE (e.g. a Zephyr build)
+# reads as released rather than tripping the marker branch.
+if("${LIBOSDP_PRERELEASE}" STREQUAL "")
+	set(LIBOSDP_VERSION_STR "${PROJECT_VERSION}")
+else()
+	set(LIBOSDP_VERSION_STR "${PROJECT_VERSION}-${LIBOSDP_PRERELEASE}")
+	if("${GIT_REV}" MATCHES "-([0-9]+)-g([0-9a-f]+)$")
+		set(LIBOSDP_VERSION_STR "${LIBOSDP_VERSION_STR}.${CMAKE_MATCH_1}+g${CMAKE_MATCH_2}")
+	elseif(NOT "${GIT_REV}" STREQUAL "")
+		set(LIBOSDP_VERSION_STR "${LIBOSDP_VERSION_STR}+g${GIT_REV}")
+	endif()
+endif()

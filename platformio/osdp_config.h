@@ -12,6 +12,9 @@
  * files. All @XXX@ are replaced by the value of XXX as resolved by cmake.
  */
 #define PROJECT_VERSION                "3.2.0"
+/* No git here; carries the pre-release marker only (e.g. "3.2.0-dev") while a
+ * cycle is prepared. Kept in lockstep with PROJECT_VERSION by make_release.py. */
+#define LIBOSDP_VERSION_STR            "3.2.0"
 #define PROJECT_NAME                   "libosdp"
 #define GIT_BRANCH                     "platformio"
 #define GIT_REV                        ""
