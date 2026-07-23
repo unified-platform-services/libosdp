@@ -1141,9 +1141,9 @@ enum osdp_mp_outcome {
  */
 enum osdp_mp_msg_type {
 	OSDP_MP_MSG_FILE_TRANSFER = 1, /**< File transfer */
-	OSDP_MP_MSG_PIV, /**< PIV data (reserved) */
-	OSDP_MP_MSG_GENAUTH, /**< General auth (reserved) */
-	OSDP_MP_MSG_CRAUTH, /**< Challenge/response auth (reserved) */
+	OSDP_MP_MSG_PIV, /**< PIV data */
+	OSDP_MP_MSG_GENAUTH, /**< General auth */
+	OSDP_MP_MSG_CRAUTH, /**< Challenge/response auth */
 	OSDP_MP_MSG_BIOREAD, /**< Biometric read reply */
 };
 
@@ -1152,7 +1152,7 @@ enum osdp_mp_msg_type {
  */
 struct osdp_mp_notification {
 	enum osdp_mp_msg_type mp_type; /**< Multipart family */
-	int object_id; /**< File id for file transfer; 0 reserved */
+	int object_id; /**< Per-family transfer id (e.g. file id for file transfer) */
 	uint32_t total; /**< Full payload length */
 	uint32_t offset; /**< Bytes transferred so far */
 	enum osdp_mp_outcome outcome; /**< Meaningful at MP_DONE */
