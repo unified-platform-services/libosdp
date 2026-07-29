@@ -1395,6 +1395,13 @@ static int cp_get_trs_command(struct osdp_pd *pd)
 				pd->trs.state = TRS_STATE_TEARDOWN;
 				return CMD_XWR;
 			}
+			if (osdp_trs_scan_ask_due(pd)) {
+				/* The scan's own question: nobody queued it,
+				 * so there is no app command behind it. */
+				pd->active_cmd = NULL;
+				osdp_trs_scan_note_ask(pd);
+				return CMD_XWR;
+			}
 			return cp_get_poll_command(pd);
 		}
 		if (pd->trs.probe && cp_cmd_is_trs(cmd, OSDP_TRS_CMD_START)) {
@@ -1968,7 +1975,13 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 static bool cp_trs_cmd_is_app_owned(struct osdp_pd *pd)
 {
 #ifdef OPT_BUILD_OSDP_TRS
-	return pd->trs.state == TRS_STATE_XMIT;
+	/*
+	 * The presence scan's card scan runs in TRS_STATE_XMIT too, but it is
+	 * the library's own question -- nobody queued it and nobody is waiting
+	 * on it, and a reader refusing it must reach the error path that latches
+	 * that fact rather than being written off as one failed app command.
+	 */
+	return pd->trs.state == TRS_STATE_XMIT && !pd->trs.scan.asking;
 #else
 	ARG_UNUSED(pd);
 	return false;

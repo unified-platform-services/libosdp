@@ -186,6 +186,20 @@ static int trs_local_cmd_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 {
 	int len = 0;
 
+	/*
+	 * The presence scan asking whether a card is there (v2.2 section
+	 * 6.27.8). It rides inside a session but is not one of its steps, so it
+	 * is selected by the scan's own in-flight marker rather than by state.
+	 */
+	if (pd->trs.state == TRS_STATE_XMIT && pd->trs.scan.asking) {
+		if (max_len < 3) {
+			return -1;
+		}
+		bwrite_u16_be(CMD_CARD_SCAN, buf, &len);
+		buf[len++] = 0; /* reader (always 0) */
+		return len;
+	}
+
 	switch (pd->trs.state) {
 	case TRS_STATE_SET_MODE:
 	case TRS_STATE_TEARDOWN:
@@ -413,6 +427,44 @@ static void trs_scan_note_card(struct osdp_pd *pd, bool present)
 }
 
 /*
+ * The reader answered the question the probe asked, so it implements the card
+ * scan. Only an answer to our own question proves that: a card-present report
+ * volunteered on a poll says nothing about whether the reader takes the command.
+ */
+static void trs_scan_note_answered(struct osdp_pd *pd)
+{
+	if (!pd->trs.scan.asking ||
+	    pd->trs.scan.support == TRS_SCAN_SUPPORT_YES) {
+		return;
+	}
+	LOG_INF("TRS: reader answers card-scan; card removal will be reported");
+	pd->trs.scan.support = TRS_SCAN_SUPPORT_YES;
+}
+
+/*
+ * The probe's card scan came back refused. Latch it only when the reader
+ * actually answered -- a NAK, a mode-1 error report, or a bare ACK all say
+ * "not this command", and readers in the field do each of them. Silence leaves
+ * pd->reply_id at REPLY_INVALID and proves nothing about the command, so it
+ * must fall through to the ordinary session error path instead.
+ */
+static bool trs_scan_note_refused(struct osdp_pd *pd)
+{
+	if (!pd->trs.scan.asking) {
+		return false;
+	}
+	pd->trs.scan.asking = false;
+	if (pd->reply_id != REPLY_NAK && pd->reply_id != REPLY_XRD &&
+	    pd->reply_id != REPLY_ACK) {
+		return false;
+	}
+	LOG_INF("TRS: reader declined card-scan; presence scan falls back to "
+		"reports volunteered on poll");
+	pd->trs.scan.support = TRS_SCAN_SUPPORT_NO;
+	return true;
+}
+
+/*
  * Decode a REPLY_XRD payload into *event. Returns <0 on error, else one of
  * enum osdp_trs_reply_action_e telling osdp_cp.c whether the reply carried
  * anything for the app: the mode handshake is the library's own business, but
@@ -496,6 +548,7 @@ int osdp_trs_reply_decode(struct osdp_pd *pd, uint8_t *buf, int len,
 			 * without it the reply itself is the news that a card
 			 * is there, on an unspecified interface. */
 			event->trs.card_present.status = OSDP_TRS_CARD_PRESENT;
+			trs_scan_note_answered(pd);
 			trs_scan_note_card(pd, true);
 			break;
 		}
@@ -506,6 +559,7 @@ int osdp_trs_reply_decode(struct osdp_pd *pd, uint8_t *buf, int len,
 				card_status);
 			return -1;
 		}
+		trs_scan_note_answered(pd);
 		trs_scan_note_card(pd, event->trs.card_present.status !=
 					       OSDP_TRS_CARD_NOT_PRESENT);
 		break;
@@ -853,6 +907,7 @@ enum osdp_cp_state_e osdp_trs_state_update(struct osdp_pd *pd)
 		pd->trs.state = TRS_STATE_XMIT;
 		return OSDP_CP_STATE_TRS_RUN;
 	case TRS_STATE_XMIT:
+		pd->trs.scan.asking = false;
 		return OSDP_CP_STATE_TRS_RUN;
 	case TRS_STATE_DISCONNECT_CARD:
 		pd->trs.state = TRS_STATE_TEARDOWN;
@@ -876,6 +931,16 @@ enum osdp_cp_state_e osdp_trs_state_update(struct osdp_pd *pd)
  */
 enum osdp_cp_state_e osdp_trs_state_update_err(struct osdp_pd *pd)
 {
+	/*
+	 * A reader refusing the probe's card scan is not a session error: it
+	 * has told us it does not implement that command, which is a fact
+	 * about the reader, not about the link. Keep the probe running on
+	 * volunteered reports alone.
+	 */
+	if (trs_scan_note_refused(pd)) {
+		return OSDP_CP_STATE_TRS_RUN;
+	}
+
 	pd->trs.failed = true;
 
 	switch (pd->trs.state) {
@@ -941,12 +1006,50 @@ bool osdp_trs_probe_expired(struct osdp_pd *pd)
 	       trs->scan.mode1_dwell_ms;
 }
 
+/*
+ * Should the probe ask the reader whether a card is there? Once as soon as mode
+ * 01 is up, then once per mode-1 dwell for as long as a hold keeps the probe
+ * open; polls fill the gaps at their own pace. Never inside an app band: the
+ * band's APDUs are the app's card transaction and the library has no business
+ * interleaving traffic of its own into it.
+ */
+bool osdp_trs_scan_ask_due(struct osdp_pd *pd)
+{
+	struct osdp_trs *trs = &pd->trs;
+
+	if (!trs->scan.enabled || !trs->probe || trs->scan.asking ||
+	    trs->scan.support == TRS_SCAN_SUPPORT_NO) {
+		return false;
+	}
+	if (!trs->scan.asked) {
+		return true;
+	}
+	return osdp_millis_since(trs->scan.ask_tstamp) >
+	       trs->scan.mode1_dwell_ms;
+}
+
+/* A card scan is going on the wire now */
+void osdp_trs_scan_note_ask(struct osdp_pd *pd)
+{
+	pd->trs.scan.asking = true;
+	pd->trs.scan.asked = true;
+	pd->trs.scan.ask_tstamp = osdp_millis_now();
+}
+
+/* Forget what this probe asked; the next one starts the cadence over */
+static void trs_scan_forget_ask(struct osdp_pd *pd)
+{
+	pd->trs.scan.asking = false;
+	pd->trs.scan.asked = false;
+}
+
 /* The probe's session opened; undo the app-band bookkeeping TRS_SETUP set */
 void osdp_trs_probe_note_open(struct osdp_pd *pd)
 {
 	pd->trs.probe = true;
 	pd->trs.stop_pending = false;
 	pd->trs.scan.holding = false;
+	trs_scan_forget_ask(pd);
 }
 
 /* Mode 01 confirmed; the probe's dwell clock starts now */
@@ -961,6 +1064,7 @@ void osdp_trs_probe_adopted(struct osdp_pd *pd)
 	pd->trs.probe = false;
 	pd->trs.stop_pending = true;
 	pd->trs.scan.holding = false;
+	trs_scan_forget_ask(pd);
 }
 
 /*
@@ -975,6 +1079,7 @@ bool osdp_trs_probe_close(struct osdp_pd *pd)
 	trs->probe = false;
 	trs->scan.holding = false;
 	trs->scan.tstamp = osdp_millis_now();
+	trs_scan_forget_ask(pd);
 	if (!trs->failed) {
 		trs->scan.backoff_ms = 0;
 		return false;
@@ -989,12 +1094,19 @@ bool osdp_trs_probe_close(struct osdp_pd *pd)
 	return true;
 }
 
-/* Forget any probe in flight (PD is re-initializing) */
+/*
+ * Forget any probe in flight (PD is re-initializing). The card-scan verdict
+ * goes with it: the reader that answered may not be the one that comes back at
+ * this address, and it is re-learned in a single command anyway -- the same
+ * reasoning that has the CP re-collect pd->cap[] on every connection.
+ */
 void osdp_trs_probe_reset(struct osdp_pd *pd)
 {
 	pd->trs.probe = false;
 	pd->trs.scan.holding = false;
 	pd->trs.scan.tstamp = osdp_millis_now();
+	pd->trs.scan.support = TRS_SCAN_SUPPORT_UNKNOWN;
+	trs_scan_forget_ask(pd);
 }
 
 /*
