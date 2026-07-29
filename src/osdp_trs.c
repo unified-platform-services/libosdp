@@ -481,6 +481,21 @@ static bool trs_scan_note_refused(struct osdp_pd *pd)
 	LOG_INF("TRS: reader declined card-scan; presence scan falls back to "
 		"reports volunteered on poll");
 	pd->trs.scan.support = TRS_SCAN_SUPPORT_NO;
+	pd->trs.scan.declined = true;
+	return true;
+}
+
+/*
+ * Has the reader just declined the card scan? Test-and-clear, so the CP raises
+ * OSDP_TRS_SCAN_NO_DEPARTURE once for the connection rather than on every probe
+ * that goes on without asking.
+ */
+bool osdp_trs_scan_declined(struct osdp_pd *pd)
+{
+	if (!pd->trs.scan.declined) {
+		return false;
+	}
+	pd->trs.scan.declined = false;
 	return true;
 }
 
