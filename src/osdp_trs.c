@@ -933,6 +933,27 @@ int osdp_trs_cmd_decode(struct osdp_pd *pd, struct osdp_cmd *cmd, uint8_t *buf,
 	return OSDP_TRS_DECODE_TO_APP;
 }
 
+/* --- PD: role state --- */
+
+/*
+ * The CP restarted communication. Transparent mode is the one piece of state a
+ * PD carries between commands, and leaving it set means a reader that stops
+ * reporting ordinary card reads with nothing left to turn it off -- the same
+ * condition the CP pays a round trip to avoid on its own side.
+ *
+ * Only an explicit restart is grounds for this. The PD's own offline timeout is
+ * not: it measures silence, and a CP working through a slow card transaction is
+ * silent for exactly the same reason it is still mid-session.
+ */
+void osdp_trs_pd_reset(struct osdp_pd *pd)
+{
+	if (pd->trs.mode == TRS_MODE_00) {
+		return;
+	}
+	LOG_INF("TRS: CP link lost; leaving transparent mode");
+	pd->trs.mode = TRS_MODE_00;
+}
+
 /* --- CP: library-driven session state machine --- */
 
 /*
