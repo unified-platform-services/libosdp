@@ -43,6 +43,10 @@ struct trs_emu_ctx {
 	bool completion_seen;
 	enum osdp_completion_status last_completion;
 	bool cardread_seen;
+
+	int card_scan_count; /* card scans the PD app has answered */
+	int present_events;  /* CP-side card-present events, by status */
+	int absent_events;
 };
 
 static struct trs_emu_ctx g_emu;
@@ -118,6 +122,14 @@ static int emu_cp_event_callback(void *arg, int pd, struct osdp_event *ev)
 	if (ev->type == OSDP_EVENT_TRS) {
 		ctx->event_seen = true;
 		memcpy(&ctx->last_reply, &ev->trs, sizeof(ctx->last_reply));
+		if (ev->trs.reply == OSDP_TRS_REPLY_CARD_PRESENT) {
+			if (ev->trs.card_present.status ==
+			    OSDP_TRS_CARD_NOT_PRESENT) {
+				ctx->absent_events++;
+			} else {
+				ctx->present_events++;
+			}
+		}
 	}
 	if (ev->type == OSDP_EVENT_CARDREAD) {
 		ctx->cardread_seen = true;
@@ -150,8 +162,26 @@ static int emu_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 	struct osdp_event *resp = &ctx->resp_event;
 	int rlen;
 
-	if (cmd->id != OSDP_CMD_XWR ||
-	    cmd->trs.command != OSDP_TRS_CMD_SEND_APDU) {
+	if (cmd->id != OSDP_CMD_XWR) {
+		return 0;
+	}
+
+	/* This reader implements the mode-1 card scan and answers it from
+	 * whether a card is actually in its field */
+	if (cmd->trs.command == OSDP_TRS_CMD_CARD_SCAN) {
+		ctx->card_scan_count++;
+		memset(resp, 0, sizeof(*resp));
+		resp->type = OSDP_EVENT_TRS;
+		resp->trs.reply = OSDP_TRS_REPLY_CARD_PRESENT;
+		resp->trs.card_present.reader = 0;
+		resp->trs.card_present.status =
+			ctx->card.present ? OSDP_TRS_CARD_PRESENT_CONTACTLESS :
+					    OSDP_TRS_CARD_NOT_PRESENT;
+		osdp_pd_submit_event(ctx->pd_ctx, resp);
+		return 0;
+	}
+
+	if (cmd->trs.command != OSDP_TRS_CMD_SEND_APDU) {
 		return 0;
 	}
 
@@ -664,6 +694,64 @@ static bool test_emu_rpk40_time_slice(void)
 	return emu_wait_mode(TRS_MODE_00, 3000);
 }
 
+/*
+ * The whole point of asking the reader: a card put into the field and then
+ * taken away is reported both times, with the application having submitted
+ * nothing at all -- no session, no APDU, no sighting event of its own. Then
+ * ordinary credentials still work, because the reader was handed back.
+ */
+static bool test_emu_card_departure_detected(void)
+{
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 100,
+		.mode1_dwell_ms = 200,
+	};
+	int waited = 0;
+
+	printf(SUB_2 "testing emu card departure is detected\n");
+
+	emu_card_set_present(&g_emu.card, false);
+	g_emu.present_events = 0;
+	g_emu.absent_events = 0;
+	g_emu.card_scan_count = 0;
+
+	if (osdp_cp_trs_scan_enable(g_emu.cp_ctx, 0, &p)) {
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+
+	emu_card_set_present(&g_emu.card, true);
+	while (waited < 6000 && g_emu.present_events < 1) {
+		usleep(50 * 1000);
+		waited += 50;
+	}
+	if (g_emu.present_events < 1) {
+		osdp_cp_trs_scan_disable(g_emu.cp_ctx, 0);
+		printf(SUB_2 "card arrival never reported (%d scans)\n",
+		       g_emu.card_scan_count);
+		return false;
+	}
+
+	emu_card_set_present(&g_emu.card, false);
+	waited = 0;
+	while (waited < 6000 && g_emu.absent_events < 1) {
+		usleep(50 * 1000);
+		waited += 50;
+	}
+	osdp_cp_trs_scan_disable(g_emu.cp_ctx, 0);
+
+	if (g_emu.absent_events < 1) {
+		printf(SUB_2 "card departure never reported (%d scans)\n",
+		       g_emu.card_scan_count);
+		return false;
+	}
+	if (!emu_wait_mode(TRS_MODE_00, 3000)) {
+		printf(SUB_2 "reader left in transparent mode\n");
+		return false;
+	}
+	return emu_rpk40_standard_read();
+}
+
 void run_trs_emu_tests(struct test *t)
 {
 	bool result = true;
@@ -681,6 +769,7 @@ void run_trs_emu_tests(struct test *t)
 	result &= test_emu_permanent_busy_fails_softly();
 	result &= test_emu_card_removed_mid_band();
 	result &= test_emu_rpk40_time_slice();
+	result &= test_emu_card_departure_detected();
 
 	emu_teardown();
 
