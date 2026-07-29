@@ -1167,6 +1167,22 @@ void osdp_trs_probe_reset(struct osdp_pd *pd)
 }
 
 /*
+ * The PD's capabilities have arrived. This is the first moment the CP can tell
+ * whether the reader has a smart-card interface at all, and therefore the only
+ * useful moment to say that a scan someone enabled will never do anything:
+ * applications enable it once at startup, long before any PD is online.
+ */
+void osdp_trs_scan_note_capability(struct osdp_pd *pd)
+{
+	if (!pd->trs.scan.enabled || pd->trs.scan.warned || trs_capable(pd)) {
+		return;
+	}
+	pd->trs.scan.warned = true;
+	LOG_WRN("TRS: presence scan is enabled but this PD reports no "
+		"smart-card reader; it will never probe");
+}
+
+/*
  * Ordinary (mode 00) card or keypad activity: restart the mode-0 dwell so a
  * probe never slices into a read the user is in the middle of.
  */
