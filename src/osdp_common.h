@@ -434,6 +434,19 @@ enum trs_state_e {
 	TRS_STATE_DONE, /* session finished; return to ONLINE */
 };
 
+/*
+ * Does this reader answer the mode-01 card scan (v2.2 section 6.27.8)? Nothing
+ * in PDCAP says so -- the smart-card capability only advertises transparent
+ * mode itself -- so it can only be learned by asking, and readers that do not
+ * implement it refuse in whatever way they fancy. One refusal is enough to
+ * stop asking for the rest of this connection.
+ */
+enum trs_scan_support_e {
+	TRS_SCAN_SUPPORT_UNKNOWN = 0,
+	TRS_SCAN_SUPPORT_YES,
+	TRS_SCAN_SUPPORT_NO,
+};
+
 struct osdp_trs {
 	enum trs_state_e state; /* current TRS session sub-state */
 	uint8_t mode; /* negotiated TRS mode (TRS_MODE_00/01) */
@@ -462,13 +475,23 @@ struct osdp_trs {
 	struct {
 		bool enabled;
 		bool holding; /* card sighted; hold mode-1 for the app's START */
+		/*
+		 * A card scan the library asked for is on the wire right now.
+		 * Kept apart from state so enum trs_state_e stays a description
+		 * of the session alone: the scan's question is not a step of
+		 * the session, it just rides inside one.
+		 */
+		bool asking;
+		bool asked; /* this probe has asked at least once */
+		enum trs_scan_support_e support;
 		uint16_t mode0_dwell_ms;
 		uint16_t mode1_dwell_ms;
 		uint16_t hold_ms;
 		uint32_t backoff_ms; /* probe refused; 0 = no backoff pending */
 		tick_t tstamp; /* mode-0 dwell / backoff anchor */
 		tick_t probe_tstamp; /* when mode-1 was actually entered */
-		tick_t hold_tstamp; /* last card sighting */
+		tick_t hold_tstamp; /* first sighting of the card being held */
+		tick_t ask_tstamp; /* when this probe last asked */
 	} scan;
 };
 #endif
