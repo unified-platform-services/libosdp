@@ -586,6 +586,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		} else {
 			CLEAR_FLAG(pd, PD_FLAG_TRS_CAPABLE);
 		}
+		osdp_trs_scan_note_capability(pd);
 
 		ret = OSDP_CP_ERR_NONE;
 		break;
@@ -2715,11 +2716,16 @@ int osdp_cp_trs_scan_enable(osdp_t *ctx, int pd_idx,
 	/* A fresh scan reports the first presence it sees, whatever the
 	 * previous one had already told the app. */
 	trs->scan.last_status = OSDP_TRS_CARD_STATUS_UNKNOWN;
+	trs->scan.warned = false;
 	trs->scan.enabled = true;
-	/* Capability is only known once the PD has been online; before that the
-	 * probe gate re-checks it every cycle and simply never fires. */
-	if (pd->state == OSDP_CP_STATE_ONLINE && !trs_capable(pd)) {
-		LOG_WRN("TRS: scan enabled on a PD with no smart-card reader");
+	/*
+	 * Whether this PD has a reader to scan is only known once its
+	 * capabilities have been collected, and a scan is normally enabled at
+	 * startup, before any PD is online. Warn now if the answer is already
+	 * in; otherwise the capability report raises it when it arrives.
+	 */
+	if (pd->state == OSDP_CP_STATE_ONLINE) {
+		osdp_trs_scan_note_capability(pd);
 	}
 	return 0;
 #else
