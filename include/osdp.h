@@ -2223,6 +2223,35 @@ OSDP_EXPORT
 int osdp_cp_trs_scan_disable(osdp_t *ctx, int pd);
 
 /**
+ * @brief Get the largest C-APDU that can be sent to a PD in a single
+ * @c OSDP_TRS_CMD_SEND_APDU.
+ *
+ * This is **not** @c OSDP_TRS_APDU_MAX_LEN. That constant only sizes the
+ * buffer in @a struct osdp_trs_apdu; what actually fits on the wire is bounded
+ * by the packet size in use, which is the smaller of this build's
+ * @c OSDP_PACKET_BUF_SIZE and the receive buffer the PD advertised, less the
+ * framing the APDU travels inside. With the default packet size the limit is
+ * appreciably lower than @c OSDP_TRS_APDU_MAX_LEN, so an application that sizes
+ * its payloads against that constant will have commands rejected.
+ *
+ * The value is only final once the PD has been online at least once: the PD's
+ * receive-buffer capability is not known before then, and this returns the
+ * build's own limit until it is.
+ *
+ * An @c OSDP_TRS_CMD_ENTER_PIN carries its APDU behind a fixed parameter
+ * block, so its APDU has correspondingly less room than this.
+ *
+ * @param ctx OSDP context
+ * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
+ * osdp_cp_setup()
+ *
+ * @retval >0 Maximum C-APDU length in bytes
+ * @retval -1 on failure (TRS support not compiled in, or bad args)
+ */
+OSDP_EXPORT
+int osdp_cp_trs_get_max_apdu_len(const osdp_t *ctx, int pd);
+
+/**
  * @brief Get PD ID information as reported by the PD. Calling this method
  * before the CP has had a the chance to get this information will return
  * invalid/stale results.
