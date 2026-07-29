@@ -2155,6 +2155,9 @@ static void state_update(struct osdp_pd *pd)
 		 * pass, right where the next protocol state is decided. */
 		next = (err == OSDP_CP_ERR_NONE) ? osdp_trs_state_update(pd)
 						 : osdp_trs_state_update_err(pd);
+		if (osdp_trs_scan_declined(pd)) {
+			notify_trs_status(pd, OSDP_TRS_SCAN_NO_DEPARTURE);
+		}
 #endif
 	} else {
 		next = get_next_state(pd, err);

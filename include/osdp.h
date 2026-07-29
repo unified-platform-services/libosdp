@@ -1245,6 +1245,19 @@ enum osdp_trs_session_status_e {
 	OSDP_TRS_SCAN_SUSPENDED, /**< A presence-scan probe was refused by
 				      *   the reader; probing continues with
 				      *   exponential backoff */
+	/**
+	 * The reader does not implement the mode-01 card scan, so the presence
+	 * scan cannot ask whether a card is still there and falls back to
+	 * whatever the reader volunteers on a poll. Raised at most once per
+	 * connection, and only for readers that refuse the command.
+	 *
+	 * The practical consequence is that **card removal will not be
+	 * reported**: many such readers hold a sighting for the rest of the
+	 * transparent session. An application that needs to know when the card
+	 * left must find out for itself, by sending a card command inside a
+	 * session and treating its failure as the card being gone.
+	 */
+	OSDP_TRS_SCAN_NO_DEPARTURE,
 };
 
 /**

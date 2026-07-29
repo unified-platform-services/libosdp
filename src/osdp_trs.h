@@ -60,6 +60,7 @@ void osdp_trs_probe_reset(struct osdp_pd *pd);
 void osdp_trs_scan_note_activity(struct osdp_pd *pd);
 bool osdp_trs_scan_ask_due(struct osdp_pd *pd);
 void osdp_trs_scan_note_ask(struct osdp_pd *pd);
+bool osdp_trs_scan_declined(struct osdp_pd *pd);
 
 #else /* OPT_BUILD_OSDP_TRS */
 
@@ -141,6 +142,11 @@ static inline bool osdp_trs_scan_ask_due(struct osdp_pd *pd)
 static inline void osdp_trs_scan_note_ask(struct osdp_pd *pd)
 {
 	ARG_UNUSED(pd);
+}
+static inline bool osdp_trs_scan_declined(struct osdp_pd *pd)
+{
+	ARG_UNUSED(pd);
+	return false;
 }
 
 #endif /* OPT_BUILD_OSDP_TRS */

@@ -483,6 +483,7 @@ struct osdp_trs {
 		 */
 		bool asking;
 		bool asked; /* this probe has asked at least once */
+		bool declined; /* refusal not yet reported to the app */
 		enum trs_scan_support_e support;
 		/*
 		 * Last presence the scan reported to the app. Spans probes on
