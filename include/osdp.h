@@ -1390,6 +1390,12 @@ struct osdp_trs_card_info {
 
 /** @brief Smart-card presence (and interface) reported in a TRS card-present reply */
 enum osdp_trs_card_status_e {
+	/**
+	 * No presence has been reported. This is what a zero-initialized
+	 * struct holds, so a status must be compared against the named values
+	 * below rather than tested for "not @a OSDP_TRS_CARD_NOT_PRESENT".
+	 */
+	OSDP_TRS_CARD_STATUS_UNKNOWN = 0,
 	OSDP_TRS_CARD_NOT_PRESENT = 1, /**< No card detected */
 	OSDP_TRS_CARD_PRESENT, /**< Card present; interface not specified */
 	OSDP_TRS_CARD_PRESENT_CONTACTLESS, /**< Card present on the contactless (ISO 14443) interface */
