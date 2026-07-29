@@ -259,6 +259,23 @@ int osdp_trs_max_apdu_len(struct osdp_pd *pd)
 	return max_len;
 }
 
+/*
+ * Wire bytes a secure PIN entry spends ahead of its APDU: the PIN parameter
+ * block (v2.2 Table 41) and the APDU length field that follows it.
+ */
+#define TRS_PIN_ENTRY_OVERHEAD (17 + 2)
+
+/* Largest C-APDU this TRS command can carry within the negotiated packet */
+int osdp_trs_apdu_capacity(struct osdp_pd *pd, enum osdp_trs_cmd_e command)
+{
+	int max_len = osdp_trs_max_apdu_len(pd);
+
+	if (command == OSDP_TRS_CMD_ENTER_PIN) {
+		max_len -= TRS_PIN_ENTRY_OVERHEAD;
+	}
+	return max_len;
+}
+
 int osdp_trs_cmd_build(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 		       uint8_t *buf, int max_len)
 {

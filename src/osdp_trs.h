@@ -43,6 +43,8 @@ int osdp_trs_cmd_decode(struct osdp_pd *pd, struct osdp_cmd *cmd, uint8_t *buf,
 			int len);
 /* Largest C-APDU the negotiated packet size can carry for this PD */
 int osdp_trs_max_apdu_len(struct osdp_pd *pd);
+/* ... and how much of that is left once @command's own fields are accounted */
+int osdp_trs_apdu_capacity(struct osdp_pd *pd, enum osdp_trs_cmd_e command);
 
 /*
  * Background presence scan (osdp_cp_trs_scan_enable): probe scheduling and

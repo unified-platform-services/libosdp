@@ -2244,11 +2244,24 @@ static int cp_band_admit(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		LOG_ERR("TRS command outside a session; queue a START first");
 		return -1;
 	}
-	if (cp_cmd_is_trs(cmd, OSDP_TRS_CMD_SEND_APDU) &&
-	    (int)cmd->trs.apdu.length > osdp_trs_max_apdu_len(pd)) {
-		LOG_ERR("C-APDU of %u bytes cannot fit the %d-byte packet",
-			cmd->trs.apdu.length, get_tx_buf_size(pd));
-		return -1;
+	/*
+	 * Both carriers of a C-APDU are checked here so an oversized one is
+	 * turned away while the app can still act on it; the frame builder
+	 * would otherwise catch it only once the band is already running.
+	 */
+	if (cp_cmd_is_trs(cmd, OSDP_TRS_CMD_SEND_APDU) ||
+	    cp_cmd_is_trs(cmd, OSDP_TRS_CMD_ENTER_PIN)) {
+		bool is_pin = cmd->trs.command == OSDP_TRS_CMD_ENTER_PIN;
+		int apdu_len = is_pin ? cmd->trs.pin_entry.apdu.length :
+					cmd->trs.apdu.length;
+		int capacity = osdp_trs_apdu_capacity(pd, cmd->trs.command);
+
+		if (apdu_len > capacity) {
+			LOG_ERR("C-APDU of %d bytes cannot fit the %d-byte "
+				"packet (max %d for this command)",
+				apdu_len, get_tx_buf_size(pd), capacity);
+			return -1;
+		}
 	}
 	if (cmd->id != OSDP_CMD_XWR && pd->trs.band_open) {
 		/*
