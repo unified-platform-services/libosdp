@@ -65,6 +65,9 @@ bool osdp_trs_scan_ask_due(struct osdp_pd *pd);
 void osdp_trs_scan_note_ask(struct osdp_pd *pd);
 bool osdp_trs_scan_declined(struct osdp_pd *pd);
 
+/* PD role: drop transparent mode when the CP link goes away */
+void osdp_trs_pd_reset(struct osdp_pd *pd);
+
 #else /* OPT_BUILD_OSDP_TRS */
 
 static inline int osdp_trs_cmd_build(struct osdp_pd *pd,
@@ -154,6 +157,10 @@ static inline bool osdp_trs_scan_declined(struct osdp_pd *pd)
 {
 	ARG_UNUSED(pd);
 	return false;
+}
+static inline void osdp_trs_pd_reset(struct osdp_pd *pd)
+{
+	ARG_UNUSED(pd);
 }
 
 #endif /* OPT_BUILD_OSDP_TRS */
