@@ -484,6 +484,12 @@ struct osdp_trs {
 		bool asking;
 		bool asked; /* this probe has asked at least once */
 		enum trs_scan_support_e support;
+		/*
+		 * Last presence the scan reported to the app. Spans probes on
+		 * purpose: what the app knows does not reset when a probe ends,
+		 * only when the scan itself is restarted or the PD reconnects.
+		 */
+		enum osdp_trs_card_status_e last_status;
 		uint16_t mode0_dwell_ms;
 		uint16_t mode1_dwell_ms;
 		uint16_t hold_ms;
