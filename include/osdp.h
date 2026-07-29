@@ -1268,14 +1268,24 @@ enum osdp_trs_session_status_e {
 struct osdp_trs_scan_params {
 	/**
 	 * Time spent in the reader's default mode between probes, where
-	 * ordinary credential reads work (default 100 ms). Restarted by
+	 * ordinary credential reads work (default 200 ms). Restarted by
 	 * ordinary card/keypad activity so a probe never cuts into an
 	 * in-progress read.
+	 *
+	 * @note Shortening this makes the scan **more** aggressive, not less:
+	 * the reader spends proportionally less of each cycle where ordinary
+	 * credentials can be read. How short is too short depends on the baud
+	 * rate, since a probe costs a fixed number of round trips rather than a
+	 * fixed time -- at 38400 baud, 75 ms was enough to make a reader miss
+	 * ordinary card reads outright.
 	 */
 	uint16_t mode0_dwell_ms;
 	/**
 	 * Time spent per probe in transparent mode watching for a smart-card
-	 * sighting (default 100 ms).
+	 * sighting (default 200 ms). Readers that answer the card scan report
+	 * presence in a single round trip and need little more than that;
+	 * readers that do not are watched for this long in the hope they
+	 * volunteer a report of their own.
 	 */
 	uint16_t mode1_dwell_ms;
 	/**

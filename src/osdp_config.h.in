@@ -63,11 +63,11 @@
 
 /* TRS presence-scan cadence defaults (see osdp_cp_trs_scan_enable) */
 #ifndef OSDP_TRS_SCAN_MODE0_DWELL_MS
-#define OSDP_TRS_SCAN_MODE0_DWELL_MS            (100)
+#define OSDP_TRS_SCAN_MODE0_DWELL_MS            (200)
 #endif
 
 #ifndef OSDP_TRS_SCAN_MODE1_DWELL_MS
-#define OSDP_TRS_SCAN_MODE1_DWELL_MS            (100)
+#define OSDP_TRS_SCAN_MODE1_DWELL_MS            (200)
 #endif
 
 #ifndef OSDP_TRS_SCAN_HOLD_MS
