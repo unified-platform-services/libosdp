@@ -427,6 +427,26 @@ static void trs_scan_note_card(struct osdp_pd *pd, bool present)
 }
 
 /*
+ * Is this presence report news? A card left sitting in the field answers every
+ * scan the same way, and repeating that to the app once per probe would turn a
+ * background scan into a stream of events saying nothing changed. Only applies
+ * to answers the library asked for: a report the reader volunteered is the
+ * reader's to repeat, and squashing it would hide a sighting the app wants.
+ */
+static bool trs_scan_presence_is_news(struct osdp_pd *pd,
+				      enum osdp_trs_card_status_e status)
+{
+	if (!pd->trs.scan.asking) {
+		return true;
+	}
+	if (pd->trs.scan.last_status == status) {
+		return false;
+	}
+	pd->trs.scan.last_status = status;
+	return true;
+}
+
+/*
  * The reader answered the question the probe asked, so it implements the card
  * scan. Only an answer to our own question proves that: a card-present report
  * volunteered on a poll says nothing about whether the reader takes the command.
@@ -549,6 +569,8 @@ int osdp_trs_reply_decode(struct osdp_pd *pd, uint8_t *buf, int len,
 			 * is there, on an unspecified interface. */
 			event->trs.card_present.status = OSDP_TRS_CARD_PRESENT;
 			trs_scan_note_answered(pd);
+			dispatch = trs_scan_presence_is_news(
+				pd, event->trs.card_present.status);
 			trs_scan_note_card(pd, true);
 			break;
 		}
@@ -560,6 +582,8 @@ int osdp_trs_reply_decode(struct osdp_pd *pd, uint8_t *buf, int len,
 			return -1;
 		}
 		trs_scan_note_answered(pd);
+		dispatch = trs_scan_presence_is_news(
+			pd, event->trs.card_present.status);
 		trs_scan_note_card(pd, event->trs.card_present.status !=
 					       OSDP_TRS_CARD_NOT_PRESENT);
 		break;
@@ -1106,6 +1130,7 @@ void osdp_trs_probe_reset(struct osdp_pd *pd)
 	pd->trs.scan.holding = false;
 	pd->trs.scan.tstamp = osdp_millis_now();
 	pd->trs.scan.support = TRS_SCAN_SUPPORT_UNKNOWN;
+	pd->trs.scan.last_status = OSDP_TRS_CARD_STATUS_UNKNOWN;
 	trs_scan_forget_ask(pd);
 }
 

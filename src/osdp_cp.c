@@ -2696,6 +2696,9 @@ int osdp_cp_trs_scan_enable(osdp_t *ctx, int pd_idx,
 	trs->scan.backoff_ms = 0;
 	trs->scan.holding = false;
 	trs->scan.tstamp = osdp_millis_now();
+	/* A fresh scan reports the first presence it sees, whatever the
+	 * previous one had already told the app. */
+	trs->scan.last_status = OSDP_TRS_CARD_STATUS_UNKNOWN;
 	trs->scan.enabled = true;
 	/* Capability is only known once the PD has been online; before that the
 	 * probe gate re-checks it every cycle and simply never fires. */
