@@ -397,8 +397,18 @@ static void trs_scan_note_card(struct osdp_pd *pd, bool present)
 		trs->scan.holding = false; /* card left; let the probe close */
 		return;
 	}
+	if (!trs->scan.holding) {
+		/*
+		 * The hold is a fixed budget from the first sighting for the
+		 * app to answer with a START, not a while-present latch: a
+		 * reader may report a card on every poll (v2.2 section 7.26.8),
+		 * and sliding the deadline forward on each one would keep a
+		 * card parked in the field in transparent mode indefinitely --
+		 * exactly the state that stops ordinary credential reads.
+		 */
+		trs->scan.hold_tstamp = osdp_millis_now();
+	}
 	trs->scan.holding = true;
-	trs->scan.hold_tstamp = osdp_millis_now();
 	trs->scan.backoff_ms = 0;
 }
 
