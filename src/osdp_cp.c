@@ -2735,6 +2735,17 @@ int osdp_cp_trs_scan_disable(osdp_t *ctx, int pd_idx)
 #endif
 }
 
+int osdp_cp_trs_get_max_apdu_len(const osdp_t *ctx, int pd_idx)
+{
+	input_check(ctx, pd_idx);
+#ifdef OPT_BUILD_OSDP_TRS
+	return osdp_trs_max_apdu_len(osdp_to_pd(ctx, pd_idx));
+#else
+	LOG_PRINT("TRS support not built in");
+	return -1;
+#endif
+}
+
 int osdp_cp_get_pd_id(const osdp_t *ctx, int pd_idx, struct osdp_pd_id *id)
 {
 	input_check(ctx, pd_idx);
