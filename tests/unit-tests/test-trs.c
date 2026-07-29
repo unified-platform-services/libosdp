@@ -58,6 +58,18 @@ struct test_trs_ctx {
 	/* CP side: last command completion seen */
 	bool completion_seen;
 	enum osdp_completion_status last_completion;
+
+	/*
+	 * How the PD app answers a card scan. OSDP_TRS_CARD_STATUS_UNKNOWN
+	 * means "say nothing", which the CP reads as the reader declining the
+	 * command -- the RPK40's behaviour, and the default here.
+	 */
+	enum osdp_trs_card_status_e card_status;
+	int card_scan_count; /* card scans the PD app has been handed */
+
+	/* CP side: card-present events counted by status */
+	int present_events;
+	int absent_events;
 };
 
 static struct test_trs_ctx g_trs = { 0 };
@@ -95,6 +107,14 @@ static int trs_cp_event_callback(void *arg, int pd, struct osdp_event *ev)
 	if (ev->type == OSDP_EVENT_TRS) {
 		ctx->event_seen = true;
 		memcpy(&ctx->last_reply, &ev->trs, sizeof(ctx->last_reply));
+		if (ev->trs.reply == OSDP_TRS_REPLY_CARD_PRESENT) {
+			if (ev->trs.card_present.status ==
+			    OSDP_TRS_CARD_NOT_PRESENT) {
+				ctx->absent_events++;
+			} else {
+				ctx->present_events++;
+			}
+		}
 	}
 	if (ev->type == OSDP_EVENT_NOTIFICATION &&
 	    ev->notif.type == OSDP_NOTIFICATION_TRS_STATUS) {
@@ -160,6 +180,21 @@ static int trs_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 	/* The app cannot act on this APDU; decline it */
 	if (ctx->nak_apdu) {
 		return -OSDP_PD_NAK_RECORD;
+	}
+
+	if (cmd->trs.command == OSDP_TRS_CMD_CARD_SCAN) {
+		ctx->card_scan_count++;
+		if (ctx->card_status == OSDP_TRS_CARD_STATUS_UNKNOWN) {
+			/* Reader has no answer for this command */
+			return 0;
+		}
+		memset(&ctx->resp_event, 0, sizeof(ctx->resp_event));
+		ctx->resp_event.type = OSDP_EVENT_TRS;
+		ctx->resp_event.trs.reply = OSDP_TRS_REPLY_CARD_PRESENT;
+		ctx->resp_event.trs.card_present.reader = 0;
+		ctx->resp_event.trs.card_present.status = ctx->card_status;
+		osdp_pd_submit_event(ctx->pd_ctx, &ctx->resp_event);
+		return 0;
 	}
 
 	/* Fast card: answer the send-APDU synchronously so the R-APDU rides
@@ -302,6 +337,68 @@ static bool test_trs_apdu_too_big_for_packet(void)
 
 	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd) == 0) {
 		printf(SUB_2 "packet-overflowing APDU must be rejected at submit\n");
+		return false;
+	}
+	return true;
+}
+
+/*
+ * The reported capacity is the real admission boundary: exactly that many bytes
+ * go through, one more does not. An app that sizes payloads against
+ * OSDP_TRS_APDU_MAX_LEN instead is sizing against the buffer, not the wire.
+ */
+static bool test_trs_max_apdu_len_accessor(void)
+{
+	static struct osdp_cmd cmd;
+	int max_len;
+
+	printf(SUB_2 "testing TRS max-APDU accessor\n");
+
+	max_len = osdp_cp_trs_get_max_apdu_len(g_trs.cp_ctx, 0);
+	if (max_len <= 0 || max_len > OSDP_TRS_APDU_MAX_LEN) {
+		printf(SUB_2 "implausible max APDU length %d\n", max_len);
+		return false;
+	}
+
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.id = OSDP_CMD_XWR;
+	cmd.trs.command = OSDP_TRS_CMD_SEND_APDU;
+	cmd.trs.apdu.length = (uint16_t)(max_len + 1);
+	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd) == 0) {
+		printf(SUB_2 "APDU of max+1 bytes must be rejected\n");
+		return false;
+	}
+	return true;
+}
+
+/*
+ * A PIN entry carries its APDU behind the PIN parameter block, so it has less
+ * room than a send-APDU -- and must be turned away at submit time too, not part
+ * way through a band where the app can no longer act on it.
+ */
+static bool test_trs_pin_entry_too_big_for_packet(void)
+{
+	static struct osdp_cmd cmd;
+	int max_len;
+
+	printf(SUB_2 "testing TRS PIN-entry APDU beyond packet capacity\n");
+
+	max_len = osdp_cp_trs_get_max_apdu_len(g_trs.cp_ctx, 0);
+	if (max_len <= 0) {
+		printf(SUB_2 "no max APDU length to size against\n");
+		return false;
+	}
+
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.id = OSDP_CMD_XWR;
+	cmd.trs.command = OSDP_TRS_CMD_ENTER_PIN;
+	/* Fits a send-APDU exactly, so only the PIN block's own overhead can
+	 * be what rejects it. */
+	cmd.trs.pin_entry.apdu.length = (uint16_t)max_len;
+
+	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd) == 0) {
+		printf(SUB_2 "PIN APDU with no room for its block must be "
+		       "rejected at submit\n");
 		return false;
 	}
 	return true;
@@ -627,6 +724,12 @@ extern uint16_t test_osdp_compute_crc16(const uint8_t *buf, size_t len);
 struct trs_wire_nak_hook {
 	int xwr_tx_count;
 	bool nak_next_reply;
+	/* Refuse only the mode-1 card scan, leaving every other XWR alone --
+	 * a reader that implements transparent mode but not that one command */
+	bool card_scan_only;
+	/* Swallow the answer instead of refusing it: silence, not a verdict */
+	bool drop_reply;
+	int card_scan_tx_count;
 };
 
 /*
@@ -656,13 +759,28 @@ static enum test_channel_hook_verdict trs_wire_nak_hook(void *arg,
 		if (ctrl & 0x08) /* security control block */
 			data_off += frame[base + 5];
 		if (data_off < len && frame[data_off] == CMD_XWR) {
+			bool is_scan = data_off + 2 < len &&
+				       frame[data_off + 1] == 0x01 &&
+				       frame[data_off + 2] == 0x04;
+
 			s->xwr_tx_count++;
-			s->nak_next_reply = true;
+			if (is_scan) {
+				s->card_scan_tx_count++;
+			}
+			if (!s->card_scan_only || is_scan) {
+				s->nak_next_reply = true;
+			}
 		}
 		return TEST_HOOK_PASS;
 	}
 
-	if (!s->nak_next_reply || out_max < 11)
+	if (!s->nak_next_reply)
+		return TEST_HOOK_PASS;
+	if (s->drop_reply) {
+		s->nak_next_reply = false;
+		return TEST_HOOK_DROP;
+	}
+	if (out_max < 11)
 		return TEST_HOOK_PASS;
 	s->nak_next_reply = false;
 
@@ -937,6 +1055,133 @@ static bool test_trs_scan_probe_failure_backoff(void)
 	return true;
 }
 
+/*
+ * A reader that refuses the card scan but honours everything else is a verdict
+ * about one command, not a broken link: ask once, take the answer, tell the app
+ * that removal will not be reported, and carry on probing without it.
+ */
+static bool test_trs_scan_card_scan_unsupported_latches(void)
+{
+	struct trs_wire_nak_hook s = { .card_scan_only = true };
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 80,
+		.mode1_dwell_ms = 150,
+	};
+	int waited = 0, asked_at_verdict;
+	uint8_t status = 0;
+
+	printf(SUB_2 "testing TRS card-scan refusal latches\n");
+
+	g_trs.status_seen = false;
+	g_trs.completion_seen = false;
+	g_trs.card_status = OSDP_TRS_CARD_STATUS_UNKNOWN;
+
+	test_set_channel_hook(trs_wire_nak_hook, &s);
+	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+	while (waited < 5000 &&
+	       !(g_trs.status_seen &&
+		 g_trs.last_status == OSDP_TRS_SCAN_NO_DEPARTURE)) {
+		usleep(50 * 1000);
+		waited += 50;
+	}
+	if (!g_trs.status_seen ||
+	    g_trs.last_status != OSDP_TRS_SCAN_NO_DEPARTURE) {
+		test_set_channel_hook(NULL, NULL);
+		osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+		printf(SUB_2 "refusal never reported to the app\n");
+		return false;
+	}
+	asked_at_verdict = s.card_scan_tx_count;
+
+	/* Having heard the answer, the scan must stop asking */
+	g_trs.status_seen = false;
+	usleep(2000 * 1000);
+	test_set_channel_hook(NULL, NULL);
+	osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+
+	if (s.card_scan_tx_count != asked_at_verdict) {
+		printf(SUB_2 "kept asking after the refusal (%d -> %d)\n",
+		       asked_at_verdict, s.card_scan_tx_count);
+		return false;
+	}
+	if (g_trs.status_seen &&
+	    g_trs.last_status == OSDP_TRS_SCAN_NO_DEPARTURE) {
+		printf(SUB_2 "refusal reported more than once\n");
+		return false;
+	}
+	if (g_trs.status_seen &&
+	    g_trs.last_status == OSDP_TRS_SCAN_SUSPENDED) {
+		printf(SUB_2 "a refused card scan must not suspend the scan\n");
+		return false;
+	}
+	if (g_trs.completion_seen) {
+		printf(SUB_2 "library's own card scan reported a completion\n");
+		return false;
+	}
+	osdp_get_status_mask(g_trs.cp_ctx, &status);
+	if (!(status & 1)) {
+		printf(SUB_2 "PD dropped offline over a refused card scan\n");
+		return false;
+	}
+	return true;
+}
+
+/*
+ * Silence is not a refusal. A card scan that never comes back says nothing
+ * about whether the reader implements it -- that is the link failing, and it
+ * must take the ordinary session-error path rather than latching a verdict
+ * that would outlive the fault.
+ */
+static bool test_trs_scan_card_scan_timeout_is_not_unsupported(void)
+{
+	struct trs_wire_nak_hook s = { .card_scan_only = true,
+				       .drop_reply = true };
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 80,
+		.mode1_dwell_ms = 150,
+	};
+	int waited = 0, asked_at_settle;
+
+	printf(SUB_2 "testing TRS card-scan silence is not a refusal\n");
+
+	g_trs.status_seen = false;
+	g_trs.card_status = OSDP_TRS_CARD_STATUS_UNKNOWN;
+
+	test_set_channel_hook(trs_wire_nak_hook, &s);
+	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
+		test_set_channel_hook(NULL, NULL);
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+	while (waited < 6000 && s.card_scan_tx_count < 2) {
+		usleep(50 * 1000);
+		waited += 50;
+	}
+	asked_at_settle = s.card_scan_tx_count;
+	test_set_channel_hook(NULL, NULL);
+	osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+
+	if (asked_at_settle < 2) {
+		printf(SUB_2 "stopped asking after silence (%d attempts)\n",
+		       asked_at_settle);
+		return false;
+	}
+	if (g_trs.status_seen &&
+	    g_trs.last_status == OSDP_TRS_SCAN_NO_DEPARTURE) {
+		printf(SUB_2 "silence was mistaken for a refusal\n");
+		return false;
+	}
+	if (!wait_for_pd_mode(TRS_MODE_00, 5000)) {
+		printf(SUB_2 "reader left in transparent mode after the fault\n");
+		return false;
+	}
+	return true;
+}
+
 /* --- wire-level unit tests: assert exact on-wire bytes vs SIA OSDP 2.2 --- */
 
 /*
@@ -968,6 +1213,73 @@ static bool test_trs_wire_mode_report(void)
 	if (len != 4 || buf[0] != 0x00 || buf[1] != 0x01 ||
 	    buf[2] != TRS_MODE_01 || buf[3] != 0x00) {
 		printf(SUB_2 "want [00 01 mode 00] len 4; got len %d\n", len);
+		return false;
+	}
+	return true;
+}
+
+/*
+ * Table 44: the presence scan's own card scan is selected by the scan's
+ * in-flight marker, not by the session sub-state -- so it must be emitted while
+ * the marker is set, and must not shadow a lifecycle step when it is not.
+ */
+static bool test_trs_wire_probe_card_scan_build(void)
+{
+	struct osdp ctx;
+	struct osdp_pd pd;
+	uint8_t buf[8];
+	int len;
+
+	printf(SUB_2 "testing TRS wire: probe card-scan layout\n");
+
+	trs_wire_pd_init(&ctx, &pd, TRS_MODE_01);
+	pd.trs.state = TRS_STATE_XMIT;
+	pd.trs.scan.asking = true;
+	len = osdp_trs_cmd_build(&pd, NULL, buf, sizeof(buf));
+	if (len != 3 || buf[0] != 0x01 || buf[1] != 0x04 || buf[2] != 0x00) {
+		printf(SUB_2 "want [01 04 00] len 3; got len %d\n", len);
+		return false;
+	}
+
+	/* Not asking: a lifecycle step must still win */
+	pd.trs.scan.asking = false;
+	pd.trs.state = TRS_STATE_TEARDOWN;
+	len = osdp_trs_cmd_build(&pd, NULL, buf, sizeof(buf));
+	if (len != 4 || buf[0] != 0x00 || buf[1] != 0x02 ||
+	    buf[2] != TRS_MODE_00) {
+		printf(SUB_2 "card-scan marker shadowed the mode-set\n");
+		return false;
+	}
+	return true;
+}
+
+/*
+ * The no-smart-card warning is raised once per enable, from wherever the
+ * capability first becomes known -- not once per capability report, which a
+ * reconnecting PD sends afresh every time.
+ */
+static bool test_trs_wire_capability_warning_is_once(void)
+{
+	struct osdp ctx;
+	struct osdp_pd pd;
+
+	printf(SUB_2 "testing TRS wire: capability warning fires once\n");
+
+	trs_wire_pd_init(&ctx, &pd, TRS_MODE_00);
+	CLEAR_FLAG(&pd, PD_FLAG_TRS_CAPABLE);
+	pd.trs.scan.enabled = true;
+	pd.trs.scan.warned = false;
+
+	osdp_trs_scan_note_capability(&pd);
+	if (!pd.trs.scan.warned) {
+		printf(SUB_2 "no warning for a PD with no smart-card reader\n");
+		return false;
+	}
+	pd.trs.scan.warned = false;
+	SET_FLAG(&pd, PD_FLAG_TRS_CAPABLE);
+	osdp_trs_scan_note_capability(&pd);
+	if (pd.trs.scan.warned) {
+		printf(SUB_2 "warned about a PD that has a reader\n");
 		return false;
 	}
 	return true;
@@ -1488,6 +1800,129 @@ static bool test_trs_scan_cadence(void)
 }
 
 /* Event submitted by reference; must outlive the callback that ships it */
+/*
+ * A reader that answers the card scan is asked, on a cadence, and the answer
+ * is the app's first news of a card -- with no session, no APDU and no command
+ * completion of its own, because nobody submitted it.
+ */
+static bool test_trs_scan_probe_asks_card_scan(void)
+{
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 80,
+		.mode1_dwell_ms = 150,
+	};
+	int waited = 0;
+
+	printf(SUB_2 "testing TRS scan asks the reader for a card scan\n");
+
+	g_trs.card_scan_count = 0;
+	g_trs.present_events = 0;
+	g_trs.absent_events = 0;
+	g_trs.completion_seen = false;
+	g_trs.status_seen = false;
+	g_trs.card_status = OSDP_TRS_CARD_PRESENT_CONTACTLESS;
+
+	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+	while (waited < 4000 && g_trs.present_events < 1) {
+		usleep(50 * 1000);
+		waited += 50;
+	}
+	osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+	g_trs.card_status = OSDP_TRS_CARD_STATUS_UNKNOWN;
+
+	if (g_trs.card_scan_count < 1) {
+		printf(SUB_2 "the probe never asked\n");
+		return false;
+	}
+	if (g_trs.present_events < 1) {
+		printf(SUB_2 "sighting never reached the app\n");
+		return false;
+	}
+	/* One question per probe cycle, not one per refresh tick */
+	if (g_trs.card_scan_count > waited / 100) {
+		printf(SUB_2 "asked %d times in %d ms; too chatty\n",
+		       g_trs.card_scan_count, waited);
+		return false;
+	}
+	if (g_trs.completion_seen) {
+		printf(SUB_2 "library's own card scan reported a completion\n");
+		return false;
+	}
+	if (g_trs.status_seen) {
+		printf(SUB_2 "probe raised a session notification (%d)\n",
+		       g_trs.last_status);
+		return false;
+	}
+	return true;
+}
+
+/*
+ * The point of asking: a card lifted out of the field is reported gone, with
+ * the app having sent nothing. Presence is reported as it changes, so a card
+ * left sitting there is announced once, not once per probe.
+ */
+static bool test_trs_scan_card_departure_event(void)
+{
+	struct osdp_trs_scan_params p = {
+		.mode0_dwell_ms = 80,
+		.mode1_dwell_ms = 150,
+	};
+	int waited = 0, present_after_settle;
+
+	printf(SUB_2 "testing TRS scan reports card departure\n");
+
+	g_trs.present_events = 0;
+	g_trs.absent_events = 0;
+	g_trs.card_status = OSDP_TRS_CARD_PRESENT_CONTACTLESS;
+
+	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
+		printf(SUB_2 "failed to enable scan\n");
+		return false;
+	}
+	while (waited < 4000 && g_trs.present_events < 1) {
+		usleep(50 * 1000);
+		waited += 50;
+	}
+	if (g_trs.present_events < 1) {
+		osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+		printf(SUB_2 "card never sighted\n");
+		return false;
+	}
+
+	/* The card stays put across several probes: still one sighting */
+	usleep(1500 * 1000);
+	present_after_settle = g_trs.present_events;
+	if (present_after_settle != 1) {
+		osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+		printf(SUB_2 "a parked card was announced %d times\n",
+		       present_after_settle);
+		return false;
+	}
+
+	/* Now it is lifted away */
+	g_trs.card_status = OSDP_TRS_CARD_NOT_PRESENT;
+	waited = 0;
+	while (waited < 4000 && g_trs.absent_events < 1) {
+		usleep(50 * 1000);
+		waited += 50;
+	}
+	osdp_cp_trs_scan_disable(g_trs.cp_ctx, 0);
+	g_trs.card_status = OSDP_TRS_CARD_STATUS_UNKNOWN;
+
+	if (g_trs.absent_events < 1) {
+		printf(SUB_2 "card removal was never reported\n");
+		return false;
+	}
+	if (!wait_for_pd_mode(TRS_MODE_00, 3000)) {
+		printf(SUB_2 "reader left in transparent mode\n");
+		return false;
+	}
+	return true;
+}
+
 static struct osdp_event g_activity_ev;
 
 /*
@@ -1658,6 +2093,8 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_wire_oversized_apdu_reject();
 	result &= test_trs_wire_piv_class_apdu_roundtrip();
 	result &= test_trs_wire_pin_entry_roundtrip();
+	result &= test_trs_wire_probe_card_scan_build();
+	result &= test_trs_wire_capability_warning_is_once();
 
 	if (setup_test_environment(t) != 0) {
 		printf(SUB_1 "Failed to setup test environment\n");
@@ -1670,6 +2107,8 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_session_start();
 	result &= test_trs_non_trs_cmd_in_band();
 	result &= test_trs_apdu_too_big_for_packet();
+	result &= test_trs_max_apdu_len_accessor();
+	result &= test_trs_pin_entry_too_big_for_packet();
 	result &= test_trs_apdu_exchange();
 	result &= test_trs_deferred_apdu();
 	result &= test_trs_apdu_nak_keeps_session();
@@ -1679,6 +2118,8 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_session_stop();
 	result &= test_trs_unsolicited_xrd_out_of_session();
 	result &= test_trs_scan_cadence();
+	result &= test_trs_scan_probe_asks_card_scan();
+	result &= test_trs_scan_card_departure_event();
 	result &= test_trs_scan_mode0_activity_defers_probe();
 	result &= test_trs_scan_disable_and_flush_mid_probe();
 
@@ -1699,6 +2140,13 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_card_scan_wire_nak();
 	result &= test_trs_session_stop();
 	result &= test_trs_scan_hold_and_adopt();
+	/*
+	 * Order matters: the refusal latches "no card scan" for the rest of the
+	 * connection, so the silence case -- which must leave the verdict open
+	 * -- has to run while there is still a verdict to reach.
+	 */
+	result &= test_trs_scan_card_scan_timeout_is_not_unsupported();
+	result &= test_trs_scan_card_scan_unsupported_latches();
 	result &= test_trs_scan_probe_failure_backoff();
 
 	teardown_test_environment();
