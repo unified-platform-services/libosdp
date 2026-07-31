@@ -230,6 +230,7 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		id = pd->cmd_id;
 	}
 	pkt->control = phy_get_next_seq_number(pd);
+	pd->phy_tx_seq = pkt->control & PKT_CONTROL_SQN;
 	if (is_pd_mode(pd) ||
 	    (is_cp_mode(pd) && ISSET_FLAG(pd, PD_FLAG_CP_USE_CRC))) {
 		pkt->control |= PKT_CONTROL_CRC;
@@ -898,6 +899,7 @@ void osdp_phy_state_reset(struct osdp_pd *pd, bool is_error)
 	pd->packet_buf = pd->packet_buf_store;
 	if (is_error) {
 		pd->phy_retry_count = 0;
+		pd->phy_tx_seq = 0;
 		phy_reset_seq_number(pd);
 		if (pd->channel.flush) {
 			pd->channel.flush(pd->channel.data);
