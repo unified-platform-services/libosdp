@@ -21,7 +21,7 @@ Can I use OSDP/libosdp in my product?
 -------------------------------------
 
 Yes, you are free to use OSDP and/or libosdp in your product. You do not have to
-pay any royalties to SIA or goToMain.
+pay any royalties to SIA or osdp-dev.
 
 Where can I find the specification document?
 --------------------------------------------

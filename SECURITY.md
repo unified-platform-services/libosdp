@@ -36,6 +36,6 @@ only after the issue has been made public.
 Note: For very obvious reasons, not everyone can be added to this list. You
 should be able to prove that you are indeed using LibOSDP in production.
 
-[1]: https://github.com/goToMain/libosdp/releases
+[1]: https://github.com/osdp-dev/libosdp/releases
 [2]: https://github.com/sidcha.gpg
-[3]: https://github.com/goToMain/libosdp/security/advisories
+[3]: https://github.com/osdp-dev/libosdp/security/advisories

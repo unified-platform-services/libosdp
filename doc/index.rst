@@ -1,14 +1,14 @@
 OSDP - Open Supervised Device Protocol
 ======================================
 
-.. image:: https://img.shields.io/github/v/release/goToMain/libosdp
-   :target: https://github.com/goToMain/libosdp/releases
+.. image:: https://img.shields.io/github/v/release/osdp-dev/libosdp
+   :target: https://github.com/osdp-dev/libosdp/releases
    :alt: libosdp Version
-.. image:: https://img.shields.io/github/license/goToMain/libosdp
-   :target: https://github.com/goToMain/libosdp/
+.. image:: https://img.shields.io/github/license/osdp-dev/libosdp
+   :target: https://github.com/osdp-dev/libosdp/
    :alt: License
-.. image:: https://github.com/goToMain/libosdp/workflows/Build%20CI/badge.svg
-   :target: https://github.com/goToMain/libosdp/actions?query=workflow%3A%22Build+CI%22
+.. image:: https://github.com/osdp-dev/libosdp/workflows/Build%20CI/badge.svg
+   :target: https://github.com/osdp-dev/libosdp/actions?query=workflow%3A%22Build+CI%22
    :alt: Build status
 
 This is a cross-platform open source implementation of IEC 60839-11-5 Open
