@@ -174,6 +174,11 @@ int osdp_rb_pop_buf(struct osdp_rb *p, uint8_t *buf, int max_len)
 	return i;
 }
 
+void osdp_rb_reset(struct osdp_rb *p)
+{
+	p->head = p->tail = 0;
+}
+
 /* --- Exported Methods --- */
 
 void osdp_logger_init(const char *name, int log_level,
