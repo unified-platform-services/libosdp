@@ -195,7 +195,7 @@ echo "Generating libosdp.pc"
 sed -e "s|@CMAKE_INSTALL_PREFIX@|${PREFIX}|" \
     -e "s|@PROJECT_NAME@|${PROJECT_NAME}|" \
     -e 's|@PROJECT_DESCRIPTION@|Open Supervised Device Protocol (OSDP) Library|' \
-    -e "s|@PROJECT_URL@|https://github.com/goToMain/libosdp|" \
+    -e "s|@PROJECT_URL@|https://github.com/osdp-dev/libosdp|" \
     -e "s|@PROJECT_VERSION@|${PROJECT_VERSION}|" \
 	misc/libosdp.pc.in > ${BUILD_DIR}/libosdp.pc
 
