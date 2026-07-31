@@ -744,6 +744,21 @@ static int cp_process_reply(struct osdp_pd *pd)
 		return OSDP_CP_ERR_NO_DATA;
 	case OSDP_ERR_PKT_BUSY:
 		return OSDP_CP_ERR_RETRY_CMD;
+	case OSDP_ERR_PKT_SKIP: {
+		/*
+		 * A command-direction frame reached us: either a second CP is
+		 * contending for the bus or we heard our own transmission echo
+		 * back. Drop the frame and keep waiting for the real reply.
+		 * The buffered header must be discarded or phy_check_header()
+		 * re-validates it forever, but osdp_phy_state_reset() also
+		 * clears phy_state, which the CP owns; preserve it.
+		 */
+		int saved_phy_state = pd->phy_state;
+
+		osdp_phy_state_reset(pd, false);
+		pd->phy_state = saved_phy_state;
+		return OSDP_CP_ERR_NO_DATA;
+	}
 	case OSDP_ERR_PKT_NACK:
 		if (pd->ephemeral_data[0] == OSDP_PD_NAK_SEQ_NUM) {
 			LOG_WRN("NAK(SEQ_NUM); restarting communication");
