@@ -477,7 +477,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		t = OSDP_PD_CAP_RECEIVE_BUFFERSIZE;
 		if (pd->cap[t].function_code == t) {
 			pd->peer_rx_size = pd->cap[t].compliance_level;
-			pd->peer_rx_size |= pd->cap[t].num_items << 8;
+			pd->peer_rx_size |= (uint32_t)pd->cap[t].num_items << 8;
 		}
 
 		/* post-capabilities hooks */
@@ -757,6 +757,21 @@ static int cp_process_reply(struct osdp_pd *pd)
 		return OSDP_CP_ERR_NO_DATA;
 	case OSDP_ERR_PKT_BUSY:
 		return OSDP_CP_ERR_RETRY_CMD;
+	case OSDP_ERR_PKT_SKIP: {
+		/*
+		 * A command-direction frame reached us: either a second CP is
+		 * contending for the bus or we heard our own transmission echo
+		 * back. Drop the frame and keep waiting for the real reply.
+		 * The buffered header must be discarded or phy_check_header()
+		 * re-validates it forever, but osdp_phy_state_reset() also
+		 * clears phy_state, which the CP owns; preserve it.
+		 */
+		int saved_phy_state = pd->phy_state;
+
+		osdp_phy_state_reset(pd, false);
+		pd->phy_state = saved_phy_state;
+		return OSDP_CP_ERR_NO_DATA;
+	}
 	case OSDP_ERR_PKT_NACK:
 		if (pd->ephemeral_data[0] == OSDP_PD_NAK_SEQ_NUM) {
 			LOG_WRN("NAK(SEQ_NUM); restarting communication");
@@ -920,7 +935,12 @@ static int cp_phy_state_update(struct osdp_pd *pd)
 		pd->phy_state = OSDP_CP_PHY_STATE_SEND_CMD;
 		__fallthrough;
 	case OSDP_CP_PHY_STATE_SEND_CMD:
-		/* Check if we have any commands in the queue */
+		if (pd->phy_retry_count > 0) {
+			struct osdp_channel *channel = &pd->channel;
+			if (channel->flush)
+				channel->flush(channel->data);
+			pd->seq_number = pd->phy_tx_seq - 1;
+		}
 		if (cp_build_and_send_packet(pd)) {
 			LOG_ERR("Failed to build/send packet for CMD: %s(%02x)",
 				osdp_cmd_name(pd->cmd_id), pd->cmd_id);

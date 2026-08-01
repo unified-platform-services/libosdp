@@ -170,7 +170,7 @@ static int pd_translate_event(struct osdp_pd *pd, const struct osdp_event *event
 			 * osdp_FMT was underspecified by SIA from get-go. It
 			 * was marked for deprecation in v2.2.2.
 			 *
-			 * See: https://github.com/goToMain/libosdp/issues/206
+			 * See: https://github.com/osdp-dev/libosdp/issues/206
 			 */
 			LOG_WRN("Event CardRead::format::OSDP_CARD_FMT_ASCII"
 				" is deprecated. Ignoring");
@@ -494,12 +494,14 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		pd->reply_id = REPLY_PDCAP;
 		ret = OSDP_PD_ERR_NONE;
 		break;
-	case CMD_OUT:
+	case CMD_OUT: {
+		int count;
 		if ((len % CMD_OUT_DATA_LEN) != 0) {
 			break;
 		}
+		count = len / CMD_OUT_DATA_LEN;
 		ret = OSDP_PD_ERR_REPLY;
-		for (i = 0; i < len / CMD_OUT_DATA_LEN; i++) {
+		for (i = 0; i < count; i++) {
 			cmd.id = OSDP_CMD_OUTPUT;
 			cmd.output.output_no = buf[pos++];
 			cmd.output.control_code = buf[pos++];
@@ -511,15 +513,20 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 				break;
 			}
 		}
-		pd->reply_id = REPLY_ACK;
-		ret = OSDP_PD_ERR_NONE;
+		if (i == count) {
+			pd->reply_id = REPLY_ACK;
+			ret = OSDP_PD_ERR_NONE;
+		}
 		break;
-	case CMD_LED:
+	}
+	case CMD_LED: {
+		int count;
 		if ((len % CMD_LED_DATA_LEN) != 0) {
 			break;
 		}
+		count = len / CMD_LED_DATA_LEN;
 		ret = OSDP_PD_ERR_REPLY;
-		for (i = 0; i < len / CMD_LED_DATA_LEN; i++) {
+		for (i = 0; i < count; i++) {
 			cmd.id = OSDP_CMD_LED;
 			cmd.led.reader = buf[pos++];
 			cmd.led.led_number = buf[pos++];
@@ -543,15 +550,20 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 				break;
 			}
 		}
-		pd->reply_id = REPLY_ACK;
-		ret = OSDP_PD_ERR_NONE;
+		if (i == count) {
+			pd->reply_id = REPLY_ACK;
+			ret = OSDP_PD_ERR_NONE;
+		}
 		break;
-	case CMD_BUZ:
+	}
+	case CMD_BUZ: {
+		int count;
 		if ((len % CMD_BUZ_DATA_LEN) != 0) {
 			break;
 		}
+		count = len / CMD_BUZ_DATA_LEN;
 		ret = OSDP_PD_ERR_REPLY;
-		for (i = 0; i < len / CMD_BUZ_DATA_LEN; i++) {
+		for (i = 0; i < count; i++) {
 			cmd.id = OSDP_CMD_BUZZER;
 			cmd.buzzer.reader = buf[pos++];
 			cmd.buzzer.control_code = buf[pos++];
@@ -565,9 +577,12 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 				break;
 			}
 		}
-		pd->reply_id = REPLY_ACK;
-		ret = OSDP_PD_ERR_NONE;
+		if (i == count) {
+			pd->reply_id = REPLY_ACK;
+			ret = OSDP_PD_ERR_NONE;
+		}
 		break;
+	}
 	case CMD_TEXT:
 		if (len < CMD_TEXT_DATA_LEN) {
 			break;

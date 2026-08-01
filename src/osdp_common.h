@@ -396,6 +396,7 @@ struct osdp_pd {
 	int phy_state;         /* phy layer FSM state (CP mode only) */
 	int pd_to_offline_count;	/* counter for PD to delare offline */	
 	int phy_retry_count;   /* command retry counter */
+	int phy_tx_seq;        /* seq number embedded in last TX packet */
 	uint32_t wait_ms;      /* wait time in MS to retry communication */
 	int64_t tstamp;        /* Last POLL command issued time in ticks */
 	int64_t sc_tstamp;     /* Last received secure reply time in ticks */
@@ -492,6 +493,7 @@ int osdp_rb_push(struct osdp_rb *p, uint8_t data);
 int osdp_rb_push_buf(struct osdp_rb *p, uint8_t *buf, int len);
 int osdp_rb_pop(struct osdp_rb *p, uint8_t *data);
 int osdp_rb_pop_buf(struct osdp_rb *p, uint8_t *buf, int max_len);
+void osdp_rb_reset(struct osdp_rb *p);
 
 void osdp_crypt_setup();
 void osdp_encrypt(uint8_t *key, uint8_t *iv, uint8_t *data, int len);
@@ -518,9 +520,9 @@ void osdp_sc_teardown(struct osdp_pd *pd);
 
 static inline uint16_t bread_u16_le(const uint8_t *buf, int *pos)
 {
-    uint16_t v = buf[(*pos)++];
-    v |= (uint16_t)buf[(*pos)++] << 8;
-    return v;
+    uint32_t v = buf[(*pos)++];
+    v |= (uint32_t)buf[(*pos)++] << 8;
+    return (uint16_t)v;
 }
 
 static inline uint32_t bread_u24_le(const uint8_t *buf, int *pos)
@@ -572,9 +574,9 @@ static inline void bwrite_u32_le(uint32_t val, uint8_t *buf, int *len)
 
 static inline uint16_t bread_u16_be(const uint8_t *buf, int *pos)
 {
-    uint16_t v = (uint16_t)buf[(*pos)++] << 8;
+    uint32_t v = (uint32_t)buf[(*pos)++] << 8;
     v |= buf[(*pos)++];
-    return v;
+    return (uint16_t)v;
 }
 
 static inline uint32_t bread_u24_be(const uint8_t *buf, int *pos)

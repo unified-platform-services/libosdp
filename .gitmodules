@@ -1,3 +1,7 @@
 [submodule "utils"]
 	path = utils
+<<<<<<< HEAD
 	url = https://github.com/unified-platform-services/c-utils.git
+=======
+	url = https://github.com/osdp-dev/c-utils.git
+>>>>>>> upstream/release_v3.2

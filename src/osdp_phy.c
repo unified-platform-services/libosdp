@@ -230,6 +230,7 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		id = pd->cmd_id;
 	}
 	pkt->control = phy_get_next_seq_number(pd);
+	pd->phy_tx_seq = pkt->control & PKT_CONTROL_SQN;
 	if (is_pd_mode(pd) ||
 	    (is_cp_mode(pd) && ISSET_FLAG(pd, PD_FLAG_CP_USE_CRC))) {
 		pkt->control |= PKT_CONTROL_CRC;
@@ -420,12 +421,20 @@ static int phy_validate_header(struct osdp_pd *pd, uint8_t *buf,
 		return OSDP_ERR_PKT_FMT;
 	}
 
-	pkt_len = (pkt->len_msb << 8) | pkt->len_lsb;
+	pkt_len = ((uint32_t)pkt->len_msb << 8) | pkt->len_lsb;
 	if (pkt_len > max_len ||
-	    pkt_len < sizeof(struct osdp_packet_header) + 1 ||
-	    (is_cp_mode(pd) && !(pkt->pd_address & 0x80)) ||
-	    (is_pd_mode(pd) &&  (pkt->pd_address & 0x80))) {
+	    pkt_len < sizeof(struct osdp_packet_header) + 1) {
 		return OSDP_ERR_PKT_FMT;
+	}
+
+	/**
+	 * Wrong-direction packets must be silently skipped; on a multi-drop
+	 * bus, every PD sees every other PD's replies (along with commands to
+	 * other PDs).
+	 */
+	if ((is_cp_mode(pd) && !(pkt->pd_address & 0x80)) ||
+	    (is_pd_mode(pd) &&  (pkt->pd_address & 0x80))) {
+		return OSDP_ERR_PKT_SKIP;
 	}
 
 	return (int)(pkt_len + mark);
@@ -539,7 +548,7 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 	/* validate CRC/checksum */
 	if (pkt->control & PKT_CONTROL_CRC) {
 		pkt_len -= 2; /* consume CRC */
-		cur = (buf[pkt_len + 1] << 8) | buf[pkt_len];
+		cur = ((uint32_t)buf[pkt_len + 1] << 8) | buf[pkt_len];
 		comp = osdp_compute_crc16(buf, pkt_len);
 		if (comp != cur) {
 			LOG_ERR("Invalid crc 0x%04x/0x%04x", comp, cur);
@@ -898,10 +907,14 @@ void osdp_phy_state_reset(struct osdp_pd *pd, bool is_error)
 	pd->packet_buf = pd->packet_buf_store;
 	if (is_error) {
 		pd->phy_retry_count = 0;
+		pd->phy_tx_seq = 0;
 		phy_reset_seq_number(pd);
 		if (pd->channel.flush) {
 			pd->channel.flush(pd->channel.data);
 		}
+#ifndef OPT_OSDP_RX_ZERO_COPY
+		osdp_rb_reset(pd->rx.rb);
+#endif
 	}
 }
 
