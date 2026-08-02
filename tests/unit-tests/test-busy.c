@@ -33,9 +33,9 @@ struct busy_test_ctx {
 	bool cmd_seen;
 	int last_cmd_id;
 
-	bool notif_cmd_seen;
-	int notif_cmd_arg0;
-	int notif_cmd_arg1;
+	bool compl_seen;
+	int compl_cmd_id;
+	int compl_status;
 
 	/*
 	 * The command queue is app-owned and zero-copy: the submitted
@@ -129,19 +129,16 @@ static int busy_test_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 	return 0;
 }
 
-static int busy_test_cp_event_callback(void *arg, int pd,
-					struct osdp_event *ev)
+static void busy_test_cp_completion_cb(void *arg, int pd,
+				       const struct osdp_cmd *cmd,
+				       enum osdp_completion_status status)
 {
 	ARG_UNUSED(arg);
 	ARG_UNUSED(pd);
 
-	if (ev->type == OSDP_EVENT_NOTIFICATION &&
-	    ev->notif.type == OSDP_NOTIFICATION_COMMAND) {
-		g_ctx.notif_cmd_seen = true;
-		g_ctx.notif_cmd_arg0 = ev->notif.command.command;
-		g_ctx.notif_cmd_arg1 = ev->notif.command.success ? 0 : -1;
-	}
-	return 0;
+	g_ctx.compl_cmd_id = cmd->id;
+	g_ctx.compl_status = (int)status;
+	g_ctx.compl_seen = true;
 }
 
 static int busy_test_setup(struct test *t)
@@ -149,15 +146,15 @@ static int busy_test_setup(struct test *t)
 	int rc = 0;
 	uint8_t status = 0;
 
-	if (test_setup_devices_ext(t, &g_ctx.cp_ctx, &g_ctx.pd_ctx,
-				   OSDP_FLAG_ENABLE_NOTIFICATION, 0)) {
+	if (test_setup_devices(t, &g_ctx.cp_ctx, &g_ctx.pd_ctx)) {
 		printf(SUB_1 "Failed to setup devices!\n");
 		return -1;
 	}
 	osdp_pd_set_command_callback(g_ctx.pd_ctx,
 				     busy_test_pd_command_callback, NULL);
-	osdp_cp_set_event_callback(g_ctx.cp_ctx,
-				   busy_test_cp_event_callback, NULL);
+	osdp_cp_set_command_completion_callback(g_ctx.cp_ctx,
+						busy_test_cp_completion_cb,
+						NULL);
 
 	g_ctx.cp_runner = async_runner_start(g_ctx.cp_ctx, osdp_cp_refresh);
 	g_ctx.pd_runner = async_runner_start(g_ctx.pd_ctx, osdp_pd_refresh);
@@ -293,7 +290,7 @@ static bool test_busy_permanent_fails_command_softly(void)
 
 	g_ctx.cmd_seen = false;
 	g_ctx.last_cmd_id = 0;
-	g_ctx.notif_cmd_seen = false;
+	g_ctx.compl_seen = false;
 	test_set_channel_hook(busy_hook, &s);
 
 	if (submit_buzzer_command()) {
@@ -304,21 +301,21 @@ static bool test_busy_permanent_fails_command_softly(void)
 
 	/* Budget: 1 original + OSDP_CMD_MAX_RETRIES retries, 800ms apart */
 	while (rc < 150) {
-		if (g_ctx.notif_cmd_seen)
+		if (g_ctx.compl_seen)
 			break;
 		usleep(100 * 1000);
 		rc++;
 	}
 	test_set_channel_hook(NULL, NULL);
 
-	if (!g_ctx.notif_cmd_seen) {
+	if (!g_ctx.compl_seen) {
 		printf("command never completed!\n");
 		return false;
 	}
-	if (g_ctx.notif_cmd_arg0 != OSDP_CMD_BUZZER ||
-	    g_ctx.notif_cmd_arg1 != -1) {
-		printf("expected failure notification, got arg0=%d arg1=%d!\n",
-		       g_ctx.notif_cmd_arg0, g_ctx.notif_cmd_arg1);
+	if (g_ctx.compl_cmd_id != OSDP_CMD_BUZZER ||
+	    g_ctx.compl_status != OSDP_COMPLETION_FAILED) {
+		printf("expected FAILED completion, got cmd=%d status=%d!\n",
+		       g_ctx.compl_cmd_id, g_ctx.compl_status);
 		return false;
 	}
 	if (s.seq_count != 1 + OSDP_CMD_MAX_RETRIES) {

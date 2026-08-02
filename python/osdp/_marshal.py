@@ -121,10 +121,6 @@ _MP_NOTIFICATION_TYPES = frozenset({
 def _notification_payload(x) -> Payload:
     """Each notification type marshals its own typed payload; the C codec keys
     on `type` and reads only the fields that type carries."""
-    if x.type == NotificationType.Command:
-        # Key is "command_id", not "command": the PD command-delivery path
-        # already uses "command" as its command-type discriminator.
-        return {"type": x.type, "command_id": x.command, "success": x.success}
     if x.type == NotificationType.SecureChannelStatus:
         return {"type": x.type, "active": x.active, "scbk_d": x.scbk_d}
     if x.type == NotificationType.PeripheralDeviceStatus:
@@ -155,8 +151,6 @@ def _notification_from_payload(cls, p: Payload):
     reading only the fields the notification's type carries."""
     kwargs = dict(
         type=NotificationType(p["type"]),
-        command=p.get("command_id", 0),
-        success=bool(p.get("success", 0)),
         active=bool(p.get("active", 0)),
         scbk_d=bool(p.get("scbk_d", 0)),
         online=bool(p.get("online", 0)),

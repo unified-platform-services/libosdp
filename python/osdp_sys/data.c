@@ -522,7 +522,7 @@ static int pyosdp_make_struct_cmd_pivdata(void *payload, PyObject *dict)
 
 /*
  * A notification's payload is a union keyed by `type`: each kind carries its
- * own typed struct (command/sc_status/pd_status/mp). Emit/consume the dict keys
+ * own typed struct (sc_status/pd_status/mp). Emit/consume the dict keys
  * the type selects so every field survives the round trip.
  */
 static int pyosdp_make_dict_notification(PyObject *obj, const void *payload)
@@ -532,13 +532,6 @@ static int pyosdp_make_dict_notification(PyObject *obj, const void *payload)
 	if (pyosdp_dict_add_int(obj, "type", n->type))
 		return -1;
 	switch (n->type) {
-	case OSDP_NOTIFICATION_COMMAND:
-		/* Key is "command_id", not "command": the command-delivery path
-		 * already uses "command" as its command-type discriminator. */
-		if (pyosdp_dict_add_int(obj, "command_id", n->command.command) ||
-		    pyosdp_dict_add_int(obj, "success", n->command.success))
-			return -1;
-		break;
 	case OSDP_NOTIFICATION_SC_STATUS:
 		if (pyosdp_dict_add_int(obj, "active", n->sc_status.active) ||
 		    pyosdp_dict_add_int(obj, "scbk_d", n->sc_status.scbk_d))
@@ -584,14 +577,6 @@ static int pyosdp_make_struct_notification(void *payload, PyObject *dict)
 		return -1;
 	n->type = (enum osdp_notification_type)type;
 	switch (n->type) {
-	case OSDP_NOTIFICATION_COMMAND:
-		if (pyosdp_dict_get_int(dict, "command_id", &val))
-			return -1;
-		n->command.command = (enum osdp_cmd_e)val;
-		if (pyosdp_dict_get_int(dict, "success", &val))
-			return -1;
-		n->command.success = (bool)val;
-		break;
 	case OSDP_NOTIFICATION_SC_STATUS:
 		if (pyosdp_dict_get_int(dict, "active", &val))
 			return -1;

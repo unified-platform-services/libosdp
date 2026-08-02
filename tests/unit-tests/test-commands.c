@@ -42,10 +42,14 @@ struct test_command_ctx {
 	bool bio_answer_inline;
 	int last_bio_event_type;
 
-	/* Command-outcome notification capture (OSDP_NOTIFICATION_COMMAND) */
-	bool notif_cmd_seen;
-	int notif_cmd_arg0;
-	int notif_cmd_arg1;
+	/* Command completion capture */
+	bool compl_seen;
+	int compl_cmd_id;
+	int compl_status;
+	/* last_mfg_event_type snapshot taken as the completion fired:
+	 * non-zero means the dedicated event arrived in the same exchange
+	 * as the command's reply (inline), not on a later poll. */
+	int compl_mfg_event_type;
 };
 
 static struct test_command_ctx g_test_ctx = {0};
@@ -83,14 +87,20 @@ int test_commands_event_callback(void *arg, int pd, struct osdp_event *ev)
 		memcpy(ctx->last_event_data, ev, sizeof(struct osdp_event));
 	}
 
-	if (ev->type == OSDP_EVENT_NOTIFICATION &&
-	    ev->notif.type == OSDP_NOTIFICATION_COMMAND) {
-		ctx->notif_cmd_seen = true;
-		ctx->notif_cmd_arg0 = ev->notif.command.command;
-		ctx->notif_cmd_arg1 = ev->notif.command.success ? 0 : -1;
-	}
-
 	return 0;
+}
+
+static void test_cmd_completion_cb(void *arg, int pd,
+				   const struct osdp_cmd *cmd,
+				   enum osdp_completion_status status)
+{
+	ARG_UNUSED(pd);
+	struct test_command_ctx *ctx = arg;
+
+	ctx->compl_cmd_id = cmd->id;
+	ctx->compl_status = (int)status;
+	ctx->compl_mfg_event_type = ctx->last_mfg_event_type;
+	ctx->compl_seen = true;
 }
 
 /* Stands in for a scanned fingerprint template */
@@ -209,6 +219,9 @@ static int setup_test_environment(struct test *t)
 	}
 
 	osdp_cp_set_event_callback(g_test_ctx.cp_ctx, test_commands_event_callback, &g_test_ctx);
+	osdp_cp_set_command_completion_callback(g_test_ctx.cp_ctx,
+						test_cmd_completion_cb,
+						&g_test_ctx);
 	osdp_pd_set_command_callback(g_test_ctx.pd_ctx, test_commands_command_callback, &g_test_ctx);
 
 	printf(SUB_1 "starting async runners\n");
@@ -272,9 +285,10 @@ static void reset_test_state()
 	g_test_ctx.mfg_vendor_code = 0;
 	g_test_ctx.mfg_data_len = 0;
 	memset(g_test_ctx.mfg_data, 0, sizeof(g_test_ctx.mfg_data));
-	g_test_ctx.notif_cmd_seen = false;
-	g_test_ctx.notif_cmd_arg0 = 0;
-	g_test_ctx.notif_cmd_arg1 = 0;
+	g_test_ctx.compl_seen = false;
+	g_test_ctx.compl_cmd_id = 0;
+	g_test_ctx.compl_status = -1;
+	g_test_ctx.compl_mfg_event_type = 0;
 
 	if (g_test_ctx.last_event_data) {
 		free(g_test_ctx.last_event_data);
@@ -948,15 +962,15 @@ static bool test_keyset_command()
 	return wait_for_pd_online(5);
 }
 
-static bool wait_for_cmd_notification(int expected_cmd, int expected_arg1,
-				      int timeout_sec)
+static bool wait_for_cmd_completion(int expected_cmd, int expected_status,
+				    int timeout_sec)
 {
 	int rc = 0; /* elapsed time in ms */
 	int timeout_ms = timeout_sec * 1000;
 	while (rc < timeout_ms) {
-		if (g_test_ctx.notif_cmd_seen &&
-		    g_test_ctx.notif_cmd_arg0 == expected_cmd &&
-		    g_test_ctx.notif_cmd_arg1 == expected_arg1) {
+		if (g_test_ctx.compl_seen &&
+		    g_test_ctx.compl_cmd_id == expected_cmd &&
+		    g_test_ctx.compl_status == expected_status) {
 			return true;
 		}
 		usleep(20 * 1000);
@@ -969,12 +983,6 @@ static bool test_tdset_invalid_time_naks()
 {
 	printf(SUB_2 "testing tdset command with invalid month NAKs\n");
 	reset_test_state();
-
-	if (osdp_cp_modify_flag(g_test_ctx.cp_ctx, 0,
-				OSDP_FLAG_ENABLE_NOTIFICATION, true)) {
-		printf(SUB_2 "Failed to enable notifications\n");
-		return false;
-	}
 
 	struct osdp_cmd cmd = {
 		.id = OSDP_CMD_TDSET,
@@ -993,11 +1001,11 @@ static bool test_tdset_invalid_time_naks()
 		return false;
 	}
 
-	if (!wait_for_cmd_notification(OSDP_CMD_TDSET, -1, 5)) {
-		printf(SUB_2 "NAK not reported (notif arg0=%d arg1=%d seen=%d)\n",
-		       g_test_ctx.notif_cmd_arg0,
-		       g_test_ctx.notif_cmd_arg1,
-		       g_test_ctx.notif_cmd_seen);
+	if (!wait_for_cmd_completion(OSDP_CMD_TDSET, OSDP_COMPLETION_FAILED, 5)) {
+		printf(SUB_2 "NAK not reported (compl cmd=%d status=%d seen=%d)\n",
+		       g_test_ctx.compl_cmd_id,
+		       g_test_ctx.compl_status,
+		       g_test_ctx.compl_seen);
 		return false;
 	}
 
@@ -1006,8 +1014,6 @@ static bool test_tdset_invalid_time_naks()
 		return false;
 	}
 
-	osdp_cp_modify_flag(g_test_ctx.cp_ctx, 0,
-			    OSDP_FLAG_ENABLE_NOTIFICATION, false);
 	return true;
 }
 
@@ -1016,10 +1022,11 @@ static bool test_tdset_invalid_time_naks()
  * so it must ride out as the reply to that command rather than as an ACK
  * followed by a poll response.
  *
- * The command notification is what tells the two apart: an inline MFGREP or
- * MFGSTATR suppresses it (the dedicated event carries the payload), whereas a
- * deferred reply ACKs the command and reports success. An inline MFGERRR
- * reports the command as failed while keeping the PD online.
+ * The completion-time event snapshot is what tells the two apart: an inline
+ * MFGREP or MFGSTATR arrives with the command's own reply, so the dedicated
+ * event has already been seen when the completion callback fires. A deferred
+ * reply ACKs the command first and the event rides a later poll. An inline
+ * MFGERRR completes the command FAILED while keeping the PD online.
  */
 static bool test_mfg_command_inline_reply(int event_type, const char *name,
 					  bool expect_failure)
@@ -1031,12 +1038,6 @@ static bool test_mfg_command_inline_reply(int event_type, const char *name,
 	printf(SUB_2 "testing inline %s reply to manufacturer command\n", name);
 	reset_test_state();
 	g_test_ctx.mfg_inline_reply = event_type;
-
-	if (osdp_cp_modify_flag(g_test_ctx.cp_ctx, 0,
-				OSDP_FLAG_ENABLE_NOTIFICATION, true)) {
-		printf(SUB_2 "Failed to enable notifications\n");
-		return false;
-	}
 
 	struct osdp_cmd cmd = {
 		.id = OSDP_CMD_MFG,
@@ -1058,7 +1059,8 @@ static bool test_mfg_command_inline_reply(int event_type, const char *name,
 	}
 
 	if (expect_failure) {
-		if (!wait_for_cmd_notification(OSDP_CMD_MFG, -1, 5)) {
+		if (!wait_for_cmd_completion(OSDP_CMD_MFG,
+					     OSDP_COMPLETION_FAILED, 5)) {
 			printf(SUB_2 "%s did not fail the mfg command\n", name);
 			goto out;
 		}
@@ -1068,10 +1070,17 @@ static bool test_mfg_command_inline_reply(int event_type, const char *name,
 			printf(SUB_2 "PD went offline after inline %s\n", name);
 			goto out;
 		}
-	} else if (g_test_ctx.notif_cmd_seen) {
-		printf(SUB_2 "%s was ACK'd and deferred, not sent inline\n",
-		       name);
-		goto out;
+	} else {
+		if (!wait_for_cmd_completion(OSDP_CMD_MFG,
+					     OSDP_COMPLETION_OK, 5)) {
+			printf(SUB_2 "%s mfg command did not complete\n", name);
+			goto out;
+		}
+		if (g_test_ctx.compl_mfg_event_type != event_type) {
+			printf(SUB_2 "%s was ACK'd and deferred, not sent inline\n",
+			       name);
+			goto out;
+		}
 	}
 
 	rx = (struct osdp_event *)g_test_ctx.last_event_data;
@@ -1100,8 +1109,6 @@ static bool test_mfg_command_inline_reply(int event_type, const char *name,
 
 	result = true;
 out:
-	osdp_cp_modify_flag(g_test_ctx.cp_ctx, 0,
-			    OSDP_FLAG_ENABLE_NOTIFICATION, false);
 	return result;
 }
 
@@ -1120,18 +1127,12 @@ static bool test_mfg_command_inline_replies()
  * Regression test for https://github.com/osdp-dev/libosdp/issues/262:
  * the PD used to unconditionally ACK multi-record commands (OUT/LED/BUZ)
  * even when pd_cmd_cap_ok() had set REPLY_NAK. The fix preserves the NAK
- * so the CP reports arg1=0 (failure) via OSDP_NOTIFICATION_COMMAND.
+ * so the CP completes the command FAILED.
  */
 static bool test_led_unsupported_capability_naks()
 {
 	printf(SUB_2 "testing LED command on unsupported led_number NAKs\n");
 	reset_test_state();
-
-	if (osdp_cp_modify_flag(g_test_ctx.cp_ctx, 0,
-				OSDP_FLAG_ENABLE_NOTIFICATION, true)) {
-		printf(SUB_2 "Failed to enable notifications\n");
-		return false;
-	}
 
 	/* PD is configured with OSDP_PD_CAP_READER_LED_CONTROL num_items=1,
 	 * so led_number=5 is out of range and must be NAK'd. */
@@ -1155,11 +1156,11 @@ static bool test_led_unsupported_capability_naks()
 		return false;
 	}
 
-	if (!wait_for_cmd_notification(OSDP_CMD_LED, -1, 5)) {
-		printf(SUB_2 "NAK not reported (notif arg0=%d arg1=%d seen=%d)\n",
-		       g_test_ctx.notif_cmd_arg0,
-		       g_test_ctx.notif_cmd_arg1,
-		       g_test_ctx.notif_cmd_seen);
+	if (!wait_for_cmd_completion(OSDP_CMD_LED, OSDP_COMPLETION_FAILED, 5)) {
+		printf(SUB_2 "NAK not reported (compl cmd=%d status=%d seen=%d)\n",
+		       g_test_ctx.compl_cmd_id,
+		       g_test_ctx.compl_status,
+		       g_test_ctx.compl_seen);
 		return false;
 	}
 
@@ -1168,8 +1169,6 @@ static bool test_led_unsupported_capability_naks()
 		return false;
 	}
 
-	osdp_cp_modify_flag(g_test_ctx.cp_ctx, 0,
-			    OSDP_FLAG_ENABLE_NOTIFICATION, false);
 	return true;
 }
 

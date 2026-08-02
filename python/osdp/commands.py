@@ -662,14 +662,8 @@ class Notification:
 
     ID: ClassVar[CommandId] = CommandId.Notification
 
-    type: NotificationType = NotificationType.Command
+    type: NotificationType = NotificationType.SecureChannelStatus
     """What happened. Selects which fields below are meaningful."""
-
-    command: int = 0
-    """Which command completed (CommandId). Only for NotificationType.Command."""
-
-    success: bool = False
-    """Whether that command succeeded. Only for NotificationType.Command."""
 
     active: bool = False
     """Whether the secure channel is up.

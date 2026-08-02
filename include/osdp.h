@@ -1075,11 +1075,6 @@ struct osdp_cmd_file_tx {
  */
 enum osdp_notification_type {
 	/**
-	 * Application command outcome report. Payload: `command`
-	 * (@ref osdp_notification_command).
-	 */
-	OSDP_NOTIFICATION_COMMAND,
-	/**
 	 * Secure Channel state change. Payload: `sc_status`
 	 * (@ref osdp_notification_sc_status).
 	 *
@@ -1183,14 +1178,6 @@ enum osdp_cmd_e {
 };
 
 /**
- * @brief Payload for OSDP_NOTIFICATION_COMMAND.
- */
-struct osdp_notification_command {
-	enum osdp_cmd_e command; /**< Which application command completed */
-	bool success; /**< true: succeeded; false: failed */
-};
-
-/**
  * @brief Payload for OSDP_NOTIFICATION_SC_STATUS.
  */
 struct osdp_notification_sc_status {
@@ -1216,7 +1203,6 @@ struct osdp_notification_pd_status {
 struct osdp_notification {
 	enum osdp_notification_type type; /**< Notification type */
 	union {
-		struct osdp_notification_command command; /**< COMMAND */
 		struct osdp_notification_sc_status sc_status; /**< SC_STATUS */
 		struct osdp_notification_pd_status pd_status; /**< PD_STATUS */
 		struct osdp_mp_notification mp; /**< MP_* */

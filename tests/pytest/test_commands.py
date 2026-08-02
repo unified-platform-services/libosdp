@@ -4,6 +4,7 @@
 #  SPDX-License-Identifier: Apache-2.0
 #
 
+import threading
 import time
 import pytest
 
@@ -12,7 +13,6 @@ from osdp import commands, events
 from conftest import (
     MultidropBus,
     assert_command_received,
-    wait_for_notification_event,
     wait_for_non_notification_event,
 )
 
@@ -59,13 +59,46 @@ pd_list = [
 
 cp = ControlPanel(pd_info_list, log_level=LogLevel.Debug)
 
-def cp_check_command_status(cmd_id, expected_outcome=True):
-    event = events.Notification(
-        type=NotificationType.Command,
-        command=int(cmd_id),
-        success=expected_outcome,
-    )
-    wait_for_notification_event(cp, secure_pd.address, event)
+completion_lock = threading.Lock()
+completion_records = []
+
+def on_command_complete(pd_address, command, status):
+    with completion_lock:
+        completion_records.append((pd_address, command.ID, status))
+
+cp.set_command_completion_handler(on_command_complete)
+
+@pytest.fixture(autouse=True)
+def fresh_completion_records():
+    """Start every test with an empty ledger.
+
+    Not every test consumes the completions it provokes, so a leftover record
+    from an earlier test could otherwise satisfy a later assertion without the
+    command under test having completed at all.
+    """
+    with completion_lock:
+        completion_records.clear()
+    yield
+
+def cp_check_command_status(cmd_id, expected_outcome=True, address=None,
+                            timeout=5):
+    """Wait for (and consume) a completion record for cmd_id.
+
+    Consuming the match keeps repeated checks of the same command honest:
+    each one needs a fresh completion, as the old per-event queue did.
+    """
+    status = CompletionStatus.Ok if expected_outcome else \
+        CompletionStatus.Failed
+    record = (secure_pd.address if address is None else address,
+              cmd_id, status)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        with completion_lock:
+            if record in completion_records:
+                completion_records.remove(record)
+                return
+        time.sleep(0.02)
+    pytest.fail(f"no {status.name} completion for {cmd_id.name}")
 
 @pytest.fixture(scope='module', autouse=True)
 def setup_test():
@@ -183,12 +216,8 @@ def test_command_tdset_rejected_without_time_keeping():
     assert cp.is_online(insecure_pd_addr)
     assert cp.submit_command(insecure_pd_addr, test_cmd)
     assert insecure_pd.get_command(timeout=2) is None
-    event = events.Notification(
-        type=NotificationType.Command,
-        command=int(CommandId.TDSet),
-        success=False,
-    )
-    wait_for_notification_event(cp, insecure_pd.address, event)
+    cp_check_command_status(CommandId.TDSet, expected_outcome=False,
+                            address=insecure_pd.address)
 
 def test_command_led_temporary():
     """A temporary state flashes for its timer and then reverts."""

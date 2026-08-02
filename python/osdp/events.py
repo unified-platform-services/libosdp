@@ -356,24 +356,16 @@ class Notification:
     @see osdp_notification
 
     Example:
-        >>> note = Notification(type=NotificationType.Command,
-        ...                     command=int(CommandId.LED), success=True)
-        >>> note.command_id.name
-        'LED'
-        >>> note.succeeded
+        >>> note = Notification(type=NotificationType.SecureChannelStatus,
+        ...                     active=True, scbk_d=False)
+        >>> note.sc_active
         True
     """
 
     ID: ClassVar[EventId] = EventId.Notification
 
-    type: NotificationType = NotificationType.Command
+    type: NotificationType = NotificationType.SecureChannelStatus
     """What happened. Selects which fields below are meaningful."""
-
-    command: int = 0
-    """Which command completed (CommandId). Only for NotificationType.Command."""
-
-    success: bool = False
-    """Whether that command succeeded. Only for NotificationType.Command."""
 
     active: bool = False
     """Whether the secure channel is up.
@@ -417,16 +409,6 @@ class Notification:
 
     firmware_version: int = 0
     """PD firmware version. Only for NotificationType.PdId."""
-
-    @property
-    def command_id(self) -> CommandId:
-        """Which command completed. Only for NotificationType.Command."""
-        return CommandId(self.command)
-
-    @property
-    def succeeded(self) -> bool:
-        """Whether that command succeeded. Only for NotificationType.Command."""
-        return self.success
 
     @property
     def sc_active(self) -> bool:

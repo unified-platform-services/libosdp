@@ -269,9 +269,6 @@ class NotificationType(IntEnum):
     `osdp.commands.Notification`; this discriminator selects which are valid.
     """
 
-    Command = _sys.NOTIFICATION_COMMAND
-    """A command completed. Carries `command` (id) and `success`."""
-
     SecureChannelStatus = _sys.NOTIFICATION_SC_STATUS
     """Secure channel changed. Carries `active` and `scbk_d`."""
 

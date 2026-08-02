@@ -108,10 +108,6 @@ ALL_COMMANDS = [
     commands.Status(type=StatusReportType.Input),
     commands.Status(type=StatusReportType.Input, report=bytes([0, 1, 0, 1])),
     commands.Notification(
-        type=NotificationType.Command, command=int(CommandId.LED),
-        success=True,
-    ),
-    commands.Notification(
         type=NotificationType.MultipartDone, mp_type=1, object_id=1,
         total=3200, offset=3200, outcome=0,
     ),

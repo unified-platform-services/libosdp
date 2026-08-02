@@ -1749,89 +1749,6 @@ static bool cp_cmd_failure_is_soft(struct osdp_pd *pd)
 	       cp_nak_code_is_app_level(pd->nak_code);
 }
 
-static void notify_command_status(struct osdp_pd *pd, int status)
-{
-	int app_cmd;
-	struct osdp_event evt;
-	struct osdp *ctx = pd_to_osdp(pd);
-
-	if (!ctx->event_callback || !is_notifications_enabled(pd)) {
-		return;
-	}
-
-	switch (pd->cmd_id) {
-	case CMD_OUT:
-		app_cmd = OSDP_CMD_OUTPUT;
-		break;
-	case CMD_LED:
-		app_cmd = OSDP_CMD_LED;
-		break;
-	case CMD_BUZ:
-		app_cmd = OSDP_CMD_BUZZER;
-		break;
-	case CMD_TEXT:
-		app_cmd = OSDP_CMD_TEXT;
-		break;
-	case CMD_TDSET:
-		app_cmd = OSDP_CMD_TDSET;
-		break;
-	case CMD_COMSET:
-		app_cmd = OSDP_CMD_COMSET;
-		break;
-	case CMD_ISTAT:
-		app_cmd = OSDP_CMD_STATUS;
-		break;
-	case CMD_OSTAT:
-		app_cmd = OSDP_CMD_STATUS;
-		break;
-	case CMD_LSTAT:
-		app_cmd = OSDP_CMD_STATUS;
-		break;
-	case CMD_RSTAT:
-		app_cmd = OSDP_CMD_STATUS;
-		break;
-	case CMD_KEYSET:
-		app_cmd = OSDP_CMD_KEYSET;
-		break;
-	case CMD_MFG:
-		if (pd->reply_id == REPLY_MFGREP ||
-		    pd->reply_id == REPLY_MFGSTATR) {
-			/**
-			* if we received a manufacturer-specific reply, there is
-			* a dedicated event (OSDP_EVENT_MFGREP/OSDP_EVENT_MFGSTATR)
-			* for it. So we can skip sending a notification event.
-			*
-			* REPLY_MFGERRR also has a dedicated event, but it reports
-			* a failed command, so the notification is still sent.
-			*/
-			return;
-		}
-		app_cmd = OSDP_CMD_MFG;
-		break;
-	case CMD_BIOREAD:
-	case CMD_BIOMATCH:
-		if (pd->reply_id == REPLY_BIOREADR ||
-		    pd->reply_id == REPLY_BIOMATCHR) {
-			/* The dedicated event carries the scan result; skip the
-			 * redundant notification. */
-			return;
-		}
-		app_cmd = (pd->cmd_id == CMD_BIOREAD) ? OSDP_CMD_BIOREAD :
-							OSDP_CMD_BIOMATCH;
-		break;
-	default:
-		return;
-	}
-
-	evt.type = OSDP_EVENT_NOTIFICATION;
-	evt.notif.type = OSDP_NOTIFICATION_COMMAND;
-	evt.notif.command.command = app_cmd;
-	evt.notif.command.success = (status != 0);
-
-	ctx->event_callback(ctx->event_callback_arg, pd->idx, &evt);
-	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
-}
-
 static void state_update(struct osdp_pd *pd)
 {
 	int err;
@@ -1858,7 +1775,6 @@ static void state_update(struct osdp_pd *pd)
 		__fallthrough;
 	case OSDP_CP_PHY_STATE_DONE:
 		status = state_check_reply(pd);
-		notify_command_status(pd, status);
 		cp_complete_cmd(pd, pd->active_cmd,
 				status ? OSDP_COMPLETION_OK :
 					 OSDP_COMPLETION_FAILED);
