@@ -52,6 +52,23 @@ int64_t osdp_millis_now(void)
 
 enum sc_mode { MODE_PLAIN, MODE_SECURE, MODE_INSTALL };
 
+/*
+ * Submitting a command/event requires a registered completion callback --
+ * that is how the library hands ownership back. This harness submits from
+ * static storage and does not act on outcomes, so the callbacks are no-ops.
+ */
+static void noop_cmd_completion(void *arg, int pd, const struct osdp_cmd *cmd,
+				enum osdp_completion_status status)
+{
+	(void)arg; (void)pd; (void)cmd; (void)status;
+}
+
+static void noop_event_completion(void *arg, const struct osdp_event *ev,
+				  enum osdp_completion_status status)
+{
+	(void)arg; (void)ev; (void)status;
+}
+
 /* Shared secret for the secure modes; identical on both ends. */
 static const uint8_t SCBK[16] = {
 	0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
@@ -260,6 +277,7 @@ static int run_cp(void)
 		fprintf(stderr, "cp setup failed\n");
 		return 1;
 	}
+	osdp_cp_set_command_completion_callback(ctx, noop_cmd_completion, NULL);
 	if (osdp_file_register_ops(ctx, 0, &fops)) {
 		fprintf(stderr, "cp file ops reg failed\n");
 		return 1;
@@ -313,6 +331,7 @@ static int run_pd(void)
 		return 1;
 	}
 	osdp_pd_set_command_callback(ctx, f_command, NULL);
+	osdp_pd_set_event_completion_callback(ctx, noop_event_completion, NULL);
 	if (osdp_file_register_ops(ctx, 0, &fops)) {
 		fprintf(stderr, "pd file ops reg failed\n");
 		return 1;

@@ -1172,6 +1172,37 @@ static bool test_led_unsupported_capability_naks()
 	return true;
 }
 
+/*
+ * The completion callback is how command ownership returns to the app, so a
+ * submission with none registered must be refused outright rather than
+ * silently swallowing the command.
+ */
+static bool test_submit_requires_completion_callback()
+{
+	struct osdp_cmd cmd = {
+		.id = OSDP_CMD_BUZZER,
+		.buzzer = {
+			.control_code = 1,
+			.on_count = 10,
+			.off_count = 10,
+			.rep_count = 1,
+		},
+	};
+
+	printf(SUB_2 "testing submit without completion callback fails\n");
+	reset_test_state();
+
+	osdp_cp_set_command_completion_callback(g_test_ctx.cp_ctx, NULL, NULL);
+	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd) == 0) {
+		printf(SUB_2 "submit accepted without a completion callback\n");
+		return false;
+	}
+	osdp_cp_set_command_completion_callback(g_test_ctx.cp_ctx,
+						test_cmd_completion_cb,
+						&g_test_ctx);
+	return true;
+}
+
 static bool test_status_command()
 {
 	printf(SUB_2 "testing status command\n");
@@ -1226,6 +1257,8 @@ void run_command_tests(struct test *t)
 	TEST_CASE(t, "mfg_command_nack_soft_fail",
 		  test_mfg_command_nack_soft_fail());
 	TEST_CASE(t, "bio_commands", test_bio_commands());
+	TEST_CASE(t, "submit_requires_completion_callback",
+		  test_submit_requires_completion_callback());
 	TEST_CASE(t, "led_unsupported_capability_naks",
 		  test_led_unsupported_capability_naks());
 

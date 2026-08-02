@@ -1847,6 +1847,12 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		OSDP_CMD_FLAG_BROADCAST
 	);
 
+	if (!pd_to_osdp(pd)->command_completion_callback) {
+		LOG_ERR("Refusing command: no completion callback registered;"
+			" it is how command ownership returns to the app");
+		return -1;
+	}
+
 	if (pd->state == OSDP_CP_STATE_DISABLED) {
 		LOG_ERR("PD is disabled");
 		return -1;

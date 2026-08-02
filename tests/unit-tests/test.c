@@ -856,6 +856,31 @@ void test_mock_pd_flush(void *data)
 
 #endif /* OPT_OSDP_RX_ZERO_COPY */
 
+/*
+ * Submitting a command/event requires a registered completion callback --
+ * that is how the library hands ownership back. Suites that do not care
+ * about completions inherit these no-ops; suites that do simply register
+ * their own recorder over them.
+ */
+static void test_default_cmd_completion_cb(void *arg, int pd,
+					   const struct osdp_cmd *cmd,
+					   enum osdp_completion_status status)
+{
+	ARG_UNUSED(arg);
+	ARG_UNUSED(pd);
+	ARG_UNUSED(cmd);
+	ARG_UNUSED(status);
+}
+
+static void test_default_event_completion_cb(void *arg,
+					     const struct osdp_event *ev,
+					     enum osdp_completion_status status)
+{
+	ARG_UNUSED(arg);
+	ARG_UNUSED(ev);
+	ARG_UNUSED(status);
+}
+
 int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 			   uint32_t cp_flags, uint32_t pd_flags)
 {
@@ -950,6 +975,13 @@ int test_setup_devices_ext(struct test *t, osdp_t **cp, osdp_t **pd,
 		osdp_cp_teardown(*cp);
 		return -1;
 	}
+
+	osdp_cp_set_command_completion_callback(*cp,
+						test_default_cmd_completion_cb,
+						NULL);
+	osdp_pd_set_event_completion_callback(*pd,
+					      test_default_event_completion_cb,
+					      NULL);
 
 	return 0;
 }

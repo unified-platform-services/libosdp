@@ -1716,6 +1716,10 @@ int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event);
  * (@c OSDP_COMPLETION_FLUSHED) and osdp_pd_teardown() (@c OSDP_COMPLETION_ABORTED).
  * That callback is where a heap-allocated event should be freed. On a -1 return
  * the event was never queued and is the application's to reuse at once.
+ *
+ * @note Submission fails unless a completion callback is registered (see
+ * osdp_pd_set_event_completion_callback()) -- the completion callback is how
+ * ownership of the submitted event returns to the application.
  */
 OSDP_EXPORT
 int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event);
@@ -1833,6 +1837,10 @@ int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
  * @c OSDP_COMPLETION_ACCEPTED before this function returns. Progress and
  * outcome of the operation are then reported via the
  * OSDP_NOTIFICATION_MP_* notifications.
+ *
+ * @note Submission fails unless a completion callback is registered (see
+ * osdp_cp_set_command_completion_callback()) -- the completion callback is
+ * how ownership of the submitted command returns to the application.
  */
 OSDP_EXPORT
 int osdp_cp_submit_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);

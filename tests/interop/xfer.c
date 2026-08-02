@@ -53,6 +53,23 @@
 
 enum sc_mode { MODE_PLAIN, MODE_SECURE, MODE_INSTALL };
 
+/*
+ * Submitting a command/event requires a registered completion callback --
+ * that is how the library hands ownership back. This harness submits from
+ * static storage and does not act on outcomes, so the callbacks are no-ops.
+ */
+static void noop_cmd_completion(void *arg, int pd, const struct osdp_cmd *cmd,
+				enum osdp_completion_status status)
+{
+	(void)arg; (void)pd; (void)cmd; (void)status;
+}
+
+static void noop_event_completion(void *arg, const struct osdp_event *ev,
+				  enum osdp_completion_status status)
+{
+	(void)arg; (void)ev; (void)status;
+}
+
 /* Shared secret for the secure modes; identical on both ends. */
 static const uint8_t SCBK[16] = {
 	0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
@@ -340,6 +357,7 @@ static int run_pd(void)
 		return 1;
 	}
 	osdp_pd_set_command_callback(ctx, pd_command_cb, NULL);
+	osdp_pd_set_event_completion_callback(ctx, noop_event_completion, NULL);
 
 	int tx_ev = 0;
 	int64_t start = osdp_millis_now();
@@ -419,6 +437,7 @@ static int run_cp(void)
 		return 1;
 	}
 	osdp_cp_set_event_callback(ctx, cp_event_cb, NULL);
+	osdp_cp_set_command_completion_callback(ctx, noop_cmd_completion, NULL);
 
 	int want_sc = (g_mode != MODE_PLAIN);
 	int tx_cmd = 0;

@@ -2050,6 +2050,12 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 	input_check(ctx);
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 
+	if (!pd->event_completion_callback) {
+		LOG_ERR("Refusing event: no completion callback registered;"
+			" it is how event ownership returns to the app");
+		return -1;
+	}
+
 	if (event->type <= 0 || event->type >= OSDP_EVENT_SENTINEL) {
 		return -1;
 	}

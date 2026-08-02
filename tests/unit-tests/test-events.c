@@ -425,6 +425,34 @@ static bool test_mfgstat_events()
 }
 
 /*
+ * The completion callback is how event ownership returns to the app, so a
+ * submission with none registered must be refused outright rather than
+ * silently swallowing the event.
+ */
+static bool test_submit_requires_completion_callback()
+{
+	struct osdp_event event = {
+		.type = OSDP_EVENT_CARDREAD,
+		.cardread = {
+			.format = OSDP_CARD_FMT_RAW_WIEGAND,
+			.length = 32,
+		},
+	};
+
+	printf(SUB_2 "testing submit without completion callback fails\n");
+	reset_test_state();
+
+	osdp_pd_set_event_completion_callback(g_test_ctx.pd_ctx, NULL, NULL);
+	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event) == 0) {
+		printf(SUB_2 "submit accepted without a completion callback\n");
+		return false;
+	}
+	osdp_pd_set_event_completion_callback(g_test_ctx.pd_ctx,
+					      test_event_completion_cb, NULL);
+	return true;
+}
+
+/*
  * A reply whose *content* overflows the TX buffer is degraded to a NAK by
  * pd_build_reply()'s catch-all and the exchange itself succeeds -- but the
  * event's data never reached the CP, so its completion must be FAILED, not
@@ -578,6 +606,8 @@ void run_event_tests(struct test *t)
 	TEST_CASE(t, "output_status_event", test_output_status_event());
 	TEST_CASE(t, "mfgrep_event", test_mfgrep_event());
 	TEST_CASE(t, "mfgstat_events", test_mfgstat_events());
+	TEST_CASE(t, "submit_requires_completion_callback",
+		  test_submit_requires_completion_callback());
 	TEST_CASE(t, "reply_degraded_to_nak_completion",
 		  test_event_reply_degraded_to_nak_completes_failed());
 	TEST_CASE(t, "reply_build_failure_completion",
