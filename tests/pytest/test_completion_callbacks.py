@@ -23,6 +23,61 @@ PD_ADDR = 101
 # reached the wire.
 POOL_SIZE = 4
 
+# FILE_TX is engine-owned: it never rides the command queue, so it needs its
+# own file ops rather than the pool-filling Output command used elsewhere in
+# this file.
+FILE_ID = 7
+FILE_SIZE = 64
+
+
+class SenderFileOps:
+    """The CP side of a transfer: reads out of a fixed buffer, never writes."""
+
+    def __init__(self):
+        self.data = bytes(range(FILE_SIZE))
+
+    def open(self, file_id: int, size: int) -> int:
+        assert file_id == FILE_ID
+        assert size == 0
+        return FILE_SIZE
+
+    def read(self, size: int, offset: int) -> bytes:
+        assert offset < FILE_SIZE
+        if offset + size > FILE_SIZE:
+            size = FILE_SIZE - offset
+        return self.data[offset:offset + size]
+
+    def write(self, data: bytes, offset: int) -> int:
+        assert False
+
+    def close(self, file_id: int) -> int:
+        assert file_id == FILE_ID
+        return 0
+
+
+class ReceiverFileOps:
+    """The PD side of a transfer: writes into a fixed buffer, never reads."""
+
+    def __init__(self):
+        self.data = bytearray(FILE_SIZE)
+
+    def open(self, file_id: int, size: int) -> int:
+        assert file_id == FILE_ID
+        assert size == FILE_SIZE
+        return 0
+
+    def read(self, size: int, offset: int) -> bytes:
+        assert False
+
+    def write(self, data: bytes, offset: int) -> int:
+        assert offset + len(data) <= FILE_SIZE
+        self.data[offset:offset + len(data)] = data
+        return len(data)
+
+    def close(self, file_id: int) -> int:
+        assert file_id == FILE_ID
+        return 0
+
 
 class Recorder:
     """Collects completion callbacks from the library's refresh thread."""
@@ -228,3 +283,24 @@ def test_pd_event_completion_statuses():
             "no Aborted completion for an event queued at teardown"
     finally:
         _teardown(cp, pd, "completion-pd")
+
+
+def test_file_tx_command_completes_accepted():
+    """Engine-owned commands return ownership synchronously as Accepted."""
+    rec = Recorder()
+    cp, pd = _make_pair("completion-accepted")
+    try:
+        pd.start()
+        cp.start()
+        assert cp.online_wait(PD_ADDR, timeout=10), "PD did not come online"
+
+        cp.set_command_completion_handler(rec.on_command_complete)
+        assert cp.register_file_ops(PD_ADDR, SenderFileOps())
+        assert pd.register_file_ops(ReceiverFileOps())
+
+        assert cp.submit_command(PD_ADDR, commands.FileTransfer(id=FILE_ID))
+        assert rec.wait_for_status(CompletionStatus.Accepted, timeout=1.0), (
+            "no Accepted completion for a file transfer command"
+        )
+    finally:
+        _teardown(cp, pd, "completion-accepted")

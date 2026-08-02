@@ -329,6 +329,11 @@ class CompletionStatus(IntEnum):
     Aborted = _sys.COMPLETION_ABORTED
     """The context was torn down while it was still queued."""
 
+    Accepted = _sys.COMPLETION_ACCEPTED
+    """Copied by an internal engine (file transfer, PIV); ownership returned
+    before submit_command() returned. Outcome arrives via Multipart*
+    notifications."""
+
 
 class BioType(_WireEnum):
     """Which biometric a reader should capture or match.

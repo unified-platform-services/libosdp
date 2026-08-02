@@ -99,13 +99,22 @@ static PyObject *pyosdp_pd_submit_event(pyosdp_pd_t *self, PyObject *args)
 			"Unable to convert event dict to OSDP event structure");
 		return NULL;
 	}
-	if (osdp_pd_submit_event(self->ctx, &pending->event)) {
-		free(pending);
-		Py_RETURN_FALSE;
-	}
+	/* Link before submitting, mirroring the CP side: should an event ever
+	 * complete from within the submit call, the completion callback must
+	 * find (and will free) this record. */
 	pending->next = self->pending_event_head;
 	self->pending_event_head = pending;
-	Py_RETURN_TRUE;
+
+	if (osdp_pd_submit_event(self->ctx, &pending->event) == 0) {
+		/* On success `pending` may already be freed; don't touch it. */
+		Py_RETURN_TRUE;
+	}
+
+	/* Never queued: no callback fired, the record is still ours. */
+	pyosdp_pd_take_pending_event(self, &pending->event);
+	free(pending);
+
+	Py_RETURN_FALSE;
 }
 
 #define pyosdp_pd_flush_events_doc                                             \

@@ -1926,6 +1926,7 @@ static void state_update(struct osdp_pd *pd)
 
 static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 {
+	int ret;
 	const uint32_t all_flags = (
 		OSDP_CMD_FLAG_BROADCAST
 	);
@@ -1966,14 +1967,22 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	}
 
 	if (cmd->id == OSDP_CMD_FILE_TX) {
-		return osdp_file_tx_command(pd, cmd->file_tx.id,
-					    cmd->file_tx.flags);
+		ret = osdp_file_tx_command(pd, cmd->file_tx.id,
+					   cmd->file_tx.flags);
+		if (ret == 0) {
+			cp_complete_cmd(pd, cmd, OSDP_COMPLETION_ACCEPTED);
+		}
+		return ret;
 	} else if (cmd->id == OSDP_CMD_PIVDATA ||
 		   cmd->id == OSDP_CMD_GENAUTH ||
 		   cmd->id == OSDP_CMD_CRAUTH) {
 		/* Multi-exchange op driven from the refresh loop (like
 		 * FILE_TX); it does not ride the command queue. */
-		return osdp_piv_cp_submit(pd, cmd);
+		ret = osdp_piv_cp_submit(pd, cmd);
+		if (ret == 0) {
+			cp_complete_cmd(pd, cmd, OSDP_COMPLETION_ACCEPTED);
+		}
+		return ret;
 	} else if (cmd->id == OSDP_CMD_KEYSET &&
 		   (cmd->keyset.type != 1 || !sc_is_active(pd))) {
 		LOG_ERR("Invalid keyset request");

@@ -42,6 +42,19 @@ static struct test_piv_ctx g_piv;
  * command callback must outlive that callback's stack frame. */
 static struct osdp_event g_piv_inline_reply;
 
+static volatile int g_piv_compl_status = -1;
+static const struct osdp_cmd *g_piv_compl_cmd;
+
+static void piv_cmd_completion_cb(void *arg, int pd,
+				   const struct osdp_cmd *cmd,
+				   enum osdp_completion_status status)
+{
+	ARG_UNUSED(arg);
+	ARG_UNUSED(pd);
+	g_piv_compl_cmd = cmd;
+	g_piv_compl_status = (int)status;
+}
+
 static void piv_fill_reply(struct osdp_event *ev, int event_type)
 {
 	int i;
@@ -296,13 +309,25 @@ static bool test_pivdata_busy_reject(void)
 	g_piv.mp_done = 0;
 	g_piv.inline_reply = false; /* keeps the op open until we reply */
 	g_piv.reply_event_type = OSDP_EVENT_PIVDATAR;
+	g_piv_compl_status = -1;
+	g_piv_compl_cmd = NULL;
 
 	if (osdp_cp_submit_command(g_piv.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "busy: first submit failed\n");
 		return false;
 	}
+	if (g_piv_compl_status != OSDP_COMPLETION_ACCEPTED ||
+	    g_piv_compl_cmd != &cmd) {
+		printf(SUB_2 "no synchronous ACCEPTED completion for pivdata\n");
+		return false;
+	}
+	g_piv_compl_status = -1;
 	if (osdp_cp_submit_command(g_piv.cp_ctx, 0, &cmd) == 0) {
 		printf(SUB_2 "busy: second submit was accepted\n");
+		return false;
+	}
+	if (g_piv_compl_status != -1) {
+		printf(SUB_2 "unexpected completion fired for rejected pivdata submit\n");
 		return false;
 	}
 
@@ -360,6 +385,8 @@ void run_piv_tests(struct test *t)
 	osdp_cp_set_event_callback(g_piv.cp_ctx, piv_cp_event_callback, &g_piv);
 	osdp_pd_set_command_callback(g_piv.pd_ctx, piv_pd_command_callback,
 				     &g_piv);
+	osdp_cp_set_command_completion_callback(g_piv.cp_ctx,
+						 piv_cmd_completion_cb, NULL);
 
 	g_piv.cp_runner = async_runner_start(g_piv.cp_ctx, osdp_cp_refresh);
 	g_piv.pd_runner = async_runner_start(g_piv.pd_ctx, osdp_pd_refresh);

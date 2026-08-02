@@ -1602,6 +1602,13 @@ enum osdp_completion_status {
 	OSDP_COMPLETION_FAILED, /**< Transport/protocol failure */
 	OSDP_COMPLETION_FLUSHED, /**< Removed by flush API */
 	OSDP_COMPLETION_ABORTED, /**< Removed during teardown */
+	/**
+	 * Consumed by an internal engine (file transfer, PIV); ownership
+	 * returned before osdp_cp_submit_command() returned. The
+	 * operation's progress/outcome arrives via the
+	 * OSDP_NOTIFICATION_MP_* notifications.
+	 */
+	OSDP_COMPLETION_ACCEPTED,
 };
 
 /**
@@ -1833,6 +1840,13 @@ int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
  * (@c OSDP_COMPLETION_FLUSHED) and osdp_cp_teardown() (@c OSDP_COMPLETION_ABORTED).
  * That callback is where a heap-allocated command should be freed. On a -1
  * return the command was never queued and is the application's to reuse at once.
+ *
+ * @note OSDP_CMD_FILE_TX, OSDP_CMD_PIVDATA, OSDP_CMD_GENAUTH and
+ * OSDP_CMD_CRAUTH do not ride the command queue: the engine copies what it
+ * needs during this call and the completion callback fires with
+ * @c OSDP_COMPLETION_ACCEPTED before this function returns. Progress and
+ * outcome of the operation are then reported via the
+ * OSDP_NOTIFICATION_MP_* notifications.
  */
 OSDP_EXPORT
 int osdp_cp_submit_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);

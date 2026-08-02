@@ -275,13 +275,20 @@ static PyObject *pyosdp_cp_submit_command(pyosdp_cp_t *self, PyObject *args)
 		return NULL;
 	}
 
+	/* Link before submitting: engine-owned commands complete ACCEPTED
+	 * from within osdp_cp_submit_command() itself, and the completion
+	 * callback must find (and will free) this record. */
+	pending->next = self->pending_cmd_head;
+	self->pending_cmd_head = pending;
+
 	ret = osdp_cp_submit_command(self->ctx, pd, &pending->cmd);
 	if (ret == 0) {
-		pending->next = self->pending_cmd_head;
-		self->pending_cmd_head = pending;
+		/* On success `pending` may already be freed; don't touch it. */
 		Py_RETURN_TRUE;
 	}
 
+	/* Never queued: no callback fired, the record is still ours. */
+	pyosdp_cp_take_pending_command(self, pd, &pending->cmd);
 	free(pending);
 
 	Py_RETURN_FALSE;
