@@ -1627,6 +1627,13 @@ static int pd_receive_and_process_command(struct osdp_pd *pd)
 
 static inline void pd_error_reset(struct osdp_pd *pd)
 {
+	/* A dequeued event whose reply never reached the wire is not
+	 * retried by anyone; hand it back to the app as FAILED. */
+	if (pd->active_event) {
+		pd_complete_event(pd, pd->active_event,
+				  OSDP_COMPLETION_FAILED);
+		pd->active_event = NULL;
+	}
 	pd_sc_deactivate(pd);
 	osdp_phy_state_reset(pd, false);
 }

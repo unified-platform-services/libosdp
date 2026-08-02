@@ -28,6 +28,38 @@ struct test_event_ctx {
 
 static struct test_event_ctx g_test_ctx = {0};
 
+/* Stashed by run_event_tests() so cases that rebuild the pair mid-suite
+ * (e.g. after a deliberately induced protocol failure) can call
+ * setup_test_environment() again without a NULL struct test *. */
+static struct test *g_test;
+
+/* Completion tracking for event lifetime tests */
+static volatile int compl_count;
+static volatile int compl_last_status;
+static const struct osdp_event *compl_last_event;
+
+static void test_event_completion_cb(void *arg, const struct osdp_event *ev,
+				     enum osdp_completion_status status)
+{
+	ARG_UNUSED(arg);
+	compl_last_event = ev;
+	compl_last_status = (int)status;
+	compl_count++;
+}
+
+static bool wait_for_completion_count(int min_count, int timeout_sec)
+{
+	int rc = 0;
+
+	while (rc < timeout_sec * 1000) {
+		if (compl_count >= min_count)
+			return true;
+		usleep(20 * 1000);
+		rc += 20;
+	}
+	return false;
+}
+
 int test_events_event_callback(void *arg, int pd, struct osdp_event *ev)
 {
 	ARG_UNUSED(pd);
@@ -392,9 +424,82 @@ static bool test_mfgstat_events()
 	return result;
 }
 
+/*
+ * A reply that cannot fit the TX buffer exercises the pd_build_reply_packet()
+ * failure path. The dequeued event must come back to the app as a FAILED
+ * completion -- nothing retries it -- and it must be reported exactly once.
+ *
+ * A content-only overflow (e.g. an oversized cardread payload) does *not*
+ * reach this path: pd_build_reply()'s catch-all degrades any single
+ * reply-builder failure into a 2-byte NAK and still reports success, so
+ * pd_build_reply_packet() returns OK and the exchange completes normally.
+ * To reach the structural failure at osdp_phy_packet_init() (still too small
+ * to even fit a NAK), clamp the PD's advertised TX capability
+ * (pd->peer_rx_size, normally set by CMD_ACURXSIZE) below
+ * OSDP_MINIMUM_PACKET_SIZE for the reply to this event's POLL.
+ *
+ * The clamp is written from this thread while the PD refresh thread reads
+ * it: a deliberate test-only poke at library-internal state, since no API
+ * reaches it. Do not copy this pattern outside fault injection.
+ */
+static bool test_event_reply_build_failure_completes()
+{
+	static struct osdp_event bad_event = {
+		.type = OSDP_EVENT_CARDREAD,
+		.cardread = {
+			.format = OSDP_CARD_FMT_RAW_WIEGAND,
+			.length = 8,
+		},
+	};
+	struct osdp_pd *pd;
+
+	printf(SUB_2 "testing completion on reply build failure\n");
+	reset_test_state();
+	compl_count = 0;
+	compl_last_event = NULL;
+	compl_last_status = -1;
+
+	osdp_pd_set_event_completion_callback(g_test_ctx.pd_ctx,
+					      test_event_completion_cb, NULL);
+
+	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &bad_event)) {
+		printf(SUB_2 "failed to submit event\n");
+		return false;
+	}
+
+	pd = osdp_to_pd(g_test_ctx.pd_ctx, 0);
+	pd->peer_rx_size = 8;
+
+	if (!wait_for_completion_count(1, 5)) {
+		printf(SUB_2 "no completion for un-sendable event\n");
+		return false;
+	}
+	if (compl_last_event != &bad_event ||
+	    compl_last_status != OSDP_COMPLETION_FAILED) {
+		printf(SUB_2 "unexpected completion: status=%d\n",
+		       compl_last_status);
+		return false;
+	}
+
+	/* Exactly once: no second report for the same event. */
+	usleep(500 * 1000);
+	if (compl_count != 1) {
+		printf(SUB_2 "event completed %d times\n", compl_count);
+		return false;
+	}
+
+	/* pd->peer_rx_size stays clamped to 8, so every future reply on
+	 * this PD keeps hitting the same packet_init failure; rebuild the
+	 * pair so later cases see a live link with a fresh (unclamped) PD. */
+	teardown_test_environment();
+	return setup_test_environment(g_test) == 0;
+}
+
 void run_event_tests(struct test *t)
 {
 	printf("\nBegin Event Tests (pytest-style)\n");
+
+	g_test = t;
 
 	/* Setup test environment once */
 	if (setup_test_environment(t) != 0) {
@@ -411,6 +516,8 @@ void run_event_tests(struct test *t)
 	TEST_CASE(t, "output_status_event", test_output_status_event());
 	TEST_CASE(t, "mfgrep_event", test_mfgrep_event());
 	TEST_CASE(t, "mfgstat_events", test_mfgstat_events());
+	TEST_CASE(t, "reply_build_failure_completion",
+		  test_event_reply_build_failure_completes());
 
 	/* Teardown test environment */
 	teardown_test_environment();
