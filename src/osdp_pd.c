@@ -1516,6 +1516,15 @@ out:
 		buf[1] = OSDP_PD_NAK_RECORD;
 		len = 2;
 		osdp_metrics_report(pd, OSDP_METRIC_NAK);
+		/* The reply this NAK replaces carried the app's event; the
+		 * event is not going out on this exchange and nothing
+		 * retries it, so hand it back as FAILED now -- letting it
+		 * ride to the send path would complete it OK. */
+		if (pd->active_event) {
+			pd_complete_event(pd, pd->active_event,
+					  OSDP_COMPLETION_FAILED);
+			pd->active_event = NULL;
+		}
 	}
 
 	/**

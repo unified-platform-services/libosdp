@@ -425,6 +425,68 @@ static bool test_mfgstat_events()
 }
 
 /*
+ * A reply whose *content* overflows the TX buffer is degraded to a NAK by
+ * pd_build_reply()'s catch-all and the exchange itself succeeds -- but the
+ * event's data never reached the CP, so its completion must be FAILED, not
+ * OK. Clamp the PD's advertised TX capability to exactly
+ * OSDP_MINIMUM_PACKET_SIZE (128): packet init succeeds, while a full-size
+ * MFGREP payload (4 + 128 bytes) cannot fit and degrades.
+ */
+static bool test_event_reply_degraded_to_nak_completes_failed()
+{
+	static struct osdp_event event = {
+		.type = OSDP_EVENT_MFGREP,
+		.mfgrep = {
+			.vendor_code = 0x00030201,
+			.length = OSDP_EVENT_MFGREP_MAX_DATALEN,
+		},
+	};
+	struct osdp_pd *pd;
+	bool result;
+
+	printf(SUB_2 "testing completion when reply degrades to NAK\n");
+	reset_test_state();
+	compl_count = 0;
+	compl_last_event = NULL;
+	compl_last_status = -1;
+
+	osdp_pd_set_event_completion_callback(g_test_ctx.pd_ctx,
+					      test_event_completion_cb, NULL);
+
+	pd = osdp_to_pd(g_test_ctx.pd_ctx, 0);
+	pd->peer_rx_size = 128; /* OSDP_MINIMUM_PACKET_SIZE */
+
+	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event)) {
+		printf(SUB_2 "failed to submit event\n");
+		return false;
+	}
+
+	result = wait_for_completion_count(1, 5);
+	if (!result) {
+		printf(SUB_2 "no completion for degraded event\n");
+	} else if (compl_last_event != &event ||
+		   compl_last_status != OSDP_COMPLETION_FAILED) {
+		printf(SUB_2 "unexpected completion: status=%d\n",
+		       compl_last_status);
+		result = false;
+	} else {
+		/* Exactly once: no second report for the same event. */
+		usleep(500 * 1000);
+		if (compl_count != 1) {
+			printf(SUB_2 "event completed %d times\n",
+			       compl_count);
+			result = false;
+		}
+	}
+
+	/* The CP saw a NAK to its POLL and parks in its offline dwell;
+	 * rebuild the pair -- on every exit path -- so later cases see a
+	 * live link with a fresh (unclamped) PD. */
+	teardown_test_environment();
+	return (setup_test_environment(g_test) == 0) && result;
+}
+
+/*
  * A reply that cannot fit the TX buffer exercises the pd_build_reply_packet()
  * failure path. The dequeued event must come back to the app as a FAILED
  * completion -- nothing retries it -- and it must be reported exactly once.
@@ -516,6 +578,8 @@ void run_event_tests(struct test *t)
 	TEST_CASE(t, "output_status_event", test_output_status_event());
 	TEST_CASE(t, "mfgrep_event", test_mfgrep_event());
 	TEST_CASE(t, "mfgstat_events", test_mfgstat_events());
+	TEST_CASE(t, "reply_degraded_to_nak_completion",
+		  test_event_reply_degraded_to_nak_completes_failed());
 	TEST_CASE(t, "reply_build_failure_completion",
 		  test_event_reply_build_failure_completes());
 
