@@ -1584,7 +1584,12 @@ typedef int (*cp_event_callback_t)(void *arg, int pd, struct osdp_event *ev);
  * @brief Terminal status of a submitted command/event object.
  */
 enum osdp_completion_status {
-	OSDP_COMPLETION_OK = 0, /**< Successfully completed */
+	/**
+	 * Successfully completed. In CP mode, a valid reply for the command
+	 * was received from the PD. In PD mode, the event's reply was
+	 * accepted by the transport; delivery to the CP is not confirmed.
+	 */
+	OSDP_COMPLETION_OK = 0,
 	OSDP_COMPLETION_FAILED, /**< Transport/protocol failure */
 	OSDP_COMPLETION_FLUSHED, /**< Removed by flush API */
 	OSDP_COMPLETION_ABORTED, /**< Removed during teardown */
@@ -1599,6 +1604,14 @@ enum osdp_completion_status {
 
 /**
  * @brief Callback for CP command completion notifications.
+ *
+ * Invoked on the caller's thread from within osdp_cp_refresh(),
+ * osdp_cp_flush_commands() and osdp_cp_teardown(), and -- for engine-owned
+ * commands reported as @c OSDP_COMPLETION_ACCEPTED -- from within
+ * osdp_cp_submit_command() itself, before it returns. It must not block.
+ * Submitting a new command from an OK/FAILED/ACCEPTED completion is safe; do
+ * not call any osdp_* API from a FLUSHED or ABORTED completion -- those fire
+ * inside the flush/teardown drain loops.
  */
 typedef void (*cp_command_completion_callback_t)(void *arg, int pd,
 						 const struct osdp_cmd *cmd,
@@ -1606,6 +1619,12 @@ typedef void (*cp_command_completion_callback_t)(void *arg, int pd,
 
 /**
  * @brief Callback for PD event completion notifications.
+ *
+ * Invoked on the caller's thread from within osdp_pd_refresh(),
+ * osdp_pd_flush_events() and osdp_pd_teardown(). It must not block.
+ * Submitting a new event from an OK/FAILED completion is safe; do not call
+ * any osdp_* API from a FLUSHED or ABORTED completion -- those fire inside
+ * the flush/teardown drain loops.
  */
 typedef void (*pd_event_completion_callback_t)(void *arg,
 					       const struct osdp_event *ev,
@@ -1634,6 +1653,13 @@ osdp_t *osdp_pd_setup(struct osdp_channel *channel, const osdp_pd_info_t *info);
  * once every 50ms to meet OSDP timing requirements.
  *
  * @param ctx OSDP context
+ *
+ * @note LibOSDP is not internally synchronized. All API calls against one
+ * context -- submissions, flushes, teardown, and this refresh -- must be
+ * serialized by the caller: either make every call from one thread, or hold
+ * one lock across every call (the bundled python binding does the latter).
+ * The submit APIs enqueue into unlocked intrusive lists that this call
+ * consumes; concurrent unserialized access corrupts them.
  */
 OSDP_EXPORT
 void osdp_pd_refresh(osdp_t *ctx);
@@ -1675,6 +1701,11 @@ void osdp_pd_set_command_callback(osdp_t *ctx, pd_command_callback_t cb,
  * @param ctx OSDP context
  * @param cb Callback function pointer
  * @param arg Opaque pointer passed as first callback argument
+ *
+ * @note Clearing this callback (passing NULL) while events are still queued
+ * or in flight orphans them: their completions are dropped and the
+ * application never gets them back. Unregister only after
+ * osdp_pd_flush_events() or osdp_pd_teardown() has drained them.
  */
 OSDP_EXPORT
 void osdp_pd_set_event_completion_callback(osdp_t *ctx,
@@ -1773,6 +1804,13 @@ int osdp_cp_add_pd(osdp_t *ctx, int num_pd, const osdp_pd_info_t *info);
  * once every 50ms to meet OSDP timing requirements.
  *
  * @param ctx OSDP context
+ *
+ * @note LibOSDP is not internally synchronized. All API calls against one
+ * context -- submissions, flushes, teardown, and this refresh -- must be
+ * serialized by the caller: either make every call from one thread, or hold
+ * one lock across every call (the bundled python binding does the latter).
+ * The submit APIs enqueue into unlocked intrusive lists that this call
+ * consumes; concurrent unserialized access corrupts them.
  */
 OSDP_EXPORT
 void osdp_cp_refresh(osdp_t *ctx);
@@ -1841,6 +1879,13 @@ int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
  * @note Submission fails unless a completion callback is registered (see
  * osdp_cp_set_command_completion_callback()) -- the completion callback is
  * how ownership of the submitted command returns to the application.
+ *
+ * @note Submission is accepted only while the PD is ONLINE; expect and handle
+ * the -1 path. Once accepted, a command survives a link outage: it stays
+ * queued while the PD is offline and executes after the PD reconnects,
+ * however much later that is. If stale delivery is worse than no delivery
+ * (LED/buzzer feedback, say), call osdp_cp_flush_commands() when the PD goes
+ * offline (see @ref OSDP_NOTIFICATION_PD_STATUS).
  */
 OSDP_EXPORT
 int osdp_cp_submit_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
@@ -1907,6 +1952,11 @@ void osdp_cp_set_event_callback(osdp_t *ctx, cp_event_callback_t cb, void *arg);
  * @param ctx OSDP context
  * @param cb Callback function pointer
  * @param arg Opaque pointer passed as first callback argument
+ *
+ * @note Clearing this callback (passing NULL) while commands are still queued
+ * or in flight orphans them: their completions are dropped and the
+ * application never gets them back. Unregister only after
+ * osdp_cp_flush_commands() or osdp_cp_teardown() has drained them.
  */
 OSDP_EXPORT
 void osdp_cp_set_command_completion_callback(osdp_t *ctx,
