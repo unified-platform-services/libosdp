@@ -112,12 +112,6 @@ public:
 		osdp_cp_refresh(_ctx);
 	}
 
-	[[deprecated]]
-	int send_command(int pd, const struct osdp_cmd *cmd)
-	{
-		return osdp_cp_submit_command(_ctx, pd, cmd);
-	}
-
 	int submit_command(int pd, const struct osdp_cmd *cmd)
 	{
 		return osdp_cp_submit_command(_ctx, pd, cmd);
@@ -214,12 +208,6 @@ public:
 					   void *arg)
 	{
 		osdp_pd_set_event_completion_callback(_ctx, cb, arg);
-	}
-
-	[[deprecated]]
-	int notify_event(struct osdp_event *event)
-	{
-		return osdp_pd_submit_event(_ctx, event);
 	}
 
 	int submit_event(struct osdp_event *event)

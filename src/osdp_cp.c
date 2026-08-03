@@ -2209,14 +2209,6 @@ void osdp_cp_set_command_completion_callback(osdp_t *ctx,
 	TO_OSDP(ctx)->command_completion_callback_arg = arg;
 }
 
-int osdp_cp_send_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
-{
-	input_check(ctx, pd_idx);
-	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
-
-	return cp_submit_command(pd, cmd);
-}
-
 int osdp_cp_submit_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 {
 	input_check(ctx, pd_idx);

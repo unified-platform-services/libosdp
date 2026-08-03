@@ -1713,19 +1713,6 @@ void osdp_pd_set_event_completion_callback(osdp_t *ctx,
 					   void *arg);
 
 /**
- * @brief API to notify PD events to CP. These events are sent to the CP as an
- * alternate response to a POLL command.
- *
- * @param ctx OSDP context
- * @param event pointer to event struct. Must be filled by application.
- *
- * @retval 0 on success
- * @retval -1 on failure
- */
-OSDP_DEPRECATED_EXPORT("Use osdp_pd_submit_event() instead!")
-int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event);
-
-/**
  * @brief Submit PD events to CP. These events are delivered to the CP as a
  * response to a future POLL command. A successful return does not mean CP
  * received it, it only means LibOSDP accepted this submission.
@@ -1823,23 +1810,6 @@ void osdp_cp_refresh(osdp_t *ctx);
  */
 OSDP_EXPORT
 void osdp_cp_teardown(osdp_t *ctx);
-
-/**
- * @brief Generic command enqueue API.
- *
- * @param ctx OSDP context
- * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
- * osdp_cp_setup()
- * @param cmd command pointer. Must be filled by application.
- *
- * @retval 0 on success
- * @retval -1 on failure
- *
- * @note This method only adds the command on to a particular PD's command
- * queue. The command itself can fail due to various reasons.
- */
-OSDP_DEPRECATED_EXPORT("Use osdp_cp_submit_command() instead!")
-int osdp_cp_send_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
 
 /**
  * @brief Submit CP commands to PD. These commands are queued to be sent to the

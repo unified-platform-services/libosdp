@@ -2088,11 +2088,6 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 	return pd_event_enqueue(pd, event);
 }
 
-int osdp_pd_notify_event(osdp_t *ctx, const struct osdp_event *event)
-{
-	return osdp_pd_submit_event(ctx, event);
-}
-
 int osdp_pd_flush_events(osdp_t *ctx)
 {
 	input_check(ctx);
