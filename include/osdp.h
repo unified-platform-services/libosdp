@@ -1663,7 +1663,10 @@ osdp_t *osdp_pd_setup(struct osdp_channel *channel, const osdp_pd_info_t *info);
  * serialized by the caller: either make every call from one thread, or hold
  * one lock across every call (the bundled python binding does the latter).
  * The submit APIs enqueue into unlocked intrusive lists that this call
- * consumes; concurrent unserialized access corrupts them.
+ * consumes; concurrent unserialized access corrupts them. The read-only
+ * getters are exempt: osdp_get_status_mask(), osdp_get_sc_status_mask(),
+ * osdp_cp_get_pd_id() and osdp_get_file_tx_status() mutate nothing and may be
+ * called concurrently -- see their notes.
  */
 OSDP_EXPORT
 void osdp_pd_refresh(osdp_t *ctx);
@@ -1801,7 +1804,10 @@ int osdp_cp_add_pd(osdp_t *ctx, int num_pd, const osdp_pd_info_t *info);
  * serialized by the caller: either make every call from one thread, or hold
  * one lock across every call (the bundled python binding does the latter).
  * The submit APIs enqueue into unlocked intrusive lists that this call
- * consumes; concurrent unserialized access corrupts them.
+ * consumes; concurrent unserialized access corrupts them. The read-only
+ * getters are exempt: osdp_get_status_mask(), osdp_get_sc_status_mask(),
+ * osdp_cp_get_pd_id() and osdp_get_file_tx_status() mutate nothing and may be
+ * called concurrently -- see their notes.
  */
 OSDP_EXPORT
 void osdp_cp_refresh(osdp_t *ctx);
@@ -1888,6 +1894,11 @@ int osdp_cp_flush_commands(osdp_t *ctx, int pd);
  *
  * @retval 0 on success
  * @retval -1 on failure
+ *
+ * @note This copies out of the PD's record and mutates nothing, so it is
+ * exempt from the serialization rule documented on osdp_cp_refresh(). The
+ * record is filled once while the PD comes online and is fixed from then on;
+ * reading it before that is already documented above as not meaningful.
  */
 OSDP_EXPORT
 int osdp_cp_get_pd_id(const osdp_t *ctx, int pd, struct osdp_pd_id *id);
@@ -2097,6 +2108,12 @@ const char *osdp_get_source_info();
  * @param ctx OSDP context
  * @param bitmask pointer to an array of bytes. must be as large as
  * (num_pds + 7 / 8).
+ *
+ * @note Unlike the rest of the API, this samples per-PD state and writes only
+ * to @a bitmask; it mutates nothing. It is therefore exempt from the
+ * serialization rule documented on osdp_cp_refresh(): it may be called
+ * concurrently with the refresh loop, and the answer is at worst one refresh
+ * out of date.
  */
 OSDP_EXPORT
 void osdp_get_status_mask(const osdp_t *ctx, uint8_t *bitmask);
@@ -2108,6 +2125,9 @@ void osdp_get_status_mask(const osdp_t *ctx, uint8_t *bitmask);
  * @param ctx OSDP context
  * @param bitmask pointer to an array of bytes. must be as large as
  * (num_pds + 7 / 8).
+ *
+ * @note Like osdp_get_status_mask(), this mutates nothing and may be called
+ * concurrently with the refresh loop.
  */
 OSDP_EXPORT
 void osdp_get_sc_status_mask(const osdp_t *ctx, uint8_t *bitmask);
@@ -2281,6 +2301,11 @@ int osdp_file_register_ops(osdp_t *ctx, int pd,
  * @param size Total size of the file (as obtained from file_ops->open())
  * @param offset Offset into the file that has been sent/received (CP/PD)
  * @retval 0 on success. -1 on errors.
+ *
+ * @note This samples the transfer's counters and mutates nothing, so it is
+ * exempt from the serialization rule documented on osdp_cp_refresh(). The
+ * values are a snapshot the transfer has likely moved past by the time they
+ * are used, which is what a progress reading is.
  */
 OSDP_EXPORT
 int osdp_get_file_tx_status(const osdp_t *ctx, int pd, uint32_t *size,

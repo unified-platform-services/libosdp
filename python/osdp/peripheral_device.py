@@ -13,8 +13,8 @@ from typing import Any, Callable
 
 from . import _sys
 from ._marshal import decode_command, decode_event, encode_command, encode_event
-from .commands import Command
-from .enums import CompletionStatus, LogLevel
+from .commands import Command, Notification
+from .enums import CompletionStatus, LibFlag, LogLevel, NotificationType
 from .errors import NakError
 from .events import Event
 from .types import FileOps, FileTxStatus, Metrics, PDCapabilities, PDInfo
@@ -76,9 +76,24 @@ class PeripheralDevice:
         self.user_command_handler = command_handler
         self.user_event_completion_handler = event_completion_handler
 
+        # State kept up to date from the library's notifications so that
+        # reading it costs nothing and never crosses into C. The library
+        # reports every transition, so this cannot drift.
+        self._online = False
+        self._sc_active = False
+
+        # Notifications are how the above is fed, so they are turned on at the
+        # library level whatever the caller asked for. Whether the caller also
+        # gets to see them stays their own flag's decision.
+        self._forward_notifications = (
+            LibFlag.EnableNotification in pd_info.flags
+        )
+        info = pd_info.to_dict()
+        info["flags"] |= int(LibFlag.EnableNotification)
+
         _sys.set_loglevel(int(log_level))
         self._ctx: _sys.PeripheralDevice | None = _sys.PeripheralDevice(
-            pd_info.to_dict(), capabilities=pd_cap.to_dict_list()
+            info, capabilities=pd_cap.to_dict_list()
         )
         # Our handlers always run, so that get_command() works whether or not
         # the caller registered one of their own.
@@ -104,6 +119,14 @@ class PeripheralDevice:
         self, command: dict[str, Any]
     ) -> tuple[int, dict[str, Any] | None]:
         decoded = decode_command(command)
+
+        if isinstance(decoded, Notification):
+            self._track_notification(decoded)
+            if not self._forward_notifications:
+                # This one was only ever ours; the caller did not ask to see
+                # library notifications.
+                return 0, None
+
         self.command_queue.put(decoded)
 
         if self.user_command_handler is None:
@@ -117,6 +140,20 @@ class PeripheralDevice:
         if reply is None:
             return 0, None
         return 0, encode_command(reply)
+
+    def _track_notification(self, note: Notification) -> None:
+        """Fold a notification into the state this object reports.
+
+        Runs on the refresh thread, before anything else sees the command.
+        """
+        if note.type is NotificationType.PeripheralDeviceStatus:
+            self._online = note.online
+            if not note.online:
+                # With no CP reaching us there is no secure channel either;
+                # the library says so separately, but not always first.
+                self._sc_active = False
+        elif note.type is NotificationType.SecureChannelStatus:
+            self._sc_active = note.active
 
     def _internal_event_completion_handler(
         self, event: dict[str, Any], status: int
@@ -169,12 +206,21 @@ class PeripheralDevice:
     # -- state --------------------------------------------------------------
 
     def is_online(self) -> bool:
-        """Whether the CP is polling us."""
-        return bool(self.ctx.is_online())
+        """Whether the CP is polling us.
+
+        Answered from state this object keeps up to date from the library's
+        notifications, so it costs a single attribute read.
+        """
+        self.ctx  # refuse to answer for a context that has been released
+        return self._online
 
     def is_sc_active(self) -> bool:
-        """Whether the secure channel is up."""
-        return bool(self.ctx.is_sc_active())
+        """Whether the secure channel is up.
+
+        Answered from tracked state, for the same reason as is_online().
+        """
+        self.ctx  # refuse to answer for a context that has been released
+        return self._sc_active
 
     def sc_wait(self, timeout: float = 8) -> bool:
         """Block until the secure channel comes up, or the timeout elapses."""

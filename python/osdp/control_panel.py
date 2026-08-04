@@ -14,8 +14,14 @@ from typing import Any, Callable
 from . import _sys
 from ._marshal import decode_command, decode_event, encode_command
 from .commands import Command
-from .enums import Capability, CompletionStatus, LibFlag, LogLevel
-from .events import Event
+from .enums import (
+    Capability,
+    CompletionStatus,
+    LibFlag,
+    LogLevel,
+    NotificationType,
+)
+from .events import Event, Notification
 from .types import FileOps, FileTxStatus, Metrics, PdId, PDInfo
 
 __all__ = ["CommandCompletionHandler", "ControlPanel", "EventHandler"]
@@ -38,6 +44,11 @@ equal to the one that was submitted but is not the same object.
 
 REFRESH_INTERVAL = 0.020
 """How often to service the bus. OSDP requires at least once every 50ms."""
+
+_UNKNOWN_PD_ID = PdId(
+    version=0, model=0, vendor_code=0, serial_number=0, firmware_version=0
+)
+"""What a PD's identity reads as before it has reported one."""
 
 
 class ControlPanel:
@@ -68,10 +79,29 @@ class ControlPanel:
         self.user_event_handler = event_handler
         self.user_command_completion_handler = command_completion_handler
 
+        # Per-PD state, kept up to date from the library's notifications so
+        # that reading it costs nothing and never crosses into C. The library
+        # reports every transition, so this cannot drift; it starts out as
+        # "nothing is up yet", which is what the library would report too.
+        self._online = 0
+        self._sc_active = 0
+        self._pd_ids = [_UNKNOWN_PD_ID for _ in self.pd_addr]
+
+        # Notifications are how the above is fed, so they are turned on at the
+        # library level whatever the caller asked for. Whether the caller also
+        # gets to see them stays their own flag's decision.
+        self._forward_notifications = [
+            LibFlag.EnableNotification in pd_info.flags
+            for pd_info in pd_info_list
+        ]
+        info_list = []
+        for pd_info in pd_info_list:
+            info = pd_info.to_dict()
+            info["flags"] |= int(LibFlag.EnableNotification)
+            info_list.append(info)
+
         _sys.set_loglevel(int(log_level))
-        self._ctx: _sys.ControlPanel | None = _sys.ControlPanel(
-            [pd_info.to_dict() for pd_info in pd_info_list]
-        )
+        self._ctx: _sys.ControlPanel | None = _sys.ControlPanel(info_list)
         # Our handlers always run, so that get_event() works whether or not the
         # caller registered one of their own.
         self.ctx.set_event_callback(self._internal_event_handler)
@@ -94,10 +124,44 @@ class ControlPanel:
 
     def _internal_event_handler(self, pd: int, event: dict[str, Any]) -> int:
         decoded = decode_event(event)
+        if isinstance(decoded, Notification):
+            self._track_notification(pd, decoded)
+            if not self._forward_notifications[pd]:
+                # This one was only ever ours; the caller did not ask to see
+                # library notifications.
+                return 0
         self.event_queue[pd].put(decoded)
         if self.user_event_handler:
             return self.user_event_handler(self.pd_addr[pd], decoded)
         return 0
+
+    def _track_notification(self, pd: int, note: Notification) -> None:
+        """Fold a notification into the per-PD state this object reports.
+
+        Runs on the refresh thread, before anything else sees the event.
+        """
+        bit = 1 << pd
+        if note.type is NotificationType.PeripheralDeviceStatus:
+            if note.online:
+                self._online |= bit
+            else:
+                self._online &= ~bit
+                # A PD that is not online has no secure channel either; the
+                # library says so separately, but not always first.
+                self._sc_active &= ~bit
+        elif note.type is NotificationType.SecureChannelStatus:
+            if note.active:
+                self._sc_active |= bit
+            else:
+                self._sc_active &= ~bit
+        elif note.type is NotificationType.PdId:
+            self._pd_ids[pd] = PdId(
+                version=note.version,
+                model=note.model,
+                vendor_code=note.vendor_code,
+                serial_number=note.serial_number,
+                firmware_version=note.firmware_version,
+            )
 
     def _internal_command_completion_handler(
         self, pd: int, command: dict[str, Any], status: int
@@ -154,9 +218,14 @@ class ControlPanel:
     # -- state --------------------------------------------------------------
 
     def status(self) -> int:
-        """Bitmask of which PDs are online, indexed by their position."""
-        with self.lock:
-            return self.ctx.status()
+        """Bitmask of which PDs are online, indexed by their position.
+
+        Answered from state this object keeps up to date from the library's
+        notifications, so it costs a single attribute read: no lock, and no
+        call into the library.
+        """
+        self.ctx  # refuse to answer for a context that has been released
+        return self._online
 
     def is_online(self, address: int) -> bool:
         """Whether a PD is answering."""
@@ -167,9 +236,12 @@ class ControlPanel:
         return self.status().bit_count()
 
     def sc_status(self) -> int:
-        """Bitmask of which PDs have a secure channel up."""
-        with self.lock:
-            return self.ctx.sc_status()
+        """Bitmask of which PDs have a secure channel up.
+
+        Answered from tracked state, for the same reason as status().
+        """
+        self.ctx  # refuse to answer for a context that has been released
+        return self._sc_active
 
     def is_sc_active(self, address: int) -> bool:
         """Whether a PD's secure channel is up."""
@@ -180,17 +252,14 @@ class ControlPanel:
         return self.sc_status().bit_count()
 
     def get_pd_id(self, address: int) -> PdId:
-        """The identity a PD reported during setup."""
-        pd = self.pd_addr.index(address)
-        with self.lock:
-            info = self.ctx.get_pd_id(pd)
-        return PdId(
-            version=info["version"],
-            model=info["model"],
-            vendor_code=info["vendor_code"],
-            serial_number=info["serial_number"],
-            firmware_version=info["firmware_version"],
-        )
+        """The identity a PD reported during setup.
+
+        Answered from tracked state: the library reports each PD's identity as
+        it collects it. Ask before the PD has come online and the fields read
+        as zero, as they always have.
+        """
+        self.ctx  # refuse to answer for a context that has been released
+        return self._pd_ids[self.pd_addr.index(address)]
 
     def check_capability(
         self, address: int, cap: Capability
@@ -252,10 +321,14 @@ class ControlPanel:
             )
 
     def get_file_tx_status(self, address: int) -> FileTxStatus | None:
-        """How far the running transfer has got, or None if none is running."""
+        """How far the running transfer has got, or None if none is running.
+
+        Read without taking the refresh lock: progress is sampled, not
+        latched, so it is a snapshot that the transfer has likely moved past
+        by the time it is used -- which is what a progress reading is.
+        """
         pd = self.pd_addr.index(address)
-        with self.lock:
-            status = self.ctx.get_file_tx_status(pd)
+        status = self.ctx.get_file_tx_status(pd)
         if status is None:
             return None
         return FileTxStatus(size=status["size"], offset=status["offset"])

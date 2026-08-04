@@ -20,14 +20,17 @@ FILE_ID = 13
 FILE_SIZE = 4096
 
 
-def _fresh_pair(name, enable_notification_on_pd=True):
+def _fresh_pair(name, enable_notification_on_pd=True,
+                enable_notification_on_cp=True):
     key = KeyStore.gen_key()
     f1, f2 = make_fifo_pair(name)
 
     pd_flags = [LibFlag.EnforceSecure]
     if enable_notification_on_pd:
         pd_flags.append(LibFlag.EnableNotification)
-    cp_flags = [LibFlag.EnforceSecure, LibFlag.EnableNotification]
+    cp_flags = [LibFlag.EnforceSecure]
+    if enable_notification_on_cp:
+        cp_flags.append(LibFlag.EnableNotification)
 
     pd = PeripheralDevice(
         PDInfo(PD_ADDR, f1, scbk=key, flags=pd_flags),
@@ -123,6 +126,36 @@ def test_pd_receives_pd_status_and_sc_status_notifications():
                 f"SC_STATUS active={rec.sc_status_last.active}, want True"
     finally:
         _teardown_pair(cp, pd, "notif-pd")
+
+
+def test_state_is_tracked_without_forwarding_notifications():
+    """Notifications feed the bookkeeping behind is_online()/is_sc_active()
+    whether or not the caller asked to see them -- and a caller who did not
+    ask must not find them turning up in its own event/command stream.
+    """
+    cp, pd = _fresh_pair("notif-optout", enable_notification_on_pd=False,
+                         enable_notification_on_cp=False)
+    try:
+        pd.start()
+        cp.start()
+
+        ## These are answered purely from notification-fed state.
+        assert cp.online_wait(PD_ADDR, timeout=10), "CP never saw PD online"
+        assert cp.sc_wait(PD_ADDR, timeout=10), "CP never saw SC come up"
+        assert cp.is_online(PD_ADDR)
+        assert cp.is_sc_active(PD_ADDR)
+        assert pd.is_online()
+        assert pd.is_sc_active()
+
+        ## ...without any of them leaking to a caller who opted out.
+        while (event := cp.get_event(PD_ADDR, timeout=0.2)) is not None:
+            assert not isinstance(event, events.Notification), \
+                f"notification leaked into the CP event stream: {event}"
+        while (cmd := pd.get_command(timeout=0.2)) is not None:
+            assert not isinstance(cmd, commands.Notification), \
+                f"notification leaked into the PD command stream: {cmd}"
+    finally:
+        _teardown_pair(cp, pd, "notif-optout")
 
 
 def test_cp_reports_offline_while_re_running_sc_handshake():

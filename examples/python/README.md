@@ -10,7 +10,9 @@ holds them, and calls against a device must be serialized against its refresh
 loop. None of that surfaces here. The Python library handles it in the
 background -- it owns the refresh thread and serializes API calls against it --
 so commands and events are ordinary Python objects that you build, submit, and
-then forget about.
+then forget about, and every call is safe to make from any thread. Status
+checks such as `is_online()` and `is_sc_active()` stay lock-free, so polling
+one never waits on the bus.
 
 To run the samples, you have to install the following python packages:
 
