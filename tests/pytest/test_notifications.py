@@ -125,6 +125,52 @@ def test_pd_receives_pd_status_and_sc_status_notifications():
         _teardown_pair(cp, pd, "notif-pd")
 
 
+def test_cp_reports_offline_while_re_running_sc_handshake():
+    """A rekey drops the PD out of ONLINE to redo the SC handshake.
+
+    Commands are refused for that whole window, so the CP must report the PD
+    offline going in and online coming back out -- otherwise is_online() would
+    disagree with what submit_command() accepts.
+    """
+    cp, pd = _fresh_pair("notif-rekey")
+    seen = []
+    lock = threading.Lock()
+
+    def on_event(address, event):
+        if isinstance(event, events.Notification) and \
+                event.type == NotificationType.PeripheralDeviceStatus:
+            with lock:
+                seen.append(event.online)
+        return 0
+
+    try:
+        pd.start()
+        cp.start()
+        assert cp.sc_wait_all(timeout=10), "SC handshake did not complete"
+
+        cp.set_event_handler(on_event)
+        with lock:
+            seen.clear()
+
+        ## Rekeying restarts the secure channel, taking the PD out of ONLINE.
+        assert cp.submit_command(
+            PD_ADDR, commands.Keyset(type=1, data=KeyStore.gen_key())
+        )
+
+        deadline = time.time() + 10
+        while time.time() < deadline:
+            with lock:
+                if seen[:2] == [False, True]:
+                    break
+            time.sleep(0.05)
+
+        with lock:
+            assert seen[:2] == [False, True], \
+                f"want offline then online across the rekey, got {seen}"
+    finally:
+        _teardown_pair(cp, pd, "notif-rekey")
+
+
 def test_pd_receives_offline_notification_on_cp_silence():
     """When CP stops refreshing, PD's online-timeout trips and PD_STATUS
     offline fires on the command callback."""

@@ -1087,7 +1087,11 @@ enum osdp_notification_type {
 	 * Peer link state change. Payload: `pd_status`
 	 * (@ref osdp_notification_pd_status).
 	 *
-	 * In CP mode: the addressed PD has gone online or offline.
+	 * In CP mode: the addressed PD has gone online or offline. Fires on
+	 * every such transition and tracks what osdp_get_status_mask()
+	 * reports, so a PD dropping out of ONLINE to re-run the secure
+	 * channel handshake is reported offline and then online again --
+	 * commands are refused for that whole window.
 	 * In PD mode: the CP has become reachable (inbound traffic
 	 * observed) or unreachable (no CP activity for
 	 * OSDP_PD_ONLINE_TOUT_MS).

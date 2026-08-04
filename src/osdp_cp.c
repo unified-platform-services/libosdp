@@ -1627,6 +1627,16 @@ static void cp_transition_effects(struct osdp_pd *pd, enum osdp_cp_state_e cur,
 static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 {
 	enum osdp_cp_state_e cur = pd->state;
+	/*
+	 * Report the online/offline transition, not entry into a particular
+	 * state. A PD leaving ONLINE for a secure channel re-handshake stops
+	 * accepting commands exactly as one going OFFLINE does, so the
+	 * application has to hear about it; keying the notification off
+	 * cp_is_online() is what keeps the reports and osdp_get_status_mask()
+	 * telling the same story.
+	 */
+	bool was_online = (cur == OSDP_CP_STATE_ONLINE);
+	bool now_online = (next == OSDP_CP_STATE_ONLINE);
 
 	switch (next) {
 	case OSDP_CP_STATE_INIT:
@@ -1634,7 +1644,6 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		break;
 	case OSDP_CP_STATE_ONLINE:
 		LOG_INF("Online; %s SC", sc_is_active(pd) ? "With" : "Without");
-		notify_pd_status(pd, true);
 		break;
 	case OSDP_CP_STATE_OFFLINE:
 		pd->tstamp = osdp_millis_now();
@@ -1649,7 +1658,6 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 			" seconds; Was in '%s' state",
 			pd->wait_ms / 1000, state_get_name(cur));
 		osdp_engines_abort(pd);
-		notify_pd_status(pd, false);
 		break;
 	case OSDP_CP_STATE_SC_CHLNG:
 		osdp_phy_state_reset(pd, true);
@@ -1660,7 +1668,6 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		sc_deactivate(pd);
 		notify_sc_status(pd);
 		osdp_engines_abort(pd);
-		notify_pd_status(pd, false);
 		osdp_phy_state_reset(pd, true);
 		LOG_INF("PD disabled; going offline until re-enabled");
 		break;
@@ -1673,6 +1680,12 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		(sc_is_active(pd) && sc_use_scbkd(pd)) ? " with SCBK-D" : "");
 
 	pd->state = next;
+
+	/* After pd->state, so that a handler which calls back into libosdp --
+	 * osdp_get_status_mask(), say -- sees what the notification reports. */
+	if (was_online != now_online) {
+		notify_pd_status(pd, now_online);
+	}
 }
 
 static bool cp_cmd_is_app_owned(struct osdp_pd *pd)
