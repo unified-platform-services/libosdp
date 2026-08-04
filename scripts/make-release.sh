@@ -113,7 +113,7 @@ function do_libosdp_release() {
 		exit 1
 	fi
 	git add CHANGELOG CMakeLists.txt python/setup.py library.json platformio/osdp_config.h &&
-	git commit -s -m "Release v$version" &&
+	git commit -s -m "Release v$version" --no-verify &&
 	git tag "v$version" -s -a -m "Release v$version"
 }
 
