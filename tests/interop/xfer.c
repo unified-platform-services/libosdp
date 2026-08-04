@@ -58,13 +58,13 @@ enum sc_mode { MODE_PLAIN, MODE_SECURE, MODE_INSTALL };
  * that is how the library hands ownership back. This harness submits from
  * static storage and does not act on outcomes, so the callbacks are no-ops.
  */
-static void noop_cmd_completion(void *arg, int pd, const struct osdp_cmd *cmd,
+static void noop_cmd_completion(void *arg, int pd, struct osdp_cmd *cmd,
 				enum osdp_completion_status status)
 {
 	(void)arg; (void)pd; (void)cmd; (void)status;
 }
 
-static void noop_event_completion(void *arg, const struct osdp_event *ev,
+static void noop_event_completion(void *arg, struct osdp_event *ev,
 				  enum osdp_completion_status status)
 {
 	(void)arg; (void)ev; (void)status;

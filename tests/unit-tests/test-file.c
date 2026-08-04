@@ -192,7 +192,7 @@ static volatile int g_compl_status = -1;
 static const struct osdp_cmd *g_compl_cmd;
 
 static void file_cmd_completion_cb(void *arg, int pd,
-				    const struct osdp_cmd *cmd,
+				    struct osdp_cmd *cmd,
 				    enum osdp_completion_status status)
 {
 	ARG_UNUSED(arg);

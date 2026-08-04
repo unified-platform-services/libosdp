@@ -91,8 +91,11 @@ static inline void pd_complete_event(struct osdp_pd *pd,
 {
 	if (!event || !pd->event_completion_callback)
 		return;
+	/* Ownership of the event returns to the application here, so it is
+	 * handed back mutable; the const above is the promise we made while
+	 * we held it. */
 	pd->event_completion_callback(pd->event_completion_callback_arg,
-				      event, status);
+				      (struct osdp_event *)event, status);
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
 }
 

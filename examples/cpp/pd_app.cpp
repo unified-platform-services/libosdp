@@ -108,7 +108,7 @@ static const char *completion_status_name(enum osdp_completion_status status)
  * Runs on the thread that called refresh() (or flush/teardown), so keep it
  * short.
  */
-void event_completion_handler(void *data, const struct osdp_event *event,
+void event_completion_handler(void *data, struct osdp_event *event,
 			      enum osdp_completion_status status)
 {
 	(void)(data);
@@ -116,9 +116,7 @@ void event_completion_handler(void *data, const struct osdp_event *event,
 	std::cout << "PD: event " << event->type << " completed: "
 		  << completion_status_name(status) << std::endl;
 
-	/* Last use of event. It arrives const because libosdp never modifies a
-	 * submitted event; deleting a pointer-to-const is legal C++, so no
-	 * cast is needed here. */
+	/* Last use of event -- ownership ends here. */
 	delete event;
 }
 

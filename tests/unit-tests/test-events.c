@@ -38,7 +38,7 @@ static volatile int compl_count;
 static volatile int compl_last_status;
 static const struct osdp_event *compl_last_event;
 
-static void test_event_completion_cb(void *arg, const struct osdp_event *ev,
+static void test_event_completion_cb(void *arg, struct osdp_event *ev,
 				     enum osdp_completion_status status)
 {
 	ARG_UNUSED(arg);

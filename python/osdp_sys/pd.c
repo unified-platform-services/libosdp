@@ -179,7 +179,7 @@ exit:
 	return ret_val;
 }
 
-static void pyosdp_pd_event_completion_cb(void *arg, const struct osdp_event *event,
+static void pyosdp_pd_event_completion_cb(void *arg, struct osdp_event *event,
 					  enum osdp_completion_status status)
 {
 	pyosdp_pd_t *self = arg;

@@ -1614,7 +1614,7 @@ enum osdp_completion_status {
  * inside the flush/teardown drain loops.
  */
 typedef void (*cp_command_completion_callback_t)(void *arg, int pd,
-						 const struct osdp_cmd *cmd,
+						 struct osdp_cmd *cmd,
 						 enum osdp_completion_status status);
 
 /**
@@ -1627,7 +1627,7 @@ typedef void (*cp_command_completion_callback_t)(void *arg, int pd,
  * the flush/teardown drain loops.
  */
 typedef void (*pd_event_completion_callback_t)(void *arg,
-					       const struct osdp_event *ev,
+					       struct osdp_event *ev,
 					       enum osdp_completion_status status);
 
 /* ------------------------------- */

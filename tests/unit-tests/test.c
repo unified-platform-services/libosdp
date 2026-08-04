@@ -863,7 +863,7 @@ void test_mock_pd_flush(void *data)
  * their own recorder over them.
  */
 static void test_default_cmd_completion_cb(void *arg, int pd,
-					   const struct osdp_cmd *cmd,
+					   struct osdp_cmd *cmd,
 					   enum osdp_completion_status status)
 {
 	ARG_UNUSED(arg);
@@ -873,7 +873,7 @@ static void test_default_cmd_completion_cb(void *arg, int pd,
 }
 
 static void test_default_event_completion_cb(void *arg,
-					     const struct osdp_event *ev,
+					     struct osdp_event *ev,
 					     enum osdp_completion_status status)
 {
 	ARG_UNUSED(arg);

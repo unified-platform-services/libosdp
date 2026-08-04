@@ -91,7 +91,7 @@ int test_commands_event_callback(void *arg, int pd, struct osdp_event *ev)
 }
 
 static void test_cmd_completion_cb(void *arg, int pd,
-				   const struct osdp_cmd *cmd,
+				   struct osdp_cmd *cmd,
 				   enum osdp_completion_status status)
 {
 	ARG_UNUSED(pd);

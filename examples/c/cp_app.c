@@ -77,7 +77,7 @@ static const char *completion_status_name(enum osdp_completion_status status)
  * Runs on the thread that called osdp_cp_refresh() (or flush/teardown), so
  * keep it short: no blocking, no long work.
  */
-static void cp_command_completion(void *arg, int pd, const struct osdp_cmd *cmd,
+static void cp_command_completion(void *arg, int pd, struct osdp_cmd *cmd,
 				  enum osdp_completion_status status)
 {
 	(void)(arg);
@@ -85,9 +85,8 @@ static void cp_command_completion(void *arg, int pd, const struct osdp_cmd *cmd,
 	printf("CP: PD%d command %d completed: %s\n", pd, cmd->id,
 	       completion_status_name(status));
 
-	/* Last use of cmd. It was allocated non-const below; the library hands
-	 * it back const because it never modifies a submitted command. */
-	free((void *)cmd);
+	/* Last use of cmd -- ownership ends here. */
+	free(cmd);
 }
 
 /**

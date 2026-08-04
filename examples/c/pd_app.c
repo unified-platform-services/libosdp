@@ -80,7 +80,7 @@ static const char *completion_status_name(enum osdp_completion_status status)
  * Runs on the thread that called osdp_pd_refresh() (or flush/teardown), so
  * keep it short.
  */
-static void pd_event_completion(void *arg, const struct osdp_event *event,
+static void pd_event_completion(void *arg, struct osdp_event *event,
 				enum osdp_completion_status status)
 {
 	(void)(arg);
@@ -88,9 +88,8 @@ static void pd_event_completion(void *arg, const struct osdp_event *event,
 	printf("PD: event %d completed: %s\n", event->type,
 	       completion_status_name(status));
 
-	/* Last use of event. It was allocated non-const below; the library
-	 * hands it back const because it never modifies a submitted event. */
-	free((void *)event);
+	/* Last use of event -- ownership ends here. */
+	free(event);
 }
 
 /**

@@ -75,8 +75,12 @@ static inline void cp_complete_cmd(struct osdp_pd *pd,
 
 	if (!cmd || !ctx->command_completion_callback)
 		return;
+	/* Ownership of the command returns to the application here, so it is
+	 * handed back mutable; the const above is the promise we made while
+	 * we held it. */
 	ctx->command_completion_callback(ctx->command_completion_callback_arg,
-					 pd->idx, cmd, status);
+					 pd->idx, (struct osdp_cmd *)cmd,
+					 status);
 }
 
 static const char *cp_get_cap_name(int cap)

@@ -80,7 +80,7 @@ static const char *completion_status_name(enum osdp_completion_status status)
  * Runs on the thread that called refresh() (or flush/teardown), so keep it
  * short: no blocking, no long work.
  */
-void command_completion_handler(void *data, int pd, const struct osdp_cmd *cmd,
+void command_completion_handler(void *data, int pd, struct osdp_cmd *cmd,
 				enum osdp_completion_status status)
 {
 	(void)(data);
@@ -88,9 +88,7 @@ void command_completion_handler(void *data, int pd, const struct osdp_cmd *cmd,
 	std::cout << "PD" << pd << " command " << cmd->id << " completed: "
 		  << completion_status_name(status) << std::endl;
 
-	/* Last use of cmd. It arrives const because libosdp never modifies a
-	 * submitted command; deleting a pointer-to-const is legal C++, so no
-	 * cast is needed here. */
+	/* Last use of cmd -- ownership ends here. */
 	delete cmd;
 }
 
@@ -106,11 +104,6 @@ void command_completion_handler(void *data, int pd, const struct osdp_cmd *cmd,
  * transfer, smartcard) completes synchronously with ACCEPTED from inside
  * submit_command(), so by the time it returns the handler may already have
  * deleted it.
- *
- * (A smart pointer buys nothing here: there is no early return or throwing
- * call between the allocation and the handover for it to guard, and ownership
- * leaves C++ entirely at that point. Reach for one only if building the
- * command can throw.)
  */
 static bool submit_led_command(OSDP::ControlPanel &cp, int pd)
 {

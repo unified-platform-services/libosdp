@@ -98,7 +98,7 @@ int pyosdp_cp_event_cb(void *data, int address, struct osdp_event *event)
 }
 
 static void pyosdp_cp_command_completion_cb(void *data, int pd,
-					    const struct osdp_cmd *cmd,
+					    struct osdp_cmd *cmd,
 					    enum osdp_completion_status status)
 {
 	pyosdp_cp_t *self = data;

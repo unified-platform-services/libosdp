@@ -130,7 +130,7 @@ static int busy_test_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 }
 
 static void busy_test_cp_completion_cb(void *arg, int pd,
-				       const struct osdp_cmd *cmd,
+				       struct osdp_cmd *cmd,
 				       enum osdp_completion_status status)
 {
 	ARG_UNUSED(arg);
