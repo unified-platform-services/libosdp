@@ -3,6 +3,15 @@
 See [Getting Started](https://doc.osdp.dev/python/getting-started) on
 doc.osdp.dev for the Python binding walkthrough.
 
+The Python library wraps the C library and presents a friendly API in its
+place. The C library is built for high performance and asks its callers to
+meet it halfway: objects handed to it must be kept alive for as long as it
+holds them, and calls against a device must be serialized against its refresh
+loop. None of that surfaces here. The Python library handles it in the
+background -- it owns the refresh thread and serializes API calls against it --
+so commands and events are ordinary Python objects that you build, submit, and
+then forget about.
+
 To run the samples, you have to install the following python packages:
 
 ```sh

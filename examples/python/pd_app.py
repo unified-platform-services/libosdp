@@ -17,6 +17,8 @@ from osdp import (
     Capability,
     Channel,
     Command,
+    CompletionStatus,
+    Event,
     NakCode,
     NakError,
     PDCapabilities,
@@ -104,9 +106,25 @@ def command_handler(cmd: Command) -> Command | None:
     return None
 
 
+def event_completion_handler(event: Event, status: CompletionStatus) -> None:
+    """Called once for every event that submit_event() accepted.
+
+    Ok means the reply carrying the event was handed to the transport -- OSDP
+    gives the PD no delivery receipt from the CP. Failed means it never got
+    out; Flushed and Aborted mean flush_events() or teardown() dropped it
+    while it was still queued.
+    """
+    if status is not CompletionStatus.Ok:
+        print(f"PD: {type(event).__name__} -> {status.name}")
+
+
 ## Create a PD device and kick-off the handler thread
 pd = PeripheralDevice(
-    pd_info, pd_cap, log_level=args.log_level, command_handler=command_handler
+    pd_info,
+    pd_cap,
+    log_level=args.log_level,
+    command_handler=command_handler,
+    event_completion_handler=event_completion_handler,
 )
 pd.start()
 pd.sc_wait(timeout=-1)
@@ -124,6 +142,9 @@ while not exit_event:
     ## Commands are dispatched to command_handler above; this loop just reports
     ## a card read every few seconds.
     if pd.get_command(timeout=5) is not None:
-        pd.submit_event(card_event)
+        ## A False return means it was never queued and no completion will be
+        ## reported for it.
+        if not pd.submit_event(card_event):
+            print("PD: could not queue the card read")
 
 pd.teardown()

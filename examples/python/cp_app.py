@@ -14,6 +14,8 @@ import serial
 
 from osdp import (
     Channel,
+    Command,
+    CompletionStatus,
     ControlPanel,
     KeyStore,
     LEDColor,
@@ -52,8 +54,26 @@ pd_info = [
     PDInfo(101, channel, scbk=KeyStore.gen_key()),
 ]
 
+
+def command_completion_handler(
+    address: int, command: Command, status: CompletionStatus
+) -> None:
+    """Called once for every command that submit_command() accepted.
+
+    This is how a command's outcome comes back: Ok once the PD answered it,
+    Failed if it could not be delivered, Flushed if flush_commands() dropped
+    it, or Aborted if teardown() ran while it was still queued.
+    """
+    if status is not CompletionStatus.Ok:
+        print(f"PD-{address}: {type(command).__name__} -> {status.name}")
+
+
 ## Create a CP device and kick-off the handler thread
-cp = ControlPanel(pd_info, log_level=args.log_level)
+cp = ControlPanel(
+    pd_info,
+    log_level=args.log_level,
+    command_completion_handler=command_completion_handler,
+)
 cp.start()
 cp.sc_wait_all()
 
@@ -71,8 +91,10 @@ led_cmd = commands.LED(
 
 count = 0  # loop counter
 while True:
-    ## Send LED command to PD-0
-    cp.submit_command(pd_info[0].address, led_cmd)
+    ## Send LED command to PD-0. A False return means it was never queued (the
+    ## PD is offline, say) and no completion will be reported for it.
+    if not cp.submit_command(pd_info[0].address, led_cmd):
+        print("PD-0 is not accepting commands")
 
     ## Check if we have an event from PD. Each event is a distinct type, so
     ## match tells them apart and gives us the right fields for free.
