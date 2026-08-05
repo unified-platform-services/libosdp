@@ -7,6 +7,7 @@
 #include "osdp_common.h"
 #include "osdp_diag.h"
 #include "osdp_metrics.h"
+#include "osdp_trs.h"
 
 #define OSDP_PKT_MARK	  0xFF
 #define OSDP_PKT_SOM	  0x53
@@ -609,15 +610,15 @@ static int phy_check_packet(struct osdp_pd *pd, uint8_t *buf, int pkt_len)
 		if (comp == 0) {
 			/**
 			 * CP is trying to restart communication by sending a 0.
-			 * The current PD implementation does not hold any state
-			 * between commands so we can just set seq_number to -1
-			 * (so it gets incremented to 0 with a call to
-			 * phy_get_seq_number()) and invalidate any established
-			 * secure channels.
+			 * Set seq_number to -1 (so it gets incremented to 0 with
+			 * a call to phy_get_seq_number()), invalidate any
+			 * established secure channels, and drop the little state
+			 * the PD does carry between commands.
 			 */
 			phy_reset_seq_number(pd);
 			pd->last_tx_len = 0;
 			sc_deactivate(pd);
+			osdp_trs_pd_reset(pd);
 		} else if (comp == pd->seq_number) {
 			/**
 			 * CP re-sent the same command without incrementing the

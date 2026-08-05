@@ -367,6 +367,8 @@ static inline __noreturn void die()
 #define PD_FLAG_PKT_BROADCAST  BIT(13) /* this packet was addressed to 0x7F */
 #define PD_FLAG_CP_USE_CRC     BIT(14) /* CP uses CRC-16 instead of checksum */
 #define PD_FLAG_ONLINE	       BIT(15) /* PD mode: CP link is active */
+#define PD_FLAG_TRS_CAPABLE    BIT(16) /* PD reported a smart card reader */
+#define PD_FLAG_TRS_ACTIVE     BIT(17) /* a TRS card session is in progress */
 
 /* PD Init flags */
 #define PD_FLAG_ENFORCE_SECURE  BIT(24) /* See: OSDP_FLAG_ENFORCE_SECURE */
@@ -385,6 +387,18 @@ static inline __noreturn void die()
 #define CP_REQ_OFFLINE	  0x00000004
 #define CP_REQ_DISABLE	  0x00000008
 #define CP_REQ_ENABLE	  0x00000010
+#ifdef OPT_BUILD_OSDP_TRS
+/* Open a TRS session: OPEN for an app band (a START was dequeued), SCAN for a
+ * library-initiated presence probe. Posted by the online command selector and
+ * consumed like every other transition request in state_update(). */
+#define CP_REQ_TRS_OPEN 0x00000020
+#define CP_REQ_TRS_SCAN 0x00000040
+#endif
+
+#define TRS_MODE_00 0x00
+#define TRS_MODE_01 0x01
+
+#define TRS_DISABLE_CARD_INFO_REPORT 0x00
 
 enum osdp_cp_phy_state_e {
 	OSDP_CP_PHY_STATE_IDLE,
@@ -406,8 +420,89 @@ enum osdp_cp_state_e {
 	OSDP_CP_STATE_ONLINE,
 	OSDP_CP_STATE_OFFLINE,
 	OSDP_CP_STATE_DISABLED,
+	OSDP_CP_STATE_TRS_SETUP,
+	OSDP_CP_STATE_TRS_RUN,
 	OSDP_CP_STATE_SENTINEL
 };
+
+#ifdef OPT_BUILD_OSDP_TRS
+enum trs_state_e {
+	TRS_STATE_SET_MODE, /* CP negotiating TRS mode 01 with PD */
+	TRS_STATE_XMIT, /* session up; draining app APDU commands */
+	TRS_STATE_DISCONNECT_CARD, /* terminating the current card session */
+	TRS_STATE_TEARDOWN, /* CP restoring TRS mode 00 (transparent off) */
+	TRS_STATE_DONE, /* session finished; return to ONLINE */
+};
+
+/*
+ * Does this reader answer the mode-01 card scan (v2.2 section 6.27.8)? Nothing
+ * in PDCAP says so -- the smart-card capability only advertises transparent
+ * mode itself -- so it can only be learned by asking, and readers that do not
+ * implement it refuse in whatever way they fancy. One refusal is enough to
+ * stop asking for the rest of this connection.
+ */
+enum trs_scan_support_e {
+	TRS_SCAN_SUPPORT_UNKNOWN = 0,
+	TRS_SCAN_SUPPORT_YES,
+	TRS_SCAN_SUPPORT_NO,
+};
+
+struct osdp_trs {
+	enum trs_state_e state; /* current TRS session sub-state */
+	uint8_t mode; /* negotiated TRS mode (TRS_MODE_00/01) */
+	bool failed; /* session did not open, or was cut short by an error */
+	/*
+	 * Tracks the tail of cmd_queue, not the session: set when a START is
+	 * queued and cleared when its STOP is. A command is inside the band iff
+	 * this is set when it is submitted; pd->state cannot answer that, as it
+	 * trails the tail by everything still queued behind it.
+	 */
+	bool band_open;
+	bool stop_pending; /* this session's STOP has not been dequeued yet */
+	/*
+	 * The last REPLY_XRD was an error report: the reader took the command
+	 * but the card transaction failed. Written on every REPLY_XRD, and read
+	 * only for the CMD_XWR it answered.
+	 */
+	bool reply_error;
+	/*
+	 * The TRS session in progress is a presence-scan probe the library
+	 * opened on its own -- no app band, no session notifications; it winds
+	 * down by mode-set alone (there is no card transaction to terminate).
+	 */
+	bool probe;
+	/* Background presence scan (osdp_cp_trs_scan_enable) */
+	struct {
+		bool enabled;
+		bool holding; /* card sighted; hold mode-1 for the app's START */
+		/*
+		 * A card scan the library asked for is on the wire right now.
+		 * Kept apart from state so enum trs_state_e stays a description
+		 * of the session alone: the scan's question is not a step of
+		 * the session, it just rides inside one.
+		 */
+		bool asking;
+		bool asked; /* this probe has asked at least once */
+		bool declined; /* refusal not yet reported to the app */
+		bool warned; /* no-smart-card warning already raised */
+		enum trs_scan_support_e support;
+		/*
+		 * Last presence the scan reported to the app. Spans probes on
+		 * purpose: what the app knows does not reset when a probe ends,
+		 * only when the scan itself is restarted or the PD reconnects.
+		 */
+		enum osdp_trs_card_status_e last_status;
+		uint16_t mode0_dwell_ms;
+		uint16_t mode1_dwell_ms;
+		uint16_t hold_ms;
+		uint32_t backoff_ms; /* probe refused; 0 = no backoff pending */
+		tick_t tstamp; /* mode-0 dwell / backoff anchor */
+		tick_t probe_tstamp; /* when mode-1 was actually entered */
+		tick_t hold_tstamp; /* first sighting of the card being held */
+		tick_t ask_tstamp; /* when this probe last asked */
+	} scan;
+};
+#endif
 
 enum osdp_pkt_errors_e {
 	OSDP_ERR_PKT_NONE = 0,
@@ -566,6 +661,9 @@ struct osdp_pd {
 	struct osdp_piv *piv;            /* Smartcard/PIV multipart context */
 	struct osdp_bio *bio;            /* Biometric read multipart context */
 	struct osdp_metrics metrics;     /* link/protocol health counters */
+#ifdef OPT_BUILD_OSDP_TRS
+	struct osdp_trs trs; /* TRS mode context (embedded) */
+#endif
 
 	/* PD command callback to app with opaque arg pointer as passed by app */
 	void *command_callback_arg;
@@ -600,6 +698,12 @@ struct osdp {
 };
 
 void osdp_keyset_complete(struct osdp_pd *pd);
+
+#ifdef OPT_BUILD_OSDP_TRS
+/* --- from osdp_trs.c --- */
+enum osdp_cp_state_e osdp_trs_state_update(struct osdp_pd *pd);
+enum osdp_cp_state_e osdp_trs_state_update_err(struct osdp_pd *pd);
+#endif
 
 /* --- from osdp_phy.c --- */
 int osdp_phy_packet_init(struct osdp_pd *p, uint8_t *buf, int max_len);
@@ -862,16 +966,55 @@ static inline void make_request(struct osdp_pd *pd, uint32_t req)
 {
 	pd->request |= req;
 }
+static inline bool trs_capable(struct osdp_pd *pd)
+{
+	return ISSET_FLAG(pd, PD_FLAG_TRS_CAPABLE);
+}
+
+static inline bool trs_active(struct osdp_pd *pd)
+{
+	return ISSET_FLAG(pd, PD_FLAG_TRS_ACTIVE);
+}
+
+static inline void trs_set_reply_error(struct osdp_pd *pd, bool error)
+{
+#ifdef OPT_BUILD_OSDP_TRS
+	pd->trs.reply_error = error;
+#else
+	ARG_UNUSED(pd);
+	ARG_UNUSED(error);
+#endif
+}
+
+static inline bool trs_reply_error(struct osdp_pd *pd)
+{
+#ifdef OPT_BUILD_OSDP_TRS
+	return pd->trs.reply_error;
+#else
+	ARG_UNUSED(pd);
+	return false;
+#endif
+}
 
 /*
- * "Is this PD up and serving the app?" -- use this over a bare
- * `state == ONLINE` test wherever that is the real question, so that modes
- * layered on top of an established link (e.g. a transparent-reader session)
- * can extend it without touching every call site.
+ * A TRS session runs on top of an established link: the PD is still online,
+ * just busy with a card. Use this over a bare `state == ONLINE` test wherever
+ * the question is "is this PD up and serving the app?".
  */
+static inline bool cp_state_is_online(enum osdp_cp_state_e state)
+{
+#ifdef OPT_BUILD_OSDP_TRS
+	if (state == OSDP_CP_STATE_TRS_SETUP ||
+	    state == OSDP_CP_STATE_TRS_RUN) {
+		return true;
+	}
+#endif
+	return state == OSDP_CP_STATE_ONLINE;
+}
+
 static inline bool cp_is_online(struct osdp_pd *pd)
 {
-	return pd->state == OSDP_CP_STATE_ONLINE;
+	return cp_state_is_online(pd->state);
 }
 
 static inline bool check_request(struct osdp_pd *pd, uint32_t req)
