@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <inttypes.h>
 #include <stdlib.h>
 
 #include "osdp_bio.h"
@@ -249,7 +250,8 @@ int osdp_bio_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 		total = bread_u16_le(buf, &pos);
 		chunk = len - REPLY_BIOREADR_DATA_LEN;
 		if (total > sizeof(b->data) || chunk > (int)total) {
-			LOG_ERR("BIO: bad first fragment (total %u, got %d)",
+			LOG_ERR("BIO: bad first fragment (total %" PRIu32
+				", got %d)",
 				total, chunk);
 			return -1;
 		}
