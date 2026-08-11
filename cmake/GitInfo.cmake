@@ -9,8 +9,19 @@ set(GIT_DIFF "")
 set(GIT_TAG "")
 set(GIT_BRANCH "None")
 
+# Checkout whose git state describes *libosdp*. Defaults to the source root,
+# which is correct for the standalone build. Integrations that pull libosdp in as
+# a subproject (Zephyr module, ESP-IDF component) must set this to the libosdp
+# checkout: there CMAKE_SOURCE_DIR is the consuming application's root, so the
+# generated osdp_config.h would otherwise stamp the application's branch, tag and
+# dirty flag onto the library and osdp_get_version() would report a version that
+# never existed.
+if(NOT DEFINED GIT_INFO_ROOT)
+	set(GIT_INFO_ROOT "${CMAKE_SOURCE_DIR}")
+endif()
+
 execute_process(
-	COMMAND git -C ${CMAKE_SOURCE_DIR} rev-parse --is-inside-work-tree
+	COMMAND git -C "${GIT_INFO_ROOT}" rev-parse --is-inside-work-tree
 	RESULT_VARIABLE _git_ok
 	OUTPUT_QUIET
 	ERROR_QUIET
@@ -18,14 +29,14 @@ execute_process(
 
 if(_git_ok EQUAL 0)
 	execute_process(
-		COMMAND git -C ${CMAKE_SOURCE_DIR} describe --tags --long --always --abbrev=7
+		COMMAND git -C "${GIT_INFO_ROOT}" describe --tags --long --always --abbrev=7
 		OUTPUT_VARIABLE GIT_REV
 		ERROR_QUIET
 		OUTPUT_STRIP_TRAILING_WHITESPACE
 	)
 
 	execute_process(
-		COMMAND git -C ${CMAKE_SOURCE_DIR} describe --exact-match --tags HEAD
+		COMMAND git -C "${GIT_INFO_ROOT}" describe --exact-match --tags HEAD
 		RESULT_VARIABLE _tag_rc
 		OUTPUT_VARIABLE GIT_TAG
 		ERROR_QUIET
@@ -36,7 +47,7 @@ if(_git_ok EQUAL 0)
 	endif()
 
 	execute_process(
-		COMMAND git -C ${CMAKE_SOURCE_DIR} symbolic-ref --short -q HEAD
+		COMMAND git -C "${GIT_INFO_ROOT}" symbolic-ref --short -q HEAD
 		RESULT_VARIABLE _branch_rc
 		OUTPUT_VARIABLE GIT_BRANCH
 		ERROR_QUIET
@@ -47,7 +58,7 @@ if(_git_ok EQUAL 0)
 	endif()
 
 	execute_process(
-		COMMAND git -C ${CMAKE_SOURCE_DIR} status --porcelain --untracked-files=normal
+		COMMAND git -C "${GIT_INFO_ROOT}" status --porcelain --untracked-files=normal
 		OUTPUT_VARIABLE _git_status
 		ERROR_QUIET
 		OUTPUT_STRIP_TRAILING_WHITESPACE
