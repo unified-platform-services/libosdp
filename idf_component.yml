@@ -1,0 +1,76 @@
+#
+#  Copyright (c) 2026 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
+#
+#  SPDX-License-Identifier: Apache-2.0
+#
+# ESP Component Registry manifest. Lives at the repo root because that is the
+# ESP-IDF component root (see the ESP_PLATFORM branch in CMakeLists.txt); the
+# component definition itself is in esp-idf/.
+#
+# Keep `version` in step with project(libosdp VERSION ...) and LIBOSDP_PRERELEASE
+# in CMakeLists.txt -- the registry rejects a re-upload of an existing version,
+# so a stale value here fails the publish rather than shipping something wrong.
+
+name: libosdp
+version: "4.0.0-dev"
+
+description: >-
+  Open Supervised Device Protocol (OSDP, IEC 60839-11-5) library for access
+  control. Implements both the CP (control panel) and PD (peripheral device)
+  roles, including Secure Channel, over any byte transport -- typically RS-485.
+
+license: Apache-2.0
+
+maintainers:
+  - Siddharth Chandrasekaran <sidcha.dev@gmail.com>
+
+url: https://doc.osdp.dev/
+documentation: https://doc.osdp.dev/
+repository: https://github.com/osdp-dev/libosdp.git
+issues: https://github.com/osdp-dev/libosdp/issues
+
+tags:
+  - osdp
+  - access-control
+  - physical-security
+  - rs485
+  - protocol
+  - secure-channel
+  - iec-60839
+
+# No `targets` key: the library is portable C with no target-specific code, and
+# the glue in esp-idf/src/osdp_esp.c uses only esp_timer and esp_random, which
+# every ESP-IDF target provides. Omitting the key advertises all targets.
+
+dependencies:
+  idf: ">=5.0"
+
+files:
+  # The repo carries a full standalone CMake/Make build, a Zephyr module, a
+  # PlatformIO library, a Python binding and a test suite. None of that is
+  # reachable from the ESP-IDF component, so keep it out of the package rather
+  # than shipping a tarball that is mostly dead weight.
+  #
+  # DEFAULT_EXCLUDE already covers .git, .github, build/, dist/, __pycache__,
+  # .vscode, sdkconfig and managed_components -- not repeated here.
+  exclude:
+    - "docs/**/*"
+    - "doc/**/*"
+    - "tests/**/*"
+    - "python/**/*"
+    - "zephyr/**/*"
+    - "platformio/**/*"
+    - "misc/**/*"
+    - "scripts/**/*"
+    - "coverage/**/*"
+    - "examples/**/*"
+    - "config.make"
+    - "library.json"
+
+  # `use_gitignore` is deliberately not set: it makes the packer skip
+  # DEFAULT_EXCLUDE entirely, which would pack .git/ into the archive.
+  #
+  # utils/ is a git submodule and needs no `include` entry -- the packer globs
+  # the working tree, so a recursive checkout carries it. It does mean the
+  # upload must be run from a `--recursive` clone; a bare clone would silently
+  # publish a component that cannot compile.

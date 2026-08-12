@@ -4,6 +4,21 @@
 #  SPDX-License-Identifier: Apache-2.0
 #
 
+# ESP-IDF pulls this directory in as a component (with add_subdirectory), so it
+# must not run project()/install()/CPack. ESP_PLATFORM is set by ESP-IDF's build
+# system before any component is added; hand over to the component definition and
+# return before the standalone host build below is even parsed.
+#
+# The branch lives here, at the repo root, because ESP-IDF resolves a component
+# to the directory containing CMakeLists.txt -- it cannot be pointed at a
+# subdirectory. Keeping the root as the component root is also what makes the
+# component publishable: `idf.py upload-component` packs the component directory,
+# so a component rooted at esp-idf/ could never carry src/ and utils/.
+if(ESP_PLATFORM)
+	include("${CMAKE_CURRENT_LIST_DIR}/esp-idf/component.cmake")
+	return()
+endif()
+
 cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
 cmake_policy(SET CMP0063 NEW)
 

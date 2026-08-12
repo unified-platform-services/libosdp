@@ -1,0 +1,11 @@
+#
+#  Copyright (c) 2026 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
+#
+#  SPDX-License-Identifier: Apache-2.0
+#
+# ESP-IDF discovers a component's Kconfig by globbing <component_dir>/Kconfig at
+# component-add time, well before idf_component_register() runs -- so this file
+# has to sit at the repo root even though everything it describes is ESP-IDF
+# specific. Keep it to the one line and let esp-idf/ own the content.
+
+rsource "esp-idf/Kconfig.libosdp"
