@@ -1286,6 +1286,20 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		/* ACK is just the reply ID byte; it carries no data */
 		ret = OSDP_PD_ERR_NONE;
 		break;
+	case REPLY_BUSY:
+		/**
+		 * BUSY is just the reply ID byte; it carries no data. Its
+		 * distinguishing framing (sequence 0, no SCB) is applied in
+		 * osdp_phy_packet_init().
+		 *
+		 * Nothing in this library selects REPLY_BUSY on the PD side
+		 * today, so this case is unreachable from libosdp itself; it
+		 * exists so that a PD which is told to report itself busy emits
+		 * a spec-conformant frame rather than falling into the BUG()
+		 * below.
+		 */
+		ret = OSDP_PD_ERR_NONE;
+		break;
 	case REPLY_PDID:
 		if (max_len < REPLY_PDID_DATA_LEN) {
 			break;

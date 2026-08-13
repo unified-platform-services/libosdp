@@ -206,6 +206,7 @@ int osdp_phy_in_sc_handshake(int is_reply, int id)
 int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 {
 	int id, scb_len = 0;
+	bool busy;
 	struct osdp_packet_header *pkt;
 
 	if (max_len < OSDP_MINIMUM_PACKET_SIZE) {
@@ -239,14 +240,32 @@ int osdp_phy_packet_init(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	} else {
 		id = pd->cmd_id;
 	}
-	pkt->control = phy_get_next_seq_number(pd);
+	/**
+	 * osdp_BUSY does not follow the sequence and security rules of the
+	 * exchange it interrupts. Per v2.2 section 7.19 a busy PD answers on
+	 * sequence 0 in a plain packet of minimum length, even while a secure
+	 * channel is active; the CP then repeats the command with its original
+	 * sequence number. Our own CP-side decoder already depends on exactly
+	 * that shape -- osdp_phy_decode_packet() matches BUSY on (comp == 0),
+	 * pkt_len == 6 and no SCB -- so this is the encoder catching up with
+	 * what the decoder has always expected.
+	 *
+	 * It has to be special-cased here: phy_get_next_seq_number() cycles
+	 * 1..3 and never yields 0, and the SCB below would otherwise be
+	 * attached whenever the channel is up.
+	 */
+	busy = is_pd_mode(pd) && id == REPLY_BUSY;
+
+	pkt->control = busy ? 0 : phy_get_next_seq_number(pd);
 	pd->phy_tx_seq = pkt->control & PKT_CONTROL_SQN;
 	if (is_pd_mode(pd) ||
 	    (is_cp_mode(pd) && ISSET_FLAG(pd, PD_FLAG_CP_USE_CRC))) {
 		pkt->control |= PKT_CONTROL_CRC;
 	}
 
-	if (sc_is_active(pd)) {
+	if (busy) {
+		/* No SCB, even under an active secure channel (v2.2 7.19). */
+	} else if (sc_is_active(pd)) {
 		pkt->control |= PKT_CONTROL_SCB;
 		pkt->data[0] = scb_len = 2;
 		pkt->data[1] = SCS_15;
