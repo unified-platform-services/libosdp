@@ -53,6 +53,7 @@ static inline void file_state_reset(struct osdp_pd *pd)
 	f->errors = 0;
 	f->is_open = false;
 	f->keep_alive_pending = false;
+	f->finalize_tstamp = 0;
 	f->file_id = 0;
 	f->cancel_req = false;
 	osdp_mp_reset(&f->mp);
@@ -445,16 +446,26 @@ int osdp_file_cmd_stat_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 			/* App is still working on what it received. Hold the
 			 * transfer open: the CP parks on this status and pings
 			 * us, which lands back here for another ask. */
-			stat.status = OSDP_FILE_TX_STATUS_KEEP_ALIVE;
-			stat.delay = delay;
-		} else {
-			stat.status = file_wire_status_from_outcome(outcome);
-			LOG_INF("Stat_Build: File receive complete; outcome:%d",
-				outcome);
-			file_transition_done(pd, outcome);
+			if (f->finalize_tstamp == 0) {
+				f->finalize_tstamp = osdp_millis_now();
+			}
+			if (osdp_millis_since(f->finalize_tstamp) <
+			    OSDP_FILE_FINALIZE_TIMEOUT_MS) {
+				stat.status = OSDP_FILE_TX_STATUS_KEEP_ALIVE;
+				stat.delay = delay;
+				goto serialize;
+			}
+			LOG_ERR("Stat_Build: finalize timed out after %d ms",
+				OSDP_FILE_FINALIZE_TIMEOUT_MS);
+			outcome = OSDP_MP_OUTCOME_ABORTED;
 		}
+		stat.status = file_wire_status_from_outcome(outcome);
+		LOG_INF("Stat_Build: File receive complete; outcome:%d",
+			outcome);
+		file_transition_done(pd, outcome);
 	}
 
+serialize:
 	/* fill the packet buffer (layout: struct osdp_cmd_file_stat) */
 
 	bwrite_u8(stat.control, buf, &len);
