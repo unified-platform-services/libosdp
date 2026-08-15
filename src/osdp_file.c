@@ -111,6 +111,23 @@ static enum osdp_mp_outcome file_outcome_from_wire_status(int16_t status)
 	}
 }
 
+static int16_t file_wire_status_from_outcome(enum osdp_mp_outcome outcome)
+{
+	switch (outcome) {
+	case OSDP_MP_OUTCOME_OK:
+		return OSDP_FILE_TX_STATUS_CONTENTS_PROCESSED;
+	case OSDP_MP_OUTCOME_OK_REBOOTING:
+		return OSDP_FILE_TX_STATUS_PD_RESET;
+	case OSDP_MP_OUTCOME_UNRECOGNIZED:
+		return OSDP_FILE_TX_STATUS_ERR_UNKNOWN;
+	case OSDP_MP_OUTCOME_INVALID:
+		return OSDP_FILE_TX_STATUS_ERR_INVALID;
+	case OSDP_MP_OUTCOME_ABORTED:
+	default:
+		return OSDP_FILE_TX_STATUS_ERR_ABORT;
+	}
+}
+
 /* --- Sender CMD/RESP Handers --- */
 
 int osdp_file_cmd_tx_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
@@ -420,9 +437,22 @@ int osdp_file_cmd_stat_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 	 * bound in the engine is the real guard.
 	 */
 	if (f->mp.offset == f->mp.total && f->mp.total != 0) { /* EOF */
-		stat.status = OSDP_FILE_TX_STATUS_CONTENTS_PROCESSED;
-		LOG_INF("TX_Decode: File receive complete");
-		file_transition_done(pd, OSDP_MP_OUTCOME_OK);
+		enum osdp_mp_outcome outcome = OSDP_MP_OUTCOME_OK;
+		uint16_t delay = 0;
+
+		if (f->ops.finalize &&
+		    !f->ops.finalize(f->ops.arg, &outcome, &delay)) {
+			/* App is still working on what it received. Hold the
+			 * transfer open: the CP parks on this status and pings
+			 * us, which lands back here for another ask. */
+			stat.status = OSDP_FILE_TX_STATUS_KEEP_ALIVE;
+			stat.delay = delay;
+		} else {
+			stat.status = file_wire_status_from_outcome(outcome);
+			LOG_INF("Stat_Build: File receive complete; outcome:%d",
+				outcome);
+			file_transition_done(pd, outcome);
+		}
 	}
 
 	/* fill the packet buffer (layout: struct osdp_cmd_file_stat) */

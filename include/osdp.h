@@ -2640,6 +2640,42 @@ typedef int (*osdp_file_write_fn_t)(void *arg, const void *buf,
 typedef int (*osdp_file_close_fn_t)(void *arg);
 
 /**
+ * @brief Decide how a received file transfer terminates. PD mode only.
+ *
+ * Called once the last byte of the file has been received, and again on each
+ * CP keep-alive for as long as it returns false. While it returns false the PD
+ * answers osdp_FTSTAT with status 3 ("finishing", OSDP v2.2 §7.25) and the
+ * transfer stays open, so an application can verify, decrypt or install what
+ * it received without holding up the reply.
+ *
+ * Runs on the same context as the other file ops, that is, inside
+ * osdp_pd_refresh(). It must return promptly on every call; long work belongs
+ * on another thread, with this callback only reporting whether it has
+ * finished.
+ *
+ * @param arg      Opaque pointer that was provided in @ref osdp_file_ops when
+ *                 the ops struct was registered.
+ * @param outcome  Terminal outcome, filled in only when returning true.
+ * @param delay_ms Hint to the CP for how long to wait before asking again;
+ *                 carried in the osdp_FTSTAT delay field.
+ *
+ * @retval true  Finished; *outcome holds the terminal outcome.
+ * @retval false Still working; ask again.
+ *
+ * @note An unregistered (NULL) finalize behaves as returning true with
+ * OSDP_MP_OUTCOME_OK, which is what every release before this one did.
+ *
+ * @note The transfer remains open for as long as this returns false. If the
+ * CP misses an osdp_FTSTAT and retransmits its last chunk, LibOSDP re-drives
+ * @ref osdp_file_write_fn_t with that retransmitted data during this window,
+ * even into a file the application may already be verifying or installing in
+ * the background. Applications must tolerate such calls.
+ */
+typedef bool (*osdp_file_finalize_fn_t)(void *arg,
+					enum osdp_mp_outcome *outcome,
+					uint16_t *delay_ms);
+
+/**
  * @brief OSDP File operations struct that needs to be filled by the CP/PD
  * application and registered with LibOSDP using osdp_file_register_ops()
  * before a file transfer command can be initiated.
@@ -2656,6 +2692,7 @@ struct osdp_file_ops {
 	osdp_file_read_fn_t read; /**< read handler function */
 	osdp_file_write_fn_t write; /**< write handler function */
 	osdp_file_close_fn_t close; /**< close handler function */
+	osdp_file_finalize_fn_t finalize; /**< finalize handler (optional, PD only) */
 };
 
 /**

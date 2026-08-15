@@ -739,6 +739,272 @@ done:
 	TEST_CASE(t, "file_rx_idle_frame", result);
 }
 
+/* Wire statuses this suite asserts but osdp_file.c did not previously emit. */
+#define KA_STATUS_PD_RESET	 2
+#define KA_STATUS_ERR_ABORT	 -1
+#define KA_STATUS_ERR_UNKNOWN	 -2
+#define KA_STATUS_ERR_INVALID	 -3
+
+/* Scripted finalize: reports "still working" g_fin_busy_calls times, then
+ * completes with g_fin_outcome. The counters let the test assert that the
+ * library re-polls rather than latching the first answer. */
+static int g_fin_calls;
+static int g_fin_busy_calls;
+static int g_fin_close_calls;
+static enum osdp_mp_outcome g_fin_outcome;
+
+static bool fin_fops_finalize(void *arg, enum osdp_mp_outcome *outcome,
+			      uint16_t *delay_ms)
+{
+	(void)arg;
+
+	if (g_fin_calls++ < g_fin_busy_calls) {
+		*delay_ms = 200;
+		return false;
+	}
+	*outcome = g_fin_outcome;
+	return true;
+}
+
+static int fin_fops_close(void *arg)
+{
+	g_fin_close_calls++;
+	return test_fops_close(arg);
+}
+
+/* MP_DONE arrives at a PD app as a command callback of type
+ * OSDP_CMD_NOTIFICATION; mirrors pd_cmd_cb() in test-notifications.c. */
+static int g_fin_done_count;
+static int g_fin_done_outcome;
+
+static int fin_pd_cmd_cb(void *arg, struct osdp_cmd *cmd)
+{
+	(void)arg;
+
+	if (cmd->id == OSDP_CMD_NOTIFICATION &&
+	    cmd->notif.type == OSDP_NOTIFICATION_MP_DONE) {
+		g_fin_done_count++;
+		g_fin_done_outcome = cmd->notif.mp.outcome;
+	}
+	return 0;
+}
+
+/* Drive a 32-byte transfer as two 16-byte frames. Returns the wire status of
+ * the reply to the frame that lands the last byte, or -100 on a harness
+ * failure. Leaves the transfer in whatever state stat_build left it. */
+static int fin_drive_to_eof(struct osdp_pd *pd, uint8_t *stat, size_t stat_len)
+{
+	const uint32_t total = 32;
+	const int hdr = OSDP_MP_HDR_SIZE(OSDP_MP_W32);
+	uint8_t frame[64], data[16];
+	uint32_t off;
+	int n;
+
+	memset(data, 0xA5, sizeof(data));
+
+	for (off = 0; off < total; off += 16) {
+		frame[0] = 1;
+		osdp_mp_hdr_write(OSDP_MP_W32, total, off, 16, frame + 1);
+		memcpy(frame + 1 + hdr, data, 16);
+		if (osdp_file_cmd_tx_decode(pd, frame, 1 + hdr + 16) < 0) {
+			return -100;
+		}
+		n = osdp_file_cmd_stat_build(pd, stat, stat_len);
+		if (n < 0) {
+			return -100;
+		}
+	}
+	return stat_reply_status(stat);
+}
+
+/* Send one CP idle keep-alive (header-only at offset == total) and return the
+ * wire status of the PD's reply, or -100 on a harness failure. */
+static int fin_ping(struct osdp_pd *pd, uint8_t *stat, size_t stat_len)
+{
+	const uint32_t total = 32;
+	const int hdr = OSDP_MP_HDR_SIZE(OSDP_MP_W32);
+	uint8_t frame[64];
+	int n;
+
+	frame[0] = 1;
+	osdp_mp_hdr_write(OSDP_MP_W32, total, total, 0, frame + 1);
+	if (osdp_file_cmd_tx_decode(pd, frame, 1 + hdr) < 0) {
+		return -100;
+	}
+	n = osdp_file_cmd_stat_build(pd, stat, stat_len);
+	if (n < 0) {
+		return -100;
+	}
+	return stat_reply_status(stat);
+}
+
+static void fin_reset_app_state(int busy_calls, enum osdp_mp_outcome outcome)
+{
+	memset(&receiver_data, 0, sizeof(receiver_data));
+	receiver_data.is_cp = false;
+	g_fin_calls = 0;
+	g_fin_busy_calls = busy_calls;
+	g_fin_close_calls = 0;
+	g_fin_outcome = outcome;
+	g_fin_done_count = 0;
+	g_fin_done_outcome = -1;
+	unlink(REC_FILE);
+}
+
+/*
+ * The PD-side terminal decision. Until finalize existed, reaching EOF always
+ * meant wire status 1 and immediate teardown; a PD could neither hold the
+ * transfer open while it worked on the file nor report why it refused one.
+ */
+void run_file_rx_finalize_tests(struct test *t)
+{
+	bool result = false;
+	osdp_t *cp_ctx = NULL, *pd_ctx = NULL;
+	struct osdp_pd *pd;
+	struct osdp_file *f;
+	uint8_t stat[16];
+	size_t i;
+	int status;
+
+	struct {
+		enum osdp_mp_outcome outcome;
+		int status;
+	} terminals[] = {
+		{ OSDP_MP_OUTCOME_OK, KA_STATUS_CONTENTS_PROCESSED },
+		{ OSDP_MP_OUTCOME_ABORTED, KA_STATUS_ERR_ABORT },
+		{ OSDP_MP_OUTCOME_UNRECOGNIZED, KA_STATUS_ERR_UNKNOWN },
+		{ OSDP_MP_OUTCOME_INVALID, KA_STATUS_ERR_INVALID },
+	};
+
+	struct osdp_file_ops recv_ops = {
+		.arg = (void *)&receiver_data,
+		.open = test_fops_open,
+		.read = test_fops_read,
+		.write = test_fops_write,
+		.close = fin_fops_close,
+		.finalize = fin_fops_finalize
+	};
+
+	printf("\nBegin file transfer test: receiver finalize\n");
+
+	if (test_setup_devices_ext(t, &cp_ctx, &pd_ctx, 0,
+				   OSDP_FLAG_ENABLE_NOTIFICATION)) {
+		printf(SUB_1 "Failed to setup devices!\n");
+		goto done;
+	}
+	pd = osdp_to_pd((struct osdp *)pd_ctx, 0);
+	osdp_pd_set_command_callback(pd_ctx, fin_pd_cmd_cb, NULL);
+
+	/* 1. Busy twice, then reboot. */
+	fin_reset_app_state(2, OSDP_MP_OUTCOME_OK_REBOOTING);
+	osdp_file_register_ops(pd_ctx, 0, &recv_ops);
+	f = TO_FILE(pd); /* pd->file is allocated by the register_ops above */
+
+	status = fin_drive_to_eof(pd, stat, sizeof(stat));
+	if (status != KA_STATUS_KEEP_ALIVE || !osdp_file_tx_is_active(pd)) {
+		printf(SUB_1 "finalize: eof status=%d active=%d\n", status,
+		       osdp_file_tx_is_active(pd));
+		goto teardown;
+	}
+	if (f->mp.offset != f->mp.total) {
+		printf(SUB_1 "finalize: eof offset moved while parked "
+		       "(off=%u total=%u)\n", f->mp.offset, f->mp.total);
+		goto teardown;
+	}
+	if (g_fin_close_calls != 0 || g_fin_done_count != 0) {
+		printf(SUB_1 "finalize: closed/done while still working\n");
+		goto teardown;
+	}
+
+	status = fin_ping(pd, stat, sizeof(stat));
+	if (status != KA_STATUS_KEEP_ALIVE || !osdp_file_tx_is_active(pd)) {
+		printf(SUB_1 "finalize: ping1 status=%d active=%d\n", status,
+		       osdp_file_tx_is_active(pd));
+		goto teardown;
+	}
+	if (f->mp.offset != f->mp.total) {
+		printf(SUB_1 "finalize: ping1 offset moved while parked "
+		       "(off=%u total=%u)\n", f->mp.offset, f->mp.total);
+		goto teardown;
+	}
+
+	status = fin_ping(pd, stat, sizeof(stat));
+	if (status != KA_STATUS_PD_RESET || osdp_file_tx_is_active(pd)) {
+		printf(SUB_1 "finalize: ping2 status=%d active=%d\n", status,
+		       osdp_file_tx_is_active(pd));
+		goto teardown;
+	}
+	if (g_fin_calls != 3 || g_fin_close_calls != 1) {
+		printf(SUB_1 "finalize: calls=%d closes=%d (want 3/1)\n",
+		       g_fin_calls, g_fin_close_calls);
+		goto teardown;
+	}
+	if (g_fin_done_count != 1 ||
+	    g_fin_done_outcome != OSDP_MP_OUTCOME_OK_REBOOTING) {
+		printf(SUB_1 "finalize: done=%d outcome=%d\n", g_fin_done_count,
+		       g_fin_done_outcome);
+		goto teardown;
+	}
+
+	/* 2. Every terminal outcome reaches the wire as its own status. */
+	for (i = 0; i < sizeof(terminals) / sizeof(terminals[0]); i++) {
+		fin_reset_app_state(0, terminals[i].outcome);
+		osdp_file_register_ops(pd_ctx, 0, &recv_ops);
+
+		status = fin_drive_to_eof(pd, stat, sizeof(stat));
+		if (status != terminals[i].status ||
+		    osdp_file_tx_is_active(pd)) {
+			printf(SUB_1
+			       "finalize: outcome %d -> status %d (want %d) active=%d\n",
+			       terminals[i].outcome, status,
+			       terminals[i].status,
+			       osdp_file_tx_is_active(pd));
+			goto teardown;
+		}
+		if (g_fin_close_calls != 1) {
+			printf(SUB_1 "finalize: outcome %d closes=%d\n",
+			       terminals[i].outcome, g_fin_close_calls);
+			goto teardown;
+		}
+	}
+
+	/* 3. An unregistered (NULL) finalize must still behave as returning
+	 * true with OSDP_MP_OUTCOME_OK, so the default is not silently
+	 * changed later. */
+	{
+		struct osdp_file_ops nofin_ops = {
+			.arg = (void *)&receiver_data,
+			.open = test_fops_open,
+			.read = test_fops_read,
+			.write = test_fops_write,
+			.close = fin_fops_close
+		};
+
+		fin_reset_app_state(0, OSDP_MP_OUTCOME_OK);
+		osdp_file_register_ops(pd_ctx, 0, &nofin_ops);
+
+		status = fin_drive_to_eof(pd, stat, sizeof(stat));
+		if (status != KA_STATUS_CONTENTS_PROCESSED ||
+		    osdp_file_tx_is_active(pd)) {
+			printf(SUB_1
+			       "finalize: NULL finalize status=%d (want %d) active=%d\n",
+			       status, KA_STATUS_CONTENTS_PROCESSED,
+			       osdp_file_tx_is_active(pd));
+			goto teardown;
+		}
+	}
+
+	result = true;
+	printf(SUB_1 "receiver finalize: succeeded\n");
+
+teardown:
+	unlink(REC_FILE);
+	osdp_cp_teardown(cp_ctx);
+	osdp_pd_teardown(pd_ctx);
+done:
+	TEST_CASE(t, "file_rx_finalize", result);
+}
+
 /*
  * Receiver error paths around engine frame rejection:
  *  - a malformed FIRST frame that passes the pre-open length bound (so the
