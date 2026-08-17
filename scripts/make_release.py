@@ -381,10 +381,21 @@ def check_signing_key_available(key_url: str) -> None:
             "at your published key before publishing")
 
 
+# Primary key of the release identity. Signatures are accepted from any valid
+# subkey it certifies, so a routine subkey rotation needs no change here.
+RELEASE_KEY = "D8861B9C6B9C4284D980D6016804DFEE281234B2"
+
+
 def verify_tag_signature(root: Path, tag: str, key_url: str) -> None:
-    """Verify `tag` is signed by the key at key_url. Uses a throwaway keyring
-    holding ONLY that key, so a valid signature can only come from it. Raises
-    SystemExit (via die) on any mismatch — callers roll back their mutations."""
+    """Verify `tag` was signed by a subkey of RELEASE_KEY.
+
+    A throwaway keyring is not sufficient on its own: key_url serves *every* key
+    the account publishes. gpg names the certifying primary key in the last
+    field of its VALIDSIG status line, so that is asserted instead of a specific
+    subkey — a rotated subkey keeps working. GOODSIG is also required, since gpg
+    withholds it (emitting EXPKEYSIG or REVKEYSIG) for an expired or revoked
+    key. Raises SystemExit (via die) on any mismatch — callers roll back their
+    mutations."""
     with tempfile.TemporaryDirectory() as home:
         os.chmod(home, 0o700)
         env = {**os.environ, "GNUPGHOME": home}
@@ -394,12 +405,16 @@ def verify_tag_signature(root: Path, tag: str, key_url: str) -> None:
         if imported.returncode != 0:
             die(f"failed to import signing key: {imported.stderr.decode().strip()}")
         verified = subprocess.run(
-            ["git", "-c", "gpg.program=gpg", "verify-tag", tag],
+            ["git", "-c", "gpg.program=gpg", "verify-tag", "--raw", tag],
             cwd=root, env=env, capture_output=True, text=True,
         )
-        if verified.returncode != 0:
-            die(f"tag {tag} is not signed by the key at {key_url}:\n"
-                f"{verified.stderr.strip()}")
+        status = f"{verified.stdout}{verified.stderr}"
+        primary = ""
+        for line in status.splitlines():
+            if line.startswith("[GNUPG:] VALIDSIG "):
+                primary = line.split()[-1]
+        if "[GNUPG:] GOODSIG " not in status or primary != RELEASE_KEY:
+            die(f"tag {tag} is not signed by the release key:\n{status.strip()}")
 
 
 def require_clean_tree(root: Path) -> None:

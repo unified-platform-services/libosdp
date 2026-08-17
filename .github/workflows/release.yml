@@ -27,19 +27,33 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.ref }}
           submodules: recursive
-      - name: Verify tag is signed by the maintainer key
+      - name: Verify tag is signed by the release key
         shell: bash
+        env:
+          # Primary key of the release identity. Signatures are accepted from
+          # any valid subkey it certifies, so a routine subkey rotation needs
+          # no change here or in any other repository.
+          RELEASE_KEY: D8861B9C6B9C4284D980D6016804DFEE281234B2
         run: |
           set -euo pipefail
-          # Import ONLY the maintainer's published key into a throwaway keyring,
-          # so verify-tag can only succeed against that key. Gates the whole
-          # pipeline: every downstream job needs this preflight.
+          # Gates the whole pipeline: every downstream job needs this preflight.
           GNUPGHOME="$(mktemp -d)"; export GNUPGHOME; chmod 700 "$GNUPGHOME"
-          curl -fsSL https://github.com/sidcha.gpg | gpg --batch --import
-          if ! git -c gpg.program=gpg verify-tag "${GITHUB_REF_NAME}"; then
-            echo "Tag ${GITHUB_REF_NAME} is not signed by the maintainer's published key" >&2
+          curl --retry 5 --retry-all-errors --retry-delay 2 -fsSL \
+            https://github.com/sidcha.gpg | gpg --batch --import
+          # The key URL serves every key the account publishes, so importing it
+          # is not a gate on its own. gpg names the certifying primary key in
+          # the last field of VALIDSIG -- require that to be RELEASE_KEY. Also
+          # require GOODSIG, which gpg withholds (in favour of EXPKEYSIG or
+          # REVKEYSIG) when the signing key is expired or revoked.
+          status="$(git -c gpg.program=gpg verify-tag --raw "${GITHUB_REF_NAME}" 2>&1 || true)"
+          printf '%s\n' "${status}"
+          primary="$(awk '/^\[GNUPG:\] VALIDSIG /{print $NF}' <<<"${status}")"
+          if ! grep -q "^\[GNUPG:\] GOODSIG " <<<"${status}" \
+             || [ "${primary}" != "${RELEASE_KEY}" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} is not signed by the release key"
             exit 1
           fi
+          echo "Tag ${GITHUB_REF_NAME} signature verified"
       - name: Validate tag matches project versions
         id: meta
         shell: bash
