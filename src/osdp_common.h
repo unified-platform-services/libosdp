@@ -30,6 +30,8 @@
 #include "osdp_config.h" /* generated */
 #endif
 
+#include "osdp_tunables.h"
+
 #ifndef NULL
 #define NULL ((void *)0)
 #endif

@@ -204,6 +204,7 @@ osdp_sys_include = [
 
 other_files = [
     "src/osdp_config.h.in",
+    "src/osdp_tunables.h",
 
     # Optional when PACKET_TRACE is enabled
     "src/osdp_diag.c",
@@ -263,7 +264,7 @@ compile_args = (
 )
 link_args = []
 
-# The timeouts in src/osdp_config.h.in are #ifndef-guarded so that a build can
+# The timeouts in src/osdp_tunables.h are #ifndef-guarded so that a build can
 # dial them down; tests/unit-tests does the same via -DOSDP_PD_ONLINE_TOUT_MS.
 # Without this the pytest suite has to wait out the 8s production timeout to
 # observe a PD going offline.
