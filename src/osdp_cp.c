@@ -2441,6 +2441,31 @@ static int cp_setup_pd_rx_storage(struct osdp *ctx, struct osdp_pd *pd, int pd_i
 	return 0;
 }
 
+/*
+ * Undo cp_setup_pd_rx_storage() and the capture context for PDs that were
+ * already built when a later one failed. The static pools are owned by their
+ * allocators, so this is a no-op there; the caller memsets those slots.
+ */
+static void cp_release_pd_resources(struct osdp_pd *pd_array, int count)
+{
+	struct osdp_pd *pd;
+	int i;
+
+	for (i = 0; i < count; i++) {
+		pd = pd_array + i;
+		if (is_capture_enabled(pd) && pd->packet_capture_ctx) {
+			osdp_packet_capture_finish(pd);
+		}
+#ifndef OPT_OSDP_STATIC
+#ifdef OPT_OSDP_RX_ZERO_COPY
+		safe_free(pd->rx_pkt);
+#else
+		safe_free(pd->rx_rb);
+#endif
+#endif /* OPT_OSDP_STATIC */
+	}
+}
+
 static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_list)
 {
 	int i, old_num_pd;
@@ -2506,6 +2531,9 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 	return 0;
 
 error:
+	/* `i` is the PD that failed; it may be half-built, so it is included
+	 * in the release sweep along with every PD before it. */
+	cp_release_pd_resources(new_pd_array + old_num_pd, i + 1);
 	ctx->pd = old_pd_array;
 	ctx->_num_pd = old_num_pd;
 
