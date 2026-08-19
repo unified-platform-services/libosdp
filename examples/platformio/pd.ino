@@ -55,6 +55,9 @@ void init_pd_info()
     info_pd.id.serial_number = 0x01020304;
     info_pd.id.firmware_version = 0x0A0B0C0D;
     info_pd.cap = pd_cap;
+    /* No SCBK: the secure channel is disabled and this link runs in plain
+     * text. Set a key here, or OSDP_FLAG_INSTALL_MODE in info_pd.flags, to
+     * bring up OSDP-SC. */
     info_pd.scbk = nullptr;
 
     pd_channel.recv = serial1_recv_func;

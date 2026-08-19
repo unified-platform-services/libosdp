@@ -124,7 +124,8 @@ def test_cp_rejects_a_malformed_scbk(scbk):
 
 
 def test_cp_treats_an_empty_scbk_as_no_scbk():
-    # An empty bytes reads as "the key is not there", which is install mode.
+    # An empty bytes reads as "the key is not there", which leaves that PD
+    # with no secure channel.
     assert _sys.ControlPanel([cp_info(scbk=b"")]) is not None
 
 
@@ -160,7 +161,7 @@ def test_pd_needs_a_channel():
 @pytest.mark.parametrize("scbk", [b"x" * 15, b"x" * 17, b"x"])
 def test_pd_rejects_a_malformed_scbk(scbk):
     # A truncated key used to be dropped on the floor, quietly leaving the PD
-    # in install mode where it would accept the well-known default SCBK.
+    # keyless.
     with pytest.raises(TypeError, match="scbk must be exactly 16 bytes"):
         _sys.PeripheralDevice(pd_info(scbk=scbk))
 
@@ -169,7 +170,9 @@ def test_pd_treats_an_empty_scbk_as_no_scbk():
     assert _sys.PeripheralDevice(pd_info(scbk=b"")) is not None
 
 
-def test_pd_accepts_an_absent_scbk_as_install_mode():
+def test_pd_accepts_an_absent_scbk_and_disables_secure_channel():
+    # Setup succeeds; the PD just runs in the clear. It does not fall back to
+    # SCBK-D -- that needs FLAG_INSTALL_MODE, see test_sc_negative.py.
     assert _sys.PeripheralDevice(pd_info()) is not None
 
 

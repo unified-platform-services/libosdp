@@ -43,6 +43,9 @@ def test_install_mode_set_scbk(utils):
         PDInfo(pd_addr, f2, scbk=utils.ks.new_key('install-mode-pd'))
      ])
     assert cp.sc_wait_all()
+    # An install-mode PD still advertises AES128, unlike a keyless one.
+    assert cp.check_capability(
+        pd_addr, Capability.CommunicationSecurity) == (1, 0)
 
     # Cleanup
     cp.teardown()

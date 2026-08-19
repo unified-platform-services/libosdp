@@ -375,8 +375,9 @@ error:
 	"\n"                                                                        \
 	"pd_info is an osdp_pd_info_t dict. Its 'scbk', when present, must be\n"    \
 	"exactly 16 raw bytes; any other length is a TypeError. An absent key\n"    \
-	"leaves the PD in install mode. capabilities is a list of osdp_pd_cap_t\n"  \
-	"dicts."
+	"leaves the PD with its secure channel disabled, unless\n"                  \
+	"FLAG_INSTALL_MODE is also set. capabilities is a list of\n"                \
+	"osdp_pd_cap_t dicts."
 static int pyosdp_pd_tp_init(pyosdp_pd_t *self, PyObject *args, PyObject *kwargs)
 {
 	int scbk_length, baud_rate;

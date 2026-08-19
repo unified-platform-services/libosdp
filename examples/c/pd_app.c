@@ -155,6 +155,9 @@ osdp_pd_info_t info_pd = {
 		},
 		{ OSDP_PD_CAP_SENTINEL, 0, 0 }
 	},
+	/* No SCBK: the secure channel is disabled and this link runs in
+	 * plain text. Pass a key here, or OSDP_FLAG_INSTALL_MODE in .flags,
+	 * to bring up OSDP-SC. */
 	.scbk = NULL,
 };
 

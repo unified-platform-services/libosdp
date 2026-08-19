@@ -19,6 +19,7 @@ from osdp import (
     Command,
     CompletionStatus,
     Event,
+    LibFlag,
     NakCode,
     NakError,
     PDCapabilities,
@@ -64,9 +65,10 @@ parser.add_argument("--baudrate", type=int, metavar="N", default=115200, help="S
 parser.add_argument("--log-level", type=int, metavar="N", default=6, help="LibOSDP log level; can be 0-7 (default: 6)")
 args = parser.parse_args()
 
-## Describe the PD (setting scbk=None puts the PD in install mode)
+## Describe the PD. Without an scbk the secure channel is disabled, so this
+## example asks for install mode to let cp_app provision the real key.
 channel = SerialChannel(args.device, args.baudrate)
-pd_info = PDInfo(101, channel, scbk=None)
+pd_info = PDInfo(101, channel, scbk=None, flags=[LibFlag.InstallMode])
 
 ## Indicate the PD's capabilities to LibOSDP.
 pd_cap = PDCapabilities([

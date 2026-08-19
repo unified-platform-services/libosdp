@@ -39,6 +39,10 @@ extern "C" {
  * @brief When set, the PD would allow one session of secure channel to be
  * setup with SCBK-D.
  *
+ * This is the only way to permit SCBK-D on a PD. A PD set up without an SCBK
+ * and without this flag runs with the secure channel disabled; it advertises
+ * no communication security and rejects every secure message.
+ *
  * @note In this mode, the PD is in a vulnerable state, the application is
  * responsible for making sure that the device enters this mode only during
  * controlled/provisioning-time environments.
@@ -431,6 +435,12 @@ typedef struct {
 	/**
 	 * Pointer to 16 bytes of Secure Channel Base Key for the PD. If
 	 * non-null, this is used to set-up the secure channel.
+	 *
+	 * When NULL, the secure channel is disabled for this PD and the link
+	 * runs in plain text. The one exception is a PD that also passes
+	 * @ref OSDP_FLAG_INSTALL_MODE, which brings the channel up on SCBK-D
+	 * so a CP can provision the real key. Passing NULL with
+	 * @ref OSDP_FLAG_ENFORCE_SECURE fails setup.
 	 */
 	const uint8_t *scbk;
 } osdp_pd_info_t;

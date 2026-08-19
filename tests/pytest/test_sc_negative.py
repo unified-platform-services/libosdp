@@ -101,6 +101,10 @@ def test_enforce_secure_refuses_an_unkeyed_pd(pair):
     # The case that matters: the CP demands a secure channel, and the PD on the
     # other end has no key at all. It must never come online -- this is the
     # whole point of the flag, and nothing asserted it until now.
+    #
+    # The unkeyed PD now reports communication security at compliance level 0,
+    # so the CP refuses it at capability detection rather than after a failed
+    # handshake. Either way it stays offline.
     key = KeyStore().gen_key()
     cp, pd = pair(
         cp_scbk=key,
@@ -149,3 +153,29 @@ def test_the_matching_key_still_works(pair):
     command = commands.Output(output_no=1, control_code=1, timer_count=10)
     assert cp.submit_command(101, command)
     assert pd.get_command(timeout=5) == command
+
+
+def test_a_keyless_pd_refuses_the_secure_channel(pair):
+    # A PD with no key and no InstallMode used to answer a challenge on SCBK-D,
+    # the key printed in the spec -- anyone on the bus could bring up a
+    # "secure" session and then key the PD. It must decline OSDP-SC entirely
+    # and let the link run in the clear instead.
+    cp, pd = pair(cp_scbk=KeyStore().gen_key(), pd_scbk=None)
+
+    assert cp.online_wait(101, timeout=5), "the plaintext link never came up"
+    assert not cp.sc_wait(101, timeout=5), "SC came up without a key"
+    assert not cp.is_sc_active(101)
+    assert not pd.is_sc_active()
+    assert cp.check_capability(101, Capability.CommunicationSecurity) == (0, 0)
+
+
+def test_install_mode_is_the_only_route_to_scbk_d(pair):
+    # The same pair, with the PD opted in, does bring the channel up. This is
+    # the line between the two: the flag, not the absence of a key.
+    cp, pd = pair(
+        cp_scbk=KeyStore().gen_key(),
+        pd_scbk=None,
+        pd_flags=[LibFlag.InstallMode],
+    )
+
+    assert cp.sc_wait(101, timeout=10), "install mode did not reach SC"

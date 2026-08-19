@@ -20,6 +20,7 @@ test-async-fuzz.c
 test-codec-fuzz.c
 test-sc.c
 test-sc-sia-vectors.c
+test-sc-policy.c
 test-trs.c
 test-trs-emu.c
 emu-card.c

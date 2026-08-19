@@ -48,7 +48,8 @@ parser.add_argument("--baudrate", type=int, metavar="N", default=115200, help="S
 parser.add_argument("--log-level", type=int, metavar="LEVEL", default=6, help="LibOSDP log level; can be 0-7 (default: 6)")
 args = parser.parse_args()
 
-## Describe the PD (setting scbk=None puts the PD in install mode)
+## Describe the PD. The CP owns the key; pd_app runs in install mode so
+## this key gets provisioned into it over SCBK-D on first contact.
 channel = SerialChannel(args.device, args.baudrate)
 pd_info = [
     PDInfo(101, channel, scbk=KeyStore.gen_key()),

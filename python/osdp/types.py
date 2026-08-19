@@ -147,7 +147,11 @@ class PDInfo:
     """The transport to reach it over."""
 
     scbk: bytes | None = None
-    """The 16-byte secure channel base key, or None to run without one."""
+    """The 16-byte secure channel base key.
+
+    None disables the secure channel and runs the link in plain text, unless
+    :attr:`LibFlag.InstallMode` is also set.
+    """
 
     name: str = ""
     """A label for logs. Defaults to "PD-" followed by the address."""

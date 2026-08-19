@@ -67,7 +67,8 @@ class LibFlag(IntFlag):
     """Only allow communication in secure channel."""
 
     InstallMode = _sys.FLAG_INSTALL_MODE
-    """Allow a PD to receive a new secure channel key over a plaintext link."""
+    """Allow a keyless PD to bring up the secure channel on SCBK-D so the CP
+    can provision it. Without this flag a keyless PD refuses OSDP-SC."""
 
     IgnoreUnsolicited = _sys.FLAG_IGN_UNSOLICITED
     """Discard unsolicited replies from the PD."""

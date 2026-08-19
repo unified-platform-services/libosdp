@@ -1931,6 +1931,7 @@ static int pd_setup_rx_storage(const struct osdp_channel *channel,
 
 osdp_t *osdp_pd_setup(struct osdp_channel *channel, const osdp_pd_info_t *info)
 {
+	struct osdp_pd_cap *cap;
 	struct osdp_pd *pd;
 	struct osdp *ctx;
 
@@ -1984,15 +1985,20 @@ osdp_t *osdp_pd_setup(struct osdp_channel *channel, const osdp_pd_info_t *info)
 		goto error;
 	}
 
-	if (info->scbk == NULL) {
-		if (is_enforce_secure(pd)) {
-			LOG_ERR("SCBK must be provided in ENFORCE_SECURE");
-			goto error;
-		}
-		LOG_WRN("SCBK not provided. PD is in INSTALL_MODE");
-		SET_FLAG(pd, PD_FLAG_INSTALL_MODE);
-	} else {
+	if (info->scbk) {
 		memcpy(pd->sc.scbk, info->scbk, 16);
+	} else if (is_enforce_secure(pd)) {
+		LOG_ERR("SCBK must be provided in ENFORCE_SECURE");
+		goto error;
+	} else if (!is_install_mode(pd)) {
+		/**
+		 * SCBK-D is a constant published in the spec, so a channel
+		 * keyed with it is secure against nobody. v2.2 D.8 allows it
+		 * only when the installer has explicitly enabled install mode;
+		 * a PD that was simply never keyed does not do OSDP-SC.
+		 */
+		LOG_WRN("SCBK not provided; secure channel is disabled");
+		SET_FLAG(pd, PD_FLAG_SC_DISABLED);
 	}
 	SET_FLAG(pd, PD_FLAG_SC_CAPABLE);
 	if (IS_ENABLED(OPT_OSDP_SKIP_MARK_BYTE)) {
@@ -2000,6 +2006,13 @@ osdp_t *osdp_pd_setup(struct osdp_channel *channel, const osdp_pd_info_t *info)
 	}
 	osdp_pd_set_attributes(pd, info->cap, &info->id);
 	osdp_pd_set_attributes(pd, osdp_pd_cap, NULL);
+	if (!sc_is_capable(pd)) {
+		/* Compliance level for this function code is a bitmap of
+		 * supported algorithms (v2.2 B.10); zero advertises none, so
+		 * the CP never starts a handshake this PD would only NAK. */
+		cap = &pd->cap[OSDP_PD_CAP_COMMUNICATION_SECURITY];
+		cap->compliance_level = 0;
+	}
 
 	SET_FLAG(pd, PD_FLAG_PD_MODE); /* used in checks in phy */
 
@@ -2072,6 +2085,12 @@ void osdp_pd_set_capabilities(osdp_t *ctx, const struct osdp_pd_cap *cap)
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 
 	osdp_pd_set_attributes(pd, cap, NULL);
+	/* Clearing the communication security capability is the documented way
+	 * to turn OSDP-SC off after setup. The reverse is not offered: a PD
+	 * that holds no SCBK has no secure channel to turn on. */
+	if (pd->cap[OSDP_PD_CAP_COMMUNICATION_SECURITY].compliance_level == 0) {
+		SET_FLAG(pd, PD_FLAG_SC_DISABLED);
+	}
 }
 
 void osdp_pd_set_command_callback(osdp_t *ctx, pd_command_callback_t cb,

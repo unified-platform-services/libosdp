@@ -141,7 +141,8 @@ from osdp import (
 # Create a communication channel
 channel = SerialChannel("/dev/ttyUSB0")
 
-# Describe the PD (setting scbk=None puts the PD in install mode)
+# Describe the PD. Without an scbk the secure channel is disabled; pass
+# flags=[LibFlag.InstallMode] to let a CP provision one over SCBK-D.
 pd_info = PDInfo(101, channel, scbk=None)
 
 # Indicate the PD's capabilities to LibOSDP.
