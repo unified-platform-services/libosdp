@@ -1077,6 +1077,18 @@ static inline bool is_ignore_unsolicited_messages(struct osdp_pd *pd)
 	return ISSET_FLAG(pd, PD_FLAG_IGNORE_USR);
 }
 
+/*
+ * ENFORCE_SECURE undertakes never to use SCBK-D; INSTALL_MODE exists only to
+ * permit it. They are direct opposites, so asking for both is a configuration
+ * error rather than a preference to resolve.
+ */
+static inline bool init_flags_conflict(uint32_t flags)
+{
+	const uint32_t both = OSDP_FLAG_ENFORCE_SECURE | OSDP_FLAG_INSTALL_MODE;
+
+	return (flags & both) == both;
+}
+
 static inline bool is_install_mode(struct osdp_pd *pd)
 {
 	return ISSET_FLAG(pd, PD_FLAG_INSTALL_MODE);

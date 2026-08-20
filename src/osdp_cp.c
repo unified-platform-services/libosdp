@@ -2496,6 +2496,11 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		pd->flags = 0;
 		pd->seq_number = -1;
 		cp_collect_init_flags(pd, info->flags);
+		if (init_flags_conflict(info->flags)) {
+			LOG_PRINT("ENFORCE_SECURE and INSTALL_MODE are"
+				  " mutually exclusive");
+			goto error;
+		}
 		SET_FLAG(pd, PD_FLAG_SC_DISABLED);
 		/* Default to CRC-16 until we know PD capabilities */
 		SET_FLAG(pd, PD_FLAG_CP_USE_CRC);

@@ -380,6 +380,68 @@ static bool set_capabilities_can_disable_sc(void)
 	return ok;
 }
 
+/* ENFORCE_SECURE undertakes never to use SCBK-D and INSTALL_MODE exists only
+ * to permit it, so the pair contradicts itself. Pass a valid key too, so a
+ * failure can only be the flag pair. */
+static bool pd_setup_rejects_enforce_secure_with_install_mode(void)
+{
+	const uint32_t both = OSDP_FLAG_ENFORCE_SECURE | OSDP_FLAG_INSTALL_MODE;
+	struct osdp *ctx = scp_pd_setup(scp_scbk, both);
+
+	if (ctx) {
+		osdp_pd_teardown((osdp_t *)ctx);
+		return false;
+	}
+	return true;
+}
+
+static bool cp_setup_rejects_enforce_secure_with_install_mode(void)
+{
+	const uint32_t both = OSDP_FLAG_ENFORCE_SECURE | OSDP_FLAG_INSTALL_MODE;
+	struct osdp_channel chn;
+	osdp_pd_info_t info;
+	osdp_t *ctx;
+
+	scp_channel_reset();
+	scp_fill_channel(&chn);
+	scp_fill_pd_info(&info, scp_scbk, both);
+	ctx = osdp_cp_setup(&chn, 1, &info);
+	if (ctx) {
+		osdp_cp_teardown(ctx);
+		return false;
+	}
+	return true;
+}
+
+/* The pre-existing rule, kept honest now that a sibling check can shadow it. */
+static bool cp_setup_rejects_enforce_secure_without_a_key(void)
+{
+	struct osdp_channel chn;
+	osdp_pd_info_t info;
+	osdp_t *ctx;
+
+	scp_channel_reset();
+	scp_fill_channel(&chn);
+	scp_fill_pd_info(&info, NULL, OSDP_FLAG_ENFORCE_SECURE);
+	ctx = osdp_cp_setup(&chn, 1, &info);
+	if (ctx) {
+		osdp_cp_teardown(ctx);
+		return false;
+	}
+	return true;
+}
+
+static bool pd_setup_rejects_enforce_secure_without_a_key(void)
+{
+	struct osdp *ctx = scp_pd_setup(NULL, OSDP_FLAG_ENFORCE_SECURE);
+
+	if (ctx) {
+		osdp_pd_teardown((osdp_t *)ctx);
+		return false;
+	}
+	return true;
+}
+
 void run_sc_policy_tests(struct test *t)
 {
 	printf("\nStarting sc_policy tests\n");
@@ -405,4 +467,12 @@ void run_sc_policy_tests(struct test *t)
 		  install_mode_pd_answers_chlng());
 	TEST_CASE(t, "set_capabilities_can_disable_sc",
 		  set_capabilities_can_disable_sc());
+	TEST_CASE(t, "pd_setup_rejects_enforce_secure_with_install_mode",
+		  pd_setup_rejects_enforce_secure_with_install_mode());
+	TEST_CASE(t, "cp_setup_rejects_enforce_secure_with_install_mode",
+		  cp_setup_rejects_enforce_secure_with_install_mode());
+	TEST_CASE(t, "pd_setup_rejects_enforce_secure_without_a_key",
+		  pd_setup_rejects_enforce_secure_without_a_key());
+	TEST_CASE(t, "cp_setup_rejects_enforce_secure_without_a_key",
+		  cp_setup_rejects_enforce_secure_without_a_key());
 }

@@ -420,3 +420,19 @@ def test_submit_event_rejects_a_card_read_whose_bits_exceed_its_data(pd):
 def test_submit_event_needs_a_dict(pd):
     with pytest.raises(TypeError, match="Unable to convert event dict"):
         pd.submit_event("not a dict")
+
+
+def test_pd_rejects_enforce_secure_with_install_mode():
+    # Install mode exists to allow SCBK-D; EnforceSecure exists to forbid it.
+    # Asking for both is a configuration error, not a preference to resolve.
+    info = pd_info(scbk=b"\x00" * 16,
+                   flags=_sys.FLAG_ENFORCE_SECURE | _sys.FLAG_INSTALL_MODE)
+    with pytest.raises(Exception, match="Failed to setup PD"):
+        _sys.PeripheralDevice(info)
+
+
+def test_cp_rejects_enforce_secure_with_install_mode():
+    info = cp_info(scbk=b"\x00" * 16,
+                   flags=_sys.FLAG_ENFORCE_SECURE | _sys.FLAG_INSTALL_MODE)
+    with pytest.raises(Exception, match="Failed to setup CP"):
+        _sys.ControlPanel([info])

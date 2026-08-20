@@ -31,7 +31,8 @@ extern "C" {
  *   - Assume that a KEYSET was successful at an earlier time.
  *   - CP does not allow user requested broadcast commands (see OSDP_CMD_FLAG_BROADCAST)
  *
- * @note This flag is recommended in production use.
+ * @note This flag is recommended in production use. It cannot be combined
+ * with @ref OSDP_FLAG_INSTALL_MODE; setup fails if both are set.
  */
 #define OSDP_FLAG_ENFORCE_SECURE 0x00010000
 
@@ -45,7 +46,8 @@ extern "C" {
  *
  * @note In this mode, the PD is in a vulnerable state, the application is
  * responsible for making sure that the device enters this mode only during
- * controlled/provisioning-time environments.
+ * controlled/provisioning-time environments. It cannot be combined with
+ * @ref OSDP_FLAG_ENFORCE_SECURE; setup fails if both are set.
  */
 #define OSDP_FLAG_INSTALL_MODE 0x00020000
 

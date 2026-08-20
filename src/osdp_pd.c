@@ -1980,6 +1980,11 @@ osdp_t *osdp_pd_setup(struct osdp_channel *channel, const osdp_pd_info_t *info)
 	}
 
 	pd_collect_init_flags(pd, info->flags);
+	if (init_flags_conflict(info->flags)) {
+		LOG_ERR("ENFORCE_SECURE and INSTALL_MODE are mutually"
+			" exclusive");
+		goto error;
+	}
 
 	if (pd_event_queue_init(pd)) {
 		goto error;
