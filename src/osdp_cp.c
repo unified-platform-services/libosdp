@@ -1733,7 +1733,7 @@ static enum osdp_cp_state_e get_next_err_state(struct osdp_pd *pd)
 		if (is_enforce_secure(pd)) {
 			return OSDP_CP_STATE_OFFLINE;
 		}
-		if (!sc_use_scbkd(pd)) {
+		if (!sc_use_scbkd(pd) && !sc_was_established(pd)) {
 			/* Self-transition: retry the handshake with SCBK-D */
 			return OSDP_CP_STATE_SC_CHLNG;
 		}
@@ -1797,6 +1797,8 @@ static void cp_transition_effects(struct osdp_pd *pd, enum osdp_cp_state_e cur,
 			notify_sc_status(pd);
 			if (next == OSDP_CP_STATE_SET_SCBK) {
 				LOG_WRN("SC active with SCBK-D. Set SCBK");
+			} else {
+				SET_FLAG(pd, PD_FLAG_SC_ESTABLISHED);
 			}
 			break;
 		case OSDP_CP_STATE_SET_SCBK:
@@ -1824,6 +1826,11 @@ static void cp_transition_effects(struct osdp_pd *pd, enum osdp_cp_state_e cur,
 			SET_FLAG(pd, PD_FLAG_SC_USE_SCBKD);
 			LOG_WRN("SC Failed. Retry with SCBK-D");
 		} else {
+			if (sc_was_established(pd) && !sc_use_scbkd(pd)) {
+				LOG_EM("SC failed on a PD that was secured"
+				       " before; refusing SCBK-D. Has this PD"
+				       " been swapped?");
+			}
 			CLEAR_FLAG(pd, PD_FLAG_SC_USE_SCBKD);
 			/**
 			 * SC setup failed; Update sc_tstamp so the next retry

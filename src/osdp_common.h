@@ -371,6 +371,7 @@ static inline __noreturn void die()
 #define PD_FLAG_ONLINE	       BIT(15) /* PD mode: CP link is active */
 #define PD_FLAG_TRS_CAPABLE    BIT(16) /* PD reported a smart card reader */
 #define PD_FLAG_TRS_ACTIVE     BIT(17) /* a TRS card session is in progress */
+#define PD_FLAG_SC_ESTABLISHED BIT(18) /* SC once came up on the real SCBK */
 
 /* PD Init flags */
 #define PD_FLAG_ENFORCE_SECURE  BIT(24) /* See: OSDP_FLAG_ENFORCE_SECURE */
@@ -921,6 +922,16 @@ static inline uint8_t *osdp_tx_staging_buf(struct osdp_pd *pd)
 static inline bool sc_use_scbkd(struct osdp_pd *pd)
 {
 	return ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD);
+}
+
+/*
+ * Latched the first time a secure channel comes up on the configured SCBK,
+ * and never cleared: it outlives the session, the PD going offline, and the
+ * re-INIT that follows, the same way pd->id does.
+ */
+static inline bool sc_was_established(struct osdp_pd *pd)
+{
+	return ISSET_FLAG(pd, PD_FLAG_SC_ESTABLISHED);
 }
 
 static inline bool sc_is_capable(struct osdp_pd *pd)

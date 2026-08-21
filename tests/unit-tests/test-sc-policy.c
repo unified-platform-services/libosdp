@@ -13,6 +13,7 @@
 #include "test.h"
 
 extern uint16_t test_osdp_compute_crc16(const uint8_t *buf, size_t len);
+extern enum osdp_cp_state_e test_get_next_err_state(struct osdp_pd *);
 
 #define SCP_ADDR 101
 
@@ -442,6 +443,44 @@ static bool pd_setup_rejects_enforce_secure_without_a_key(void)
 	return true;
 }
 
+/*
+ * A failed challenge normally means "try SCBK-D, the PD may be in install
+ * mode". Once a PD has answered on the configured key that inference is
+ * wrong and dangerous: an attacker who fails one handshake would get a
+ * session on a published key, and the CP would then hand it the real SCBK.
+ */
+static enum osdp_cp_state_e chlng_failure_state(bool established,
+						bool enforce_secure)
+{
+	struct osdp_pd pd;
+
+	memset(&pd, 0, sizeof(pd));
+	pd.state = OSDP_CP_STATE_SC_CHLNG;
+	if (established) {
+		SET_FLAG(&pd, PD_FLAG_SC_ESTABLISHED);
+	}
+	if (enforce_secure) {
+		SET_FLAG(&pd, PD_FLAG_ENFORCE_SECURE);
+	}
+	return test_get_next_err_state(&pd);
+}
+
+static bool first_chlng_failure_tries_scbkd(void)
+{
+	return chlng_failure_state(false, false) == OSDP_CP_STATE_SC_CHLNG;
+}
+
+static bool established_pd_never_falls_back_to_scbkd(void)
+{
+	return chlng_failure_state(true, false) == OSDP_CP_STATE_ONLINE;
+}
+
+static bool enforce_secure_still_wins_over_the_latch(void)
+{
+	return chlng_failure_state(true, true) == OSDP_CP_STATE_OFFLINE &&
+	       chlng_failure_state(false, true) == OSDP_CP_STATE_OFFLINE;
+}
+
 void run_sc_policy_tests(struct test *t)
 {
 	printf("\nStarting sc_policy tests\n");
@@ -475,4 +514,10 @@ void run_sc_policy_tests(struct test *t)
 		  pd_setup_rejects_enforce_secure_without_a_key());
 	TEST_CASE(t, "cp_setup_rejects_enforce_secure_without_a_key",
 		  cp_setup_rejects_enforce_secure_without_a_key());
+	TEST_CASE(t, "first_chlng_failure_tries_scbkd",
+		  first_chlng_failure_tries_scbkd());
+	TEST_CASE(t, "established_pd_never_falls_back_to_scbkd",
+		  established_pd_never_falls_back_to_scbkd());
+	TEST_CASE(t, "enforce_secure_still_wins_over_the_latch",
+		  enforce_secure_still_wins_over_the_latch());
 }

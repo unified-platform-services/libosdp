@@ -11,6 +11,8 @@
 # particular is used in a dozen places without its enforcement ever being
 # asserted.
 
+import time
+
 import pytest
 
 from osdp import (
@@ -179,3 +181,62 @@ def test_install_mode_is_the_only_route_to_scbk_d(pair):
     )
 
     assert cp.sc_wait(101, timeout=10), "install mode did not reach SC"
+
+
+def test_a_secured_pd_is_never_downgraded_to_scbk_d(fifo_pair):
+    # The swap: a device answering an address that already ran a real secure
+    # channel fails the challenge on purpose and offers install mode. Falling
+    # back to SCBK-D here would hand it a session on a published key, and the
+    # CP would then key it with the real SCBK over that session. Once a PD has
+    # come up on the configured key, SCBK-D is off the table for that slot.
+    key = KeyStore().gen_key()
+    cp_chan, pd_chan = fifo_pair()
+    devices = []
+    try:
+        pd = PeripheralDevice(
+            PDInfo(101, pd_chan, scbk=key), CAPABILITIES,
+            log_level=LogLevel.Error,
+        )
+        pd.start()
+        devices.append(pd)
+        cp = ControlPanel(
+            [PDInfo(101, cp_chan, scbk=key)], log_level=LogLevel.Error,
+        )
+        cp.start()
+        devices.append(cp)
+        assert cp.sc_wait(101, timeout=10), "the honest PD never reached SC"
+
+        # Swap in a keyless install-mode PD on the same wire. Cycling the
+        # slot rather than letting the CP time out keeps the test off the
+        # five-minute offline dwell.
+        # disable_pd() only posts a request; the FSM acts on it a refresh
+        # later. Wait for the slot to actually go quiet, or enable_pd() below
+        # is refused and the assertions read the honest session's state.
+        assert cp.disable_pd(101)
+        deadline = time.monotonic() + 5
+        while cp.is_pd_enabled(101) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert not cp.is_pd_enabled(101), "PD never reached the disabled state"
+
+        pd.teardown()
+        devices.remove(pd)
+        # The honest PD's last reply may still be in the pipe, and the fresh
+        # device starts its sequence at zero. Drain both directions so the
+        # swapped pair does not have to resync through the offline dwell.
+        cp_chan.flush()
+        pd_chan.flush()
+        impostor = PeripheralDevice(
+            PDInfo(101, pd_chan, scbk=None, flags=[LibFlag.InstallMode]),
+            CAPABILITIES, log_level=LogLevel.Error,
+        )
+        impostor.start()
+        devices.append(impostor)
+        assert cp.enable_pd(101)
+
+        assert cp.online_wait(101, timeout=30), "the swapped PD never answered"
+        assert not cp.sc_wait(101, timeout=15), "CP re-keyed on SCBK-D"
+        assert not impostor.is_sc_active()
+    finally:
+        for device in reversed(devices):
+            if device.thread:
+                device.teardown()
