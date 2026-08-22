@@ -876,16 +876,16 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 			    pkt->data[0] == REPLY_ACK) {
 				is_sc_active = false;
 			}
-			/**
-			 * When the PD discards it's secure channel for some
-			 * reason, it responds with NACK(6) in plaintext. There
-			 * may be other cases too. So we will allow NAKs in
-			 */
-			if (is_sc_active && pkt->data[0] == REPLY_NAK) {
-				is_sc_active = false;
-			}
 		}
 		if (is_sc_active) {
+			/**
+			 * v2.2 D.1.1 makes osdp_BUSY the only reply that may
+			 * skip the secure channel, and D.1.4 requires every
+			 * other one to carry SCS_16 or SCS_18. A PD that lost
+			 * its session cannot MAC anything, so it has nothing
+			 * to say here that we can believe: drop the frame and
+			 * let the CP re-run the handshake.
+			 */
 			LOG_ERR("Received plain-text message in SC");
 			pd->reply_id = REPLY_NAK;
 			pd->nak_code = OSDP_PD_NAK_SC_COND;

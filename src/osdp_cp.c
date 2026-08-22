@@ -951,6 +951,15 @@ static int cp_process_reply(struct osdp_pd *pd)
 			make_request(pd, CP_REQ_LINK_RESET);
 			return OSDP_CP_ERR_SEQ_NUM;
 		}
+		if (pd->nak_code == OSDP_PD_NAK_SC_COND) {
+			/* The session is unusable: the reply was unMAC'd, or
+			 * its MAC did not check out. Nothing in it can be
+			 * trusted, but its arrival is reason enough to redo
+			 * the handshake rather than sit out the offline
+			 * dwell. */
+			LOG_WRN("Secure channel is out of step; restarting it");
+			make_request(pd, CP_REQ_RESTART_SC);
+		}
 		/* Other NACKs: CP cannot do anything about an invalid reply from a PD.
 		 * Default to going offline and retrying after a while. The reason for
 		 * this failure was probably better logged by lower layers.

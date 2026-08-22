@@ -642,6 +642,50 @@ static int test_phy_parse_hardcoded_plaintext_when_sc_active_reject(struct osdp 
 	return 0;
 }
 
+/*
+ * A PD that has dropped its session cannot MAC a NAK, and v2.2 D.1.1 makes
+ * osdp_BUSY the only reply allowed to skip the secure channel. The CP used to
+ * take a plaintext NAK at face value, which let one injected frame steer the
+ * link. It has to be refused like any other unauthenticated reply.
+ */
+static int test_phy_parse_hardcoded_plaintext_nak_when_sc_active_reject(
+	struct osdp *ctx)
+{
+	int err;
+	uint8_t *buf = NULL;
+	struct osdp_pd *p = GET_CURRENT_PD(ctx);
+	static const uint8_t packet[] = {
+#ifndef OPT_OSDP_SKIP_MARK_BYTE
+		0xff,
+#endif
+		0x53, 0xe5, 0x07, 0x00, 0x01, 0x41, 0x7f
+	};
+
+	printf(SUB_1 "Testing parser fixture (plaintext NAK in SC) -- ");
+	reset_pd_packet_state(p);
+	sc_activate(p);
+	SET_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK);
+	osdp_rb_push_buf(p->rx_rb, (uint8_t *)packet, sizeof(packet));
+	err = osdp_phy_check_packet(p);
+	if (err != OSDP_ERR_PKT_NONE) {
+		printf("failed! check returned %d\n", err);
+		goto error;
+	}
+	err = osdp_phy_decode_packet(p, &buf);
+	if (err != OSDP_ERR_PKT_NACK || p->nak_code != OSDP_PD_NAK_SC_COND) {
+		printf("failed! decode returned %d nak=%d\n", err, p->nak_code);
+		goto error;
+	}
+	sc_deactivate(p);
+	CLEAR_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK);
+	printf("success!\n");
+	return 0;
+error:
+	sc_deactivate(p);
+	CLEAR_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK);
+	return -1;
+}
+
 int test_phy_decode_packet_ignore_leading_mark_bytes(struct osdp *ctx)
 {
 	uint8_t *buf;
@@ -1603,6 +1647,8 @@ void run_cp_phy_tests(struct test *t)
 	DO_TEST(t, test_phy_parse_hardcoded_sc_inactive_scs16_reject);
 	DO_TEST(t, test_phy_parse_hardcoded_sc_active_invalid_mac_reject);
 	DO_TEST(t, test_phy_parse_hardcoded_plaintext_when_sc_active_reject);
+	DO_TEST(t,
+		test_phy_parse_hardcoded_plaintext_nak_when_sc_active_reject);
 	DO_TEST(t, test_phy_build_packet_without_mark);
 	DO_TEST(t, test_phy_packet_multiple_commands);
 	DO_TEST(t, test_phy_decode_packet_ack);
