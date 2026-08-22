@@ -686,6 +686,66 @@ error:
 	return -1;
 }
 
+/*
+ * Some PDs discard the session before acking a keyset, so a plaintext ack to
+ * CMD_KEYSET is tolerated -- and it is the frame that makes the CP commit the
+ * new key. Under ENFORCE_SECURE that tolerance is a way to desync the keys
+ * with one injected frame, so there the ack must be MAC'd.
+ */
+static int test_phy_plaintext_keyset_ack(struct osdp *ctx, bool enforce_secure)
+{
+	int err, want;
+	uint8_t *buf = NULL;
+	struct osdp_pd *p = GET_CURRENT_PD(ctx);
+	static const uint8_t packet[] = {
+#ifndef OPT_OSDP_SKIP_MARK_BYTE
+		0xff,
+#endif
+		0x53, 0xe5, 0x07, 0x00, 0x01, 0x40, 0x80
+	};
+
+	reset_pd_packet_state(p);
+	sc_activate(p);
+	SET_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK);
+	if (enforce_secure) {
+		SET_FLAG(p, PD_FLAG_ENFORCE_SECURE);
+	}
+	p->cmd_id = CMD_KEYSET;
+	osdp_rb_push_buf(p->rx_rb, (uint8_t *)packet, sizeof(packet));
+	err = osdp_phy_check_packet(p);
+	if (err != OSDP_ERR_PKT_NONE) {
+		printf("failed! check returned %d\n", err);
+		goto error;
+	}
+	/* decode returns the data block length on success */
+	err = osdp_phy_decode_packet(p, &buf);
+	want = enforce_secure ? (err == OSDP_ERR_PKT_NACK) : (err > 0);
+	if (!want) {
+		printf("failed! decode returned %d\n", err);
+		goto error;
+	}
+	sc_deactivate(p);
+	CLEAR_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK | PD_FLAG_ENFORCE_SECURE);
+	printf("success!\n");
+	return 0;
+error:
+	sc_deactivate(p);
+	CLEAR_FLAG(p, PD_FLAG_SKIP_SEQ_CHECK | PD_FLAG_ENFORCE_SECURE);
+	return -1;
+}
+
+static int test_phy_plaintext_keyset_ack_tolerated(struct osdp *ctx)
+{
+	printf(SUB_1 "Testing plaintext keyset ack is tolerated -- ");
+	return test_phy_plaintext_keyset_ack(ctx, false);
+}
+
+static int test_phy_plaintext_keyset_ack_refused_enforcing(struct osdp *ctx)
+{
+	printf(SUB_1 "Testing plaintext keyset ack in ENFORCE_SECURE -- ");
+	return test_phy_plaintext_keyset_ack(ctx, true);
+}
+
 int test_phy_decode_packet_ignore_leading_mark_bytes(struct osdp *ctx)
 {
 	uint8_t *buf;
@@ -1649,6 +1709,8 @@ void run_cp_phy_tests(struct test *t)
 	DO_TEST(t, test_phy_parse_hardcoded_plaintext_when_sc_active_reject);
 	DO_TEST(t,
 		test_phy_parse_hardcoded_plaintext_nak_when_sc_active_reject);
+	DO_TEST(t, test_phy_plaintext_keyset_ack_tolerated);
+	DO_TEST(t, test_phy_plaintext_keyset_ack_refused_enforcing);
 	DO_TEST(t, test_phy_build_packet_without_mark);
 	DO_TEST(t, test_phy_packet_multiple_commands);
 	DO_TEST(t, test_phy_decode_packet_ack);

@@ -871,9 +871,17 @@ int osdp_phy_decode_packet(struct osdp_pd *pd, uint8_t **pkt_start)
 			 * the rest of this method finishes normally. The actual
 			 * secure channel is actually discarded from the CP
 			 * state machine.
+			 *
+			 * v2.2 D.1.4 has no exception for this ack, so the
+			 * tolerance is a deliberate departure from the spec --
+			 * and it is what lets one injected six-byte frame make
+			 * the CP commit a key the PD never received. An app
+			 * that asked for ENFORCE_SECURE asked for no such
+			 * departures, so it does not get this one.
 			 */
 			if (pd->cmd_id == CMD_KEYSET &&
-			    pkt->data[0] == REPLY_ACK) {
+			    pkt->data[0] == REPLY_ACK &&
+			    !is_enforce_secure(pd)) {
 				is_sc_active = false;
 			}
 		}
