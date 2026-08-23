@@ -891,38 +891,43 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
  * sequence number. */
 static int cp_build_packet(struct osdp_pd *pd)
 {
-	int ret, packet_buf_size = get_tx_buf_size(pd);
+	int ret, rc = OSDP_CP_ERR_GENERIC;
+	int packet_buf_size = get_tx_buf_size(pd);
 	struct osdp_cmd local_keyset_cmd;
 	const struct osdp_cmd *cmd = pd->active_cmd;
 	uint8_t *buf = osdp_tx_staging_buf(pd);
 
 	pd->packet_buf = buf;
+	memset(&local_keyset_cmd, 0, sizeof(local_keyset_cmd));
 
 	ret = osdp_phy_packet_init(pd, buf, packet_buf_size);
 	if (ret < 0) {
-		return OSDP_CP_ERR_GENERIC;
+		goto out;
 	}
 	pd->packet_buf_len = ret;
 
 	if (pd->state == OSDP_CP_STATE_SET_SCBK && pd->cmd_id == CMD_KEYSET) {
-		memset(&local_keyset_cmd, 0, sizeof(local_keyset_cmd));
 		fill_local_keyset_cmd(pd, &local_keyset_cmd);
 		cmd = &local_keyset_cmd;
 	}
 
 	ret = cp_build_command(pd, cmd, buf, packet_buf_size);
 	if (ret < 0) {
-		return OSDP_CP_ERR_GENERIC;
+		goto out;
 	}
 	pd->packet_buf_len += ret;
 
 	ret = osdp_phy_finalize_packet(pd, buf, pd->packet_buf_len,
 				       packet_buf_size);
 	if (ret < 0) {
-		return OSDP_CP_ERR_GENERIC;
+		goto out;
 	}
 	pd->packet_buf_len = ret;
-	return OSDP_CP_ERR_NONE;
+	rc = OSDP_CP_ERR_NONE;
+out:
+	/* Holds a copy of the SCBK on the SET_SCBK path. */
+	osdp_fill_zeros(&local_keyset_cmd, sizeof(local_keyset_cmd));
+	return rc;
 }
 
 static int cp_process_reply(struct osdp_pd *pd)
@@ -2546,6 +2551,10 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 
 #ifndef OPT_OSDP_STATIC
 	if (old_num_pd) {
+		/* The copy handed to the new array carries the SCBKs and live
+		 * session keys of every PD already registered. */
+		osdp_fill_zeros(old_pd_array,
+				sizeof(struct osdp_pd) * old_num_pd);
 		free(old_pd_array);
 	}
 #endif
@@ -2559,6 +2568,8 @@ error:
 	ctx->_num_pd = old_num_pd;
 
 #ifndef OPT_OSDP_STATIC
+	osdp_fill_zeros(new_pd_array,
+			sizeof(struct osdp_pd) * (old_num_pd + num_pd));
 	free(new_pd_array);
 #else
 	memset(new_pd_array + old_num_pd, 0, sizeof(struct osdp_pd) * num_pd);
