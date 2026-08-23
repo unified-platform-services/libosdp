@@ -2052,6 +2052,10 @@ void osdp_pd_teardown(osdp_t *ctx)
 	}
 
 	osdp_fill_zeros(&pd->sc, sizeof(struct osdp_secure_channel));
+	/* A keyset that was decoded but whose ack never made it to the wire
+	 * leaves the new SCBK parked here. It shares storage with nak_code and
+	 * comset_pending, so wiping the key wipes the whole union. */
+	osdp_fill_zeros(pd->keyset_pending, sizeof(pd->keyset_pending));
 
 	if (pd_ctx->channel.close) {
 		pd_ctx->channel.close(pd_ctx->channel.data);
