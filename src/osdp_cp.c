@@ -2535,6 +2535,10 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 			LOG_PRINT("SCBK must be passed for each PD when"
 				  " ENFORCE_SECURE is requested.");
 			goto error;
+		} else {
+			LOG_WRN("SCBK not provided; secure channel is"
+				" disabled. This PD will be polled in plain"
+				" text");
 		}
 		if (cp_cmd_queue_init(pd)) {
 			goto error;
