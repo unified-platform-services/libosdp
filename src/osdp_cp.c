@@ -527,7 +527,11 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		 * from an already-known identity means a different device is
 		 * answering this address -- worth a warning. */
 		if (pd_id_changed(&prev, &pd->id)) {
-			if (pd_id_known(&prev)) {
+			if (pd_id_known(&prev) && sc_was_established(pd)) {
+				LOG_EM("PD ID changed on a slot that ran a"
+				       " secure channel; has this PD been"
+				       " swapped?");
+			} else if (pd_id_known(&prev)) {
 				LOG_WRN("PD ID changed since last contact");
 			}
 			notify_pd_id(pd);

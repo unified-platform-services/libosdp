@@ -2289,8 +2289,10 @@ int osdp_cp_trs_get_max_apdu_len(const osdp_t *ctx, int pd);
  *
  * @note This copies out of the PD's record and mutates nothing, so it is
  * exempt from the serialization rule documented on osdp_cp_refresh(). The
- * record is filled once while the PD comes online and is fixed from then on;
- * reading it before that is already documented above as not meaningful.
+ * record is filled while the PD comes online and re-read on every reconnect,
+ * so it changes if a different device starts answering this address; reading
+ * it before the first read is already documented above as not meaningful.
+ * @ref OSDP_NOTIFICATION_PD_ID reports such a change as it happens.
  */
 OSDP_EXPORT
 int osdp_cp_get_pd_id(const osdp_t *ctx, int pd, struct osdp_pd_id *id);
