@@ -2348,15 +2348,20 @@ void osdp_cp_set_command_completion_callback(osdp_t *ctx,
  * @param ctx OSDP context
  * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
  * osdp_cp_setup()
- * @param flags One or more of the public flags (OSDP_FLAG_XXX) exported from
- * osdp.h. Any other bits will cause this method to fail.
+ * @param flags One or more of @ref OSDP_FLAG_ENFORCE_SECURE,
+ * @ref OSDP_FLAG_IGN_UNSOLICITED, @ref OSDP_FLAG_ENABLE_NOTIFICATION and
+ * @ref OSDP_FLAG_ALLOW_EMPTY_ENCRYPTED_DATA_BLOCK. Any other bit causes this
+ * method to fail; the remaining flags describe how a device was set up and
+ * cannot be re-decided on a live link.
  * @param do_set when true: set `flags` in ctx; when false: clear `flags` in ctx
  *
  * @retval 0 on success
  * @retval -1 on failure
  *
- * @note It doesn't make sense to call some initialization time flags during
- * runtime. This method is for dynamic flags that can be turned on/off at runtime.
+ * @note @ref OSDP_FLAG_ENFORCE_SECURE is a one-way latch: it can be set on a
+ * running link but not cleared, and not set at all on a PD that was configured
+ * without an SCBK. Nothing is applied when the call fails, so a request that
+ * mixes an allowed flag with a refused one leaves every flag as it was.
  */
 OSDP_EXPORT
 int osdp_cp_modify_flag(osdp_t *ctx, int pd, uint32_t flags, bool do_set);

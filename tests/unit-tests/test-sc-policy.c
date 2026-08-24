@@ -481,6 +481,95 @@ static bool enforce_secure_still_wins_over_the_latch(void)
 	       chlng_failure_state(false, true) == OSDP_CP_STATE_OFFLINE;
 }
 
+static osdp_t *scp_cp_setup(const uint8_t *scbk, uint32_t flags)
+{
+	struct osdp_channel chn;
+	osdp_pd_info_t info;
+
+	scp_channel_reset();
+	scp_fill_channel(&chn);
+	scp_fill_pd_info(&info, scbk, flags);
+	return osdp_cp_setup(&chn, 1, &info);
+}
+
+static int scp_modify(osdp_t *ctx, uint32_t flag, bool set)
+{
+	return osdp_cp_modify_flag(ctx, 0, flag, set);
+}
+
+/*
+ * Every setup-time rule above can be undone from the app at any moment if the
+ * runtime flag API will re-open it. Security posture is decided once.
+ */
+static bool modify_flag_refuses_install_mode(void)
+{
+	osdp_t *ctx = scp_cp_setup(scp_scbk, 0);
+	bool ok;
+
+	if (!ctx) {
+		return false;
+	}
+	ok = scp_modify(ctx, OSDP_FLAG_INSTALL_MODE, true) == -1 &&
+	     scp_modify(ctx, OSDP_FLAG_INSTALL_MODE, false) == -1;
+	osdp_cp_teardown(ctx);
+	return ok;
+}
+
+static bool modify_flag_refuses_clearing_enforce_secure(void)
+{
+	osdp_t *ctx = scp_cp_setup(scp_scbk, OSDP_FLAG_ENFORCE_SECURE);
+	struct osdp_pd *pd;
+	bool ok;
+
+	if (!ctx) {
+		return false;
+	}
+	pd = osdp_to_pd(ctx, 0);
+	/* Raising an already-raised guard is fine; lowering it is not. */
+	ok = scp_modify(ctx, OSDP_FLAG_ENFORCE_SECURE, true) == 0 &&
+	     scp_modify(ctx, OSDP_FLAG_ENFORCE_SECURE, false) == -1 &&
+	     is_enforce_secure(pd);
+	osdp_cp_teardown(ctx);
+	return ok;
+}
+
+static bool modify_flag_refuses_enforce_secure_without_a_key(void)
+{
+	osdp_t *ctx = scp_cp_setup(NULL, 0);
+	struct osdp_pd *pd;
+	bool ok;
+
+	if (!ctx) {
+		return false;
+	}
+	pd = osdp_to_pd(ctx, 0);
+	ok = scp_modify(ctx, OSDP_FLAG_ENFORCE_SECURE, true) == -1 &&
+	     !is_enforce_secure(pd);
+	osdp_cp_teardown(ctx);
+	return ok;
+}
+
+/* A refused flag must not let its companions through. */
+static bool modify_flag_rejection_is_all_or_nothing(void)
+{
+	const uint32_t mixed = OSDP_FLAG_ENFORCE_SECURE |
+			       OSDP_FLAG_IGN_UNSOLICITED;
+	osdp_t *ctx = scp_cp_setup(scp_scbk, OSDP_FLAG_ENFORCE_SECURE |
+					     OSDP_FLAG_IGN_UNSOLICITED);
+	struct osdp_pd *pd;
+	bool ok;
+
+	if (!ctx) {
+		return false;
+	}
+	pd = osdp_to_pd(ctx, 0);
+	ok = scp_modify(ctx, mixed, false) == -1 &&
+	     is_enforce_secure(pd) &&
+	     ISSET_FLAG(pd, PD_FLAG_IGNORE_USR);
+	osdp_cp_teardown(ctx);
+	return ok;
+}
+
 void run_sc_policy_tests(struct test *t)
 {
 	printf("\nStarting sc_policy tests\n");
@@ -520,4 +609,12 @@ void run_sc_policy_tests(struct test *t)
 		  established_pd_never_falls_back_to_scbkd());
 	TEST_CASE(t, "enforce_secure_still_wins_over_the_latch",
 		  enforce_secure_still_wins_over_the_latch());
+	TEST_CASE(t, "modify_flag_refuses_install_mode",
+		  modify_flag_refuses_install_mode());
+	TEST_CASE(t, "modify_flag_refuses_clearing_enforce_secure",
+		  modify_flag_refuses_clearing_enforce_secure());
+	TEST_CASE(t, "modify_flag_refuses_enforce_secure_without_a_key",
+		  modify_flag_refuses_enforce_secure_without_a_key());
+	TEST_CASE(t, "modify_flag_rejection_is_all_or_nothing",
+		  modify_flag_rejection_is_all_or_nothing());
 }

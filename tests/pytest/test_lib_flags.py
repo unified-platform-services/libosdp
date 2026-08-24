@@ -165,3 +165,32 @@ def test_enable_notification_delivers_the_librarys_own_events(pair):
             seen.append(event)
             break
     assert seen, "EnableNotification produced no notifications"
+
+
+def test_install_mode_cannot_be_toggled_at_runtime(pair):
+    # Permitting SCBK-D is a provisioning-time decision that setup validated
+    # against the rest of the configuration. There is nothing to re-decide on
+    # a live link, and reopening it here would undo that validation.
+    cp, pd = pair()
+
+    assert cp.set_flag(101, LibFlag.InstallMode) is False
+    assert cp.clear_flag(101, LibFlag.InstallMode) is False
+    assert cp.is_online(101)
+
+
+def test_enforce_secure_cannot_be_cleared_at_runtime(pair):
+    # A one-way latch: raise the guard on a running link, never lower it.
+    cp, pd = pair(cp_flags=[LibFlag.EnforceSecure])
+    assert cp.sc_wait(101, timeout=10)
+
+    assert cp.set_flag(101, LibFlag.EnforceSecure) is True
+    assert cp.clear_flag(101, LibFlag.EnforceSecure) is False
+    assert cp.is_sc_active(101)
+
+
+def test_enforce_secure_cannot_be_set_on_a_keyless_pd(pair):
+    # setup() refuses this pairing, so the runtime path has to as well.
+    cp, pd = pair(sc=False)
+
+    assert cp.set_flag(101, LibFlag.EnforceSecure) is False
+    assert cp.is_online(101)

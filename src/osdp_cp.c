@@ -2861,9 +2861,16 @@ int osdp_cp_get_capability(const osdp_t *ctx, int pd_idx, struct osdp_pd_cap *ca
 int osdp_cp_modify_flag(osdp_t *ctx, int pd_idx, uint32_t flags, bool do_set)
 {
 	input_check(ctx, pd_idx);
+	/*
+	 * INSTALL_MODE is absent by design: permitting SCBK-D is a
+	 * provisioning-time decision that setup validated against the rest of
+	 * the configuration, and there is nothing to re-decide on a live link.
+	 * CAPTURE_PACKETS is absent too -- the capture context is opened at
+	 * setup, so setting the flag later would leave it with nowhere to
+	 * write.
+	 */
 	const uint32_t all_flags = (
 		OSDP_FLAG_ENFORCE_SECURE |
-		OSDP_FLAG_INSTALL_MODE |
 		OSDP_FLAG_IGN_UNSOLICITED |
 		OSDP_FLAG_ENABLE_NOTIFICATION |
 		OSDP_FLAG_ALLOW_EMPTY_ENCRYPTED_DATA_BLOCK
@@ -2876,19 +2883,25 @@ int osdp_cp_modify_flag(osdp_t *ctx, int pd_idx, uint32_t flags, bool do_set)
 	}
 
 	if (flags & OSDP_FLAG_ENFORCE_SECURE) {
+		/* One-way latch: an app may raise its guard on a running link,
+		 * never lower it, and never raise it on a PD that has no key
+		 * to raise it with -- setup rejects that pairing. */
+		if (!do_set) {
+			LOG_ERR("ENFORCE_SECURE cannot be cleared at runtime");
+			return -1;
+		}
+		if (ISSET_FLAG(pd, PD_FLAG_SC_DISABLED)) {
+			LOG_ERR("ENFORCE_SECURE needs an SCBK; this PD has"
+				" none");
+			return -1;
+		}
 		pd_flags |= PD_FLAG_ENFORCE_SECURE;
-	}
-	if (flags & OSDP_FLAG_INSTALL_MODE) {
-		pd_flags |= PD_FLAG_INSTALL_MODE;
 	}
 	if (flags & OSDP_FLAG_IGN_UNSOLICITED) {
 		pd_flags |= PD_FLAG_IGNORE_USR;
 	}
 	if (flags & OSDP_FLAG_ENABLE_NOTIFICATION) {
 		pd_flags |= PD_FLAG_ENABLE_NOTIF;
-	}
-	if (flags & OSDP_FLAG_CAPTURE_PACKETS) {
-		pd_flags |= PD_FLAG_CAPTURE_PKT;
 	}
 	if (flags & OSDP_FLAG_ALLOW_EMPTY_ENCRYPTED_DATA_BLOCK) {
 		pd_flags |= PD_FLAG_ALLOW_EMPTY_EDB;
