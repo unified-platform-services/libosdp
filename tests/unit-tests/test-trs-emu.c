@@ -40,8 +40,8 @@ struct trs_emu_ctx {
 	struct osdp_trs_reply last_reply;
 	bool status_seen;
 	enum osdp_trs_session_status_e last_status;
-	bool completion_seen;
-	enum osdp_completion_status last_completion;
+	/* Written by the completion callback on the refresh thread. */
+	struct test_completion completion;
 	bool cardread_seen;
 
 	int card_scan_count; /* card scans the PD app has answered */
@@ -150,9 +150,10 @@ static void emu_cp_completion_callback(void *arg, int pd,
 
 	ARG_UNUSED(pd);
 	if (cmd->id == OSDP_CMD_XWR) {
-		ctx->completion_seen = true;
-		ctx->last_completion = status;
+		test_completion_record(&ctx->completion, cmd->id, (int)status);
 	}
+
+	test_cmd_free(cmd);
 }
 
 /* The PD app: every C-APDU runs against the emulated card */
@@ -177,7 +178,7 @@ static int emu_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 		resp->trs.card_present.status =
 			ctx->card.present ? OSDP_TRS_CARD_PRESENT_CONTACTLESS :
 					    OSDP_TRS_CARD_NOT_PRESENT;
-		osdp_pd_submit_event(ctx->pd_ctx, resp);
+		test_submit_event(ctx->pd_ctx, resp);
 		return 0;
 	}
 
@@ -201,7 +202,7 @@ static int emu_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 		resp->trs.card_data.status = 0;
 		resp->trs.card_data.apdu.length = rlen;
 	}
-	osdp_pd_submit_event(ctx->pd_ctx, resp);
+	test_submit_event(ctx->pd_ctx, resp);
 	return 0;
 }
 
@@ -271,7 +272,7 @@ static bool emu_session(enum osdp_trs_cmd_e command,
 		.id = OSDP_CMD_XWR,
 		.trs = { .command = command },
 	};
-	if (osdp_cp_submit_command(g_emu.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_emu.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "failed to submit session command %d\n", command);
 		return false;
 	}
@@ -289,7 +290,7 @@ static int emu_xfer(const uint8_t *capdu, int clen, uint8_t *rapdu,
 	int rc = 0, rlen;
 
 	g_emu.event_seen = false;
-	g_emu.completion_seen = false;
+	test_completion_reset(&g_emu.completion);
 
 	cmd = (struct osdp_cmd){
 		.id = OSDP_CMD_XWR,
@@ -298,13 +299,13 @@ static int emu_xfer(const uint8_t *capdu, int clen, uint8_t *rapdu,
 	cmd.trs.apdu.length = clen;
 	memcpy(cmd.trs.apdu.data, capdu, clen);
 
-	if (osdp_cp_submit_command(g_emu.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_emu.cp_ctx, 0, &cmd)) {
 		return -1;
 	}
-	while (rc++ < 150 && !g_emu.completion_seen) {
+	while (rc++ < 150 && !test_completion_count(&g_emu.completion)) {
 		usleep(100 * 1000);
 	}
-	if (!g_emu.completion_seen || !g_emu.event_seen ||
+	if (!test_completion_count(&g_emu.completion) || !g_emu.event_seen ||
 	    g_emu.last_reply.reply != OSDP_TRS_REPLY_CARD_DATA) {
 		return -1;
 	}
@@ -464,7 +465,7 @@ static bool test_emu_permanent_busy_fails_softly(void)
 	}
 
 	g_emu.status_seen = false;
-	g_emu.completion_seen = false;
+	test_completion_reset(&g_emu.completion);
 	test_set_channel_hook(emu_busy_hook_fn, &s);
 	if (emu_xfer(capdu, sizeof(capdu), rapdu, sizeof(rapdu)) >= 0) {
 		test_set_channel_hook(NULL, NULL);
@@ -473,11 +474,12 @@ static bool test_emu_permanent_busy_fails_softly(void)
 	}
 	test_set_channel_hook(NULL, NULL);
 
-	while (rc++ < 20 && !g_emu.completion_seen) {
+	while (rc++ < 20 && !test_completion_count(&g_emu.completion)) {
 		usleep(100 * 1000);
 	}
-	if (!g_emu.completion_seen ||
-	    g_emu.last_completion != OSDP_COMPLETION_FAILED) {
+	if (!test_completion_count(&g_emu.completion) ||
+	    test_completion_status(&g_emu.completion) !=
+		    OSDP_COMPLETION_FAILED) {
 		printf(SUB_2 "busy-exhausted APDU must complete as failed\n");
 		return false;
 	}
@@ -541,16 +543,17 @@ static bool test_emu_card_removed_mid_band(void)
 	emu_card_set_present(&g_emu.card, false);
 	g_emu.status_seen = false;
 	g_emu.event_seen = false;
-	g_emu.completion_seen = false;
+	test_completion_reset(&g_emu.completion);
 	if (emu_xfer(capdu, clen, rapdu, sizeof(rapdu)) >= 0) {
 		printf(SUB_2 "APDU to an absent card cannot succeed\n");
 		return false;
 	}
-	while (rc++ < 50 && !g_emu.completion_seen) {
+	while (rc++ < 50 && !test_completion_count(&g_emu.completion)) {
 		usleep(100 * 1000);
 	}
-	if (!g_emu.completion_seen ||
-	    g_emu.last_completion != OSDP_COMPLETION_FAILED ||
+	if (!test_completion_count(&g_emu.completion) ||
+	    test_completion_status(&g_emu.completion) !=
+		    OSDP_COMPLETION_FAILED ||
 	    !g_emu.event_seen ||
 	    g_emu.last_reply.reply != OSDP_TRS_REPLY_ERROR) {
 		printf(SUB_2 "removal must surface as error + failed command\n");
@@ -604,7 +607,7 @@ static bool emu_rpk40_standard_read(void)
 			.data = { 0xde, 0xad, 0xbe, 0xef },
 		},
 	};
-	if (osdp_pd_submit_event(g_emu.pd_ctx, &g_rpk40_ev)) {
+	if (!test_submit_event(g_emu.pd_ctx, &g_rpk40_ev)) {
 		printf(SUB_2 "failed to submit standard read\n");
 		return false;
 	}
@@ -664,7 +667,7 @@ static bool test_emu_rpk40_time_slice(void)
 			},
 		},
 	};
-	if (osdp_pd_submit_event(g_emu.pd_ctx, &g_rpk40_ev)) {
+	if (!test_submit_event(g_emu.pd_ctx, &g_rpk40_ev)) {
 		printf(SUB_2 "failed to submit sighting\n");
 		return false;
 	}

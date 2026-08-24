@@ -47,8 +47,7 @@ struct test_trs_ctx {
 	 * instead of card data */
 	bool error_reply;
 
-	/* PD reply event; app-owned, must outlive the command callback since
-	 * osdp_pd_submit_event() stores it by reference until it is sent. */
+	/* PD reply event, built here and copied into the pool on submit. */
 	struct osdp_event resp_event;
 
 	/* CP side: last OSDP_NOTIFICATION_TRS_STATUS seen */
@@ -56,8 +55,8 @@ struct test_trs_ctx {
 	enum osdp_trs_session_status_e last_status;
 
 	/* CP side: last command completion seen */
-	bool completion_seen;
-	enum osdp_completion_status last_completion;
+	/* Written by the completion callback on the refresh thread. */
+	struct test_completion completion;
 
 	/*
 	 * How the PD app answers a card scan. OSDP_TRS_CARD_STATUS_UNKNOWN
@@ -132,9 +131,10 @@ static void trs_cp_completion_callback(void *arg, int pd,
 
 	ARG_UNUSED(pd);
 	if (cmd->id == OSDP_CMD_XWR) {
-		ctx->completion_seen = true;
-		ctx->last_completion = status;
+		test_completion_record(&ctx->completion, cmd->id, (int)status);
 	}
+
+	test_cmd_free(cmd);
 }
 
 /*
@@ -149,7 +149,7 @@ static int submit_trs_cmd(struct osdp_cmd *cmd, enum osdp_trs_cmd_e command)
 		.trs = { .command = command },
 	};
 
-	return osdp_cp_submit_command(g_trs.cp_ctx, 0, cmd);
+	return test_submit_command(g_trs.cp_ctx, 0, cmd) ? 0 : -1;
 }
 
 static bool wait_for_trs_status(enum osdp_trs_session_status_e want,
@@ -193,7 +193,7 @@ static int trs_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 		ctx->resp_event.trs.reply = OSDP_TRS_REPLY_CARD_PRESENT;
 		ctx->resp_event.trs.card_present.reader = 0;
 		ctx->resp_event.trs.card_present.status = ctx->card_status;
-		osdp_pd_submit_event(ctx->pd_ctx, &ctx->resp_event);
+		test_submit_event(ctx->pd_ctx, &ctx->resp_event);
 		return 0;
 	}
 
@@ -207,7 +207,7 @@ static int trs_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 		} else {
 			trs_fill_response(ctx);
 		}
-		osdp_pd_submit_event(ctx->pd_ctx, &ctx->resp_event);
+		test_submit_event(ctx->pd_ctx, &ctx->resp_event);
 	}
 	return 0;
 }
@@ -284,7 +284,7 @@ static bool wait_for_trs_completion(int timeout_sec)
 {
 	int rc = 0;
 	while (rc++ < timeout_sec) {
-		if (g_trs.completion_seen) {
+		if (test_completion_count(&g_trs.completion)) {
 			return true;
 		}
 		usleep(1000 * 1000);
@@ -335,7 +335,7 @@ static bool test_trs_apdu_too_big_for_packet(void)
 	cmd.trs.command = OSDP_TRS_CMD_SEND_APDU;
 	cmd.trs.apdu.length = OSDP_TRS_APDU_MAX_LEN;
 
-	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd) == 0) {
+	if (test_submit_command(g_trs.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "packet-overflowing APDU must be rejected at submit\n");
 		return false;
 	}
@@ -364,7 +364,7 @@ static bool test_trs_max_apdu_len_accessor(void)
 	cmd.id = OSDP_CMD_XWR;
 	cmd.trs.command = OSDP_TRS_CMD_SEND_APDU;
 	cmd.trs.apdu.length = (uint16_t)(max_len + 1);
-	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd) == 0) {
+	if (test_submit_command(g_trs.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "APDU of max+1 bytes must be rejected\n");
 		return false;
 	}
@@ -396,7 +396,7 @@ static bool test_trs_pin_entry_too_big_for_packet(void)
 	 * be what rejects it. */
 	cmd.trs.pin_entry.apdu.length = (uint16_t)max_len;
 
-	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd) == 0) {
+	if (test_submit_command(g_trs.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "PIN APDU with no room for its block must be "
 		       "rejected at submit\n");
 		return false;
@@ -418,7 +418,7 @@ static bool test_trs_apdu_outside_band()
 	};
 	memcpy(cmd.trs.apdu.data, g_req_apdu, sizeof(g_req_apdu));
 
-	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd) == 0) {
+	if (test_submit_command(g_trs.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "sessionless APDU must be rejected\n");
 		return false;
 	}
@@ -443,7 +443,7 @@ static bool test_trs_non_trs_cmd_in_band()
 			    .off_count = 10, .rep_count = 1 },
 	};
 
-	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd) == 0) {
+	if (test_submit_command(g_trs.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "in-band buzzer command must be rejected\n");
 		return false;
 	}
@@ -498,7 +498,7 @@ static bool test_trs_apdu_exchange()
 	};
 	memcpy(cmd.trs.apdu.data, g_req_apdu, sizeof(g_req_apdu));
 
-	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_trs.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to submit TRS command\n");
 		return false;
 	}
@@ -553,7 +553,7 @@ static bool test_trs_deferred_apdu()
 	};
 	memcpy(cmd.trs.apdu.data, g_req_apdu, sizeof(g_req_apdu));
 
-	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_trs.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to submit deferred TRS command\n");
 		return false;
 	}
@@ -578,7 +578,7 @@ static bool test_trs_deferred_apdu()
 	/* Simulate the card finally responding: the app submits the R-APDU now.
 	 * The CP is still polling, so it rides out on the next poll as XRD. */
 	trs_fill_response(&g_trs);
-	if (osdp_pd_submit_event(g_trs.pd_ctx, &g_trs.resp_event)) {
+	if (!test_submit_event(g_trs.pd_ctx, &g_trs.resp_event)) {
 		printf(SUB_2 "Failed to submit deferred R-APDU\n");
 		g_trs.defer = false;
 		return false;
@@ -619,8 +619,8 @@ static bool submit_apdu_and_wait(enum osdp_completion_status *status)
 	};
 	memcpy(cmd.trs.apdu.data, g_req_apdu, sizeof(g_req_apdu));
 
-	g_trs.completion_seen = false;
-	if (osdp_cp_submit_command(g_trs.cp_ctx, 0, &cmd)) {
+	test_completion_reset(&g_trs.completion);
+	if (!test_submit_command(g_trs.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to submit TRS command\n");
 		return false;
 	}
@@ -628,7 +628,8 @@ static bool submit_apdu_and_wait(enum osdp_completion_status *status)
 		printf(SUB_2 "TRS command never completed\n");
 		return false;
 	}
-	*status = g_trs.last_completion;
+	*status = (enum osdp_completion_status)
+		 test_completion_status(&g_trs.completion);
 	return true;
 }
 
@@ -819,7 +820,7 @@ static bool test_trs_card_scan_wire_nak(void)
 
 	printf(SUB_2 "testing TRS CARD_SCAN declined on the wire\n");
 
-	g_trs.completion_seen = false;
+	test_completion_reset(&g_trs.completion);
 	g_trs.status_seen = false;
 	g_trs.event_seen = false;
 
@@ -829,16 +830,17 @@ static bool test_trs_card_scan_wire_nak(void)
 		printf(SUB_2 "failed to submit CARD_SCAN\n");
 		return false;
 	}
-	while (rc++ < 120 && !g_trs.completion_seen) {
+	while (rc++ < 120 && !test_completion_count(&g_trs.completion)) {
 		usleep(100 * 1000);
 	}
 	test_set_channel_hook(NULL, NULL);
 
-	if (!g_trs.completion_seen) {
+	if (!test_completion_count(&g_trs.completion)) {
 		printf(SUB_2 "CARD_SCAN never completed\n");
 		return false;
 	}
-	if (g_trs.last_completion != OSDP_COMPLETION_FAILED) {
+	if (test_completion_status(&g_trs.completion) !=
+		    OSDP_COMPLETION_FAILED) {
 		printf(SUB_2 "NAK'd CARD_SCAN must complete as failed\n");
 		return false;
 	}
@@ -935,7 +937,7 @@ static bool test_trs_scan_hold_and_adopt(void)
 	g_trs.resp_event.trs.card_present.reader = 0;
 	g_trs.resp_event.trs.card_present.status =
 		OSDP_TRS_CARD_PRESENT_CONTACTLESS;
-	if (osdp_pd_submit_event(g_trs.pd_ctx, &g_trs.resp_event)) {
+	if (!test_submit_event(g_trs.pd_ctx, &g_trs.resp_event)) {
 		test_set_channel_hook(NULL, NULL);
 		printf(SUB_2 "failed to submit sighting\n");
 		return false;
@@ -1073,7 +1075,7 @@ static bool test_trs_scan_card_scan_unsupported_latches(void)
 	printf(SUB_2 "testing TRS card-scan refusal latches\n");
 
 	g_trs.status_seen = false;
-	g_trs.completion_seen = false;
+	test_completion_reset(&g_trs.completion);
 	g_trs.card_status = OSDP_TRS_CARD_STATUS_UNKNOWN;
 
 	test_set_channel_hook(trs_wire_nak_hook, &s);
@@ -1118,7 +1120,7 @@ static bool test_trs_scan_card_scan_unsupported_latches(void)
 		printf(SUB_2 "a refused card scan must not suspend the scan\n");
 		return false;
 	}
-	if (g_trs.completion_seen) {
+	if (test_completion_count(&g_trs.completion)) {
 		printf(SUB_2 "library's own card scan reported a completion\n");
 		return false;
 	}
@@ -1623,7 +1625,7 @@ static bool test_trs_card_present()
 	g_trs.resp_event.trs.card_present.reader = 0;
 	g_trs.resp_event.trs.card_present.status = OSDP_TRS_CARD_PRESENT_CONTACT;
 
-	if (osdp_pd_submit_event(g_trs.pd_ctx, &g_trs.resp_event)) {
+	if (!test_submit_event(g_trs.pd_ctx, &g_trs.resp_event)) {
 		printf(SUB_2 "Failed to submit card-present event\n");
 		return false;
 	}
@@ -1649,7 +1651,7 @@ static bool test_trs_error_reply()
 	g_trs.event_seen = false;
 	trs_fill_error(&g_trs);
 
-	if (osdp_pd_submit_event(g_trs.pd_ctx, &g_trs.resp_event)) {
+	if (!test_submit_event(g_trs.pd_ctx, &g_trs.resp_event)) {
 		printf(SUB_2 "Failed to submit error event\n");
 		return false;
 	}
@@ -1694,7 +1696,7 @@ static bool test_trs_unsolicited_xrd_out_of_session(void)
 			},
 		},
 	};
-	if (osdp_pd_submit_event(g_trs.pd_ctx, &g_unsolicited_ev)) {
+	if (!test_submit_event(g_trs.pd_ctx, &g_unsolicited_ev)) {
 		printf(SUB_2 "failed to submit unsolicited TRS event\n");
 		return false;
 	}
@@ -1722,7 +1724,7 @@ static bool test_trs_unsolicited_xrd_out_of_session(void)
 			},
 		},
 	};
-	if (osdp_pd_submit_event(g_trs.pd_ctx, &g_unsolicited_ev)) {
+	if (!test_submit_event(g_trs.pd_ctx, &g_unsolicited_ev)) {
 		printf(SUB_2 "failed to submit unsolicited card data\n");
 		return false;
 	}
@@ -1764,7 +1766,7 @@ static bool test_trs_scan_cadence(void)
 	printf(SUB_2 "testing TRS presence-scan cadence\n");
 
 	g_trs.status_seen = false;
-	g_trs.completion_seen = false;
+	test_completion_reset(&g_trs.completion);
 
 	if (osdp_cp_trs_scan_enable(g_trs.cp_ctx, 0, &p)) {
 		printf(SUB_2 "failed to enable scan\n");
@@ -1787,7 +1789,7 @@ static bool test_trs_scan_cadence(void)
 		printf(SUB_2 "probes must not raise session notifications\n");
 		return false;
 	}
-	if (g_trs.completion_seen) {
+	if (test_completion_count(&g_trs.completion)) {
 		printf(SUB_2 "probes must not complete app commands\n");
 		return false;
 	}
@@ -1818,7 +1820,7 @@ static bool test_trs_scan_probe_asks_card_scan(void)
 	g_trs.card_scan_count = 0;
 	g_trs.present_events = 0;
 	g_trs.absent_events = 0;
-	g_trs.completion_seen = false;
+	test_completion_reset(&g_trs.completion);
 	g_trs.status_seen = false;
 	g_trs.card_status = OSDP_TRS_CARD_PRESENT_CONTACTLESS;
 
@@ -1847,7 +1849,7 @@ static bool test_trs_scan_probe_asks_card_scan(void)
 		       g_trs.card_scan_count, waited);
 		return false;
 	}
-	if (g_trs.completion_seen) {
+	if (test_completion_count(&g_trs.completion)) {
 		printf(SUB_2 "library's own card scan reported a completion\n");
 		return false;
 	}
@@ -1952,7 +1954,7 @@ static bool test_trs_scan_mode0_activity_defers_probe(void)
 				.data = { 0x30 },
 			},
 		};
-		if (osdp_pd_submit_event(g_trs.pd_ctx, &g_activity_ev)) {
+		if (!test_submit_event(g_trs.pd_ctx, &g_activity_ev)) {
 			printf(SUB_2 "failed to submit keypress %d\n", i);
 			return false;
 		}

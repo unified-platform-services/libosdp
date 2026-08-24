@@ -183,7 +183,7 @@ static bool test_async_startup_order(enum async_order order)
 		}
 	};
 
-	if (osdp_cp_submit_command(cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send command\n");
 		goto cleanup;
 	}
@@ -287,7 +287,7 @@ retry_recovery:
 		}
 	};
 
-	if (osdp_cp_submit_command(cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send post-recovery command\n");
 		goto cleanup;
 	}

@@ -34,31 +34,7 @@ static struct test_event_ctx g_test_ctx = {0};
 static struct test *g_test;
 
 /* Completion tracking for event lifetime tests */
-static volatile int compl_count;
-static volatile int compl_last_status;
-static const struct osdp_event *compl_last_event;
-
-static void test_event_completion_cb(void *arg, struct osdp_event *ev,
-				     enum osdp_completion_status status)
-{
-	ARG_UNUSED(arg);
-	compl_last_event = ev;
-	compl_last_status = (int)status;
-	compl_count++;
-}
-
-static bool wait_for_completion_count(int min_count, int timeout_sec)
-{
-	int rc = 0;
-
-	while (rc < timeout_sec * 1000) {
-		if (compl_count >= min_count)
-			return true;
-		usleep(20 * 1000);
-		rc += 20;
-	}
-	return false;
-}
+static struct test_completion g_ev_compl;
 
 int test_events_event_callback(void *arg, int pd, struct osdp_event *ev)
 {
@@ -190,7 +166,7 @@ static bool test_cardread_event()
 	uint8_t card_data[] = {0x01, 0x23, 0x45, 0x67};
 	memcpy(event.cardread.data, card_data, sizeof(card_data));
 
-	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event)) {
+	if (!test_submit_event(g_test_ctx.pd_ctx, &event)) {
 		printf(SUB_2 "Failed to submit cardread event\n");
 		return false;
 	}
@@ -229,7 +205,7 @@ static bool test_keypress_event()
 	uint8_t key_data[] = {1, 2, 3, 4};
 	memcpy(event.keypress.data, key_data, sizeof(key_data));
 
-	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event)) {
+	if (!test_submit_event(g_test_ctx.pd_ctx, &event)) {
 		printf(SUB_2 "Failed to submit keypress event\n");
 		return false;
 	}
@@ -268,7 +244,7 @@ static bool test_input_status_event()
 	uint8_t status_data[] = {0, 1, 0, 1, 0, 1, 0, 1};
 	memcpy(event.status.report, status_data, sizeof(status_data));
 
-	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event)) {
+	if (!test_submit_event(g_test_ctx.pd_ctx, &event)) {
 		printf(SUB_2 "Failed to submit input status event\n");
 		return false;
 	}
@@ -307,7 +283,7 @@ static bool test_output_status_event()
 	uint8_t status_data[] = {1, 0, 1, 0};
 	memcpy(event.status.report, status_data, sizeof(status_data));
 
-	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event)) {
+	if (!test_submit_event(g_test_ctx.pd_ctx, &event)) {
 		printf(SUB_2 "Failed to submit output status event\n");
 		return false;
 	}
@@ -346,7 +322,7 @@ static bool test_mfgrep_event()
 	uint8_t mfg_data[] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF, 0x11, 0x22};
 	memcpy(event.mfgrep.data, mfg_data, sizeof(mfg_data));
 
-	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event)) {
+	if (!test_submit_event(g_test_ctx.pd_ctx, &event)) {
 		printf(SUB_2 "Failed to submit mfgrep event\n");
 		return false;
 	}
@@ -383,7 +359,7 @@ static bool test_mfgstat_event(enum osdp_event_type type, const char *name,
 	mfgstat->length = length;
 	memcpy(mfgstat->data, data, length);
 
-	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event)) {
+	if (!test_submit_event(g_test_ctx.pd_ctx, &event)) {
 		printf(SUB_2 "Failed to submit %s event\n", name);
 		return false;
 	}
@@ -443,12 +419,13 @@ static bool test_submit_requires_completion_callback()
 	reset_test_state();
 
 	osdp_pd_set_event_completion_callback(g_test_ctx.pd_ctx, NULL, NULL);
-	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event) == 0) {
+	if (test_submit_event(g_test_ctx.pd_ctx, &event)) {
 		printf(SUB_2 "submit accepted without a completion callback\n");
 		return false;
 	}
 	osdp_pd_set_event_completion_callback(g_test_ctx.pd_ctx,
-					      test_event_completion_cb, NULL);
+					      test_event_completion_cb,
+					      &g_ev_compl);
 	return true;
 }
 
@@ -474,35 +451,35 @@ static bool test_event_reply_degraded_to_nak_completes_failed()
 
 	printf(SUB_2 "testing completion when reply degrades to NAK\n");
 	reset_test_state();
-	compl_count = 0;
-	compl_last_event = NULL;
-	compl_last_status = -1;
+	test_completion_reset(&g_ev_compl);
 
 	osdp_pd_set_event_completion_callback(g_test_ctx.pd_ctx,
-					      test_event_completion_cb, NULL);
+					      test_event_completion_cb,
+					      &g_ev_compl);
 
 	pd = osdp_to_pd(g_test_ctx.pd_ctx, 0);
 	pd->peer_rx_size = 128; /* OSDP_MINIMUM_PACKET_SIZE */
 
-	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &event)) {
+	if (!test_submit_event(g_test_ctx.pd_ctx, &event)) {
 		printf(SUB_2 "failed to submit event\n");
 		return false;
 	}
 
-	result = wait_for_completion_count(1, 5);
+	result = test_completion_wait(&g_ev_compl, 1, 5);
 	if (!result) {
 		printf(SUB_2 "no completion for degraded event\n");
-	} else if (compl_last_event != &event ||
-		   compl_last_status != OSDP_COMPLETION_FAILED) {
+	} else if (test_completion_id(&g_ev_compl) != OSDP_EVENT_MFGREP ||
+		   test_completion_status(&g_ev_compl) !=
+			   OSDP_COMPLETION_FAILED) {
 		printf(SUB_2 "unexpected completion: status=%d\n",
-		       compl_last_status);
+		       test_completion_status(&g_ev_compl));
 		result = false;
 	} else {
 		/* Exactly once: no second report for the same event. */
 		usleep(500 * 1000);
-		if (compl_count != 1) {
+		if (test_completion_count(&g_ev_compl) != 1) {
 			printf(SUB_2 "event completed %d times\n",
-			       compl_count);
+			       test_completion_count(&g_ev_compl));
 			result = false;
 		}
 	}
@@ -545,14 +522,13 @@ static bool test_event_reply_build_failure_completes()
 
 	printf(SUB_2 "testing completion on reply build failure\n");
 	reset_test_state();
-	compl_count = 0;
-	compl_last_event = NULL;
-	compl_last_status = -1;
+	test_completion_reset(&g_ev_compl);
 
 	osdp_pd_set_event_completion_callback(g_test_ctx.pd_ctx,
-					      test_event_completion_cb, NULL);
+					      test_event_completion_cb,
+					      &g_ev_compl);
 
-	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &bad_event)) {
+	if (!test_submit_event(g_test_ctx.pd_ctx, &bad_event)) {
 		printf(SUB_2 "failed to submit event\n");
 		return false;
 	}
@@ -560,21 +536,22 @@ static bool test_event_reply_build_failure_completes()
 	pd = osdp_to_pd(g_test_ctx.pd_ctx, 0);
 	pd->peer_rx_size = 8;
 
-	if (!wait_for_completion_count(1, 5)) {
+	if (!test_completion_wait(&g_ev_compl, 1, 5)) {
 		printf(SUB_2 "no completion for un-sendable event\n");
 		return false;
 	}
-	if (compl_last_event != &bad_event ||
-	    compl_last_status != OSDP_COMPLETION_FAILED) {
+	if (test_completion_id(&g_ev_compl) != OSDP_EVENT_CARDREAD ||
+	    test_completion_status(&g_ev_compl) != OSDP_COMPLETION_FAILED) {
 		printf(SUB_2 "unexpected completion: status=%d\n",
-		       compl_last_status);
+		       test_completion_status(&g_ev_compl));
 		return false;
 	}
 
 	/* Exactly once: no second report for the same event. */
 	usleep(500 * 1000);
-	if (compl_count != 1) {
-		printf(SUB_2 "event completed %d times\n", compl_count);
+	if (test_completion_count(&g_ev_compl) != 1) {
+		printf(SUB_2 "event completed %d times\n",
+		       test_completion_count(&g_ev_compl));
 		return false;
 	}
 

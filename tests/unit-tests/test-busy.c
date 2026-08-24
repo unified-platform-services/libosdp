@@ -33,9 +33,8 @@ struct busy_test_ctx {
 	bool cmd_seen;
 	int last_cmd_id;
 
-	bool compl_seen;
-	int compl_cmd_id;
-	int compl_status;
+	/* Written by the completion callback on the refresh thread. */
+	struct test_completion completion;
 
 	/*
 	 * The command queue is app-owned and zero-copy: the submitted
@@ -129,18 +128,6 @@ static int busy_test_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 	return 0;
 }
 
-static void busy_test_cp_completion_cb(void *arg, int pd,
-				       struct osdp_cmd *cmd,
-				       enum osdp_completion_status status)
-{
-	ARG_UNUSED(arg);
-	ARG_UNUSED(pd);
-
-	g_ctx.compl_cmd_id = cmd->id;
-	g_ctx.compl_status = (int)status;
-	g_ctx.compl_seen = true;
-}
-
 static int busy_test_setup(struct test *t)
 {
 	int rc = 0;
@@ -153,8 +140,8 @@ static int busy_test_setup(struct test *t)
 	osdp_pd_set_command_callback(g_ctx.pd_ctx,
 				     busy_test_pd_command_callback, NULL);
 	osdp_cp_set_command_completion_callback(g_ctx.cp_ctx,
-						busy_test_cp_completion_cb,
-						NULL);
+						test_cmd_completion_cb,
+						&g_ctx.completion);
 
 	g_ctx.cp_runner = async_runner_start(g_ctx.cp_ctx, osdp_cp_refresh);
 	g_ctx.pd_runner = async_runner_start(g_ctx.pd_ctx, osdp_pd_refresh);
@@ -213,7 +200,7 @@ static int submit_buzzer_command(void)
 		},
 	};
 
-	return osdp_cp_submit_command(g_ctx.cp_ctx, 0, &g_ctx.buzzer_cmd);
+	return test_submit_command(g_ctx.cp_ctx, 0, &g_ctx.buzzer_cmd) ? 0 : -1;
 }
 
 /*
@@ -290,7 +277,7 @@ static bool test_busy_permanent_fails_command_softly(void)
 
 	g_ctx.cmd_seen = false;
 	g_ctx.last_cmd_id = 0;
-	g_ctx.compl_seen = false;
+	test_completion_reset(&g_ctx.completion);
 	test_set_channel_hook(busy_hook, &s);
 
 	if (submit_buzzer_command()) {
@@ -301,21 +288,23 @@ static bool test_busy_permanent_fails_command_softly(void)
 
 	/* Budget: 1 original + OSDP_CMD_MAX_RETRIES retries, 800ms apart */
 	while (rc < 150) {
-		if (g_ctx.compl_seen)
+		if (test_completion_count(&g_ctx.completion))
 			break;
 		usleep(100 * 1000);
 		rc++;
 	}
 	test_set_channel_hook(NULL, NULL);
 
-	if (!g_ctx.compl_seen) {
+	if (!test_completion_count(&g_ctx.completion)) {
 		printf("command never completed!\n");
 		return false;
 	}
-	if (g_ctx.compl_cmd_id != OSDP_CMD_BUZZER ||
-	    g_ctx.compl_status != OSDP_COMPLETION_FAILED) {
+	if (test_completion_id(&g_ctx.completion) != OSDP_CMD_BUZZER ||
+	    test_completion_status(&g_ctx.completion) !=
+		    OSDP_COMPLETION_FAILED) {
 		printf("expected FAILED completion, got cmd=%d status=%d!\n",
-		       g_ctx.compl_cmd_id, g_ctx.compl_status);
+		       test_completion_id(&g_ctx.completion),
+		       test_completion_status(&g_ctx.completion));
 		return false;
 	}
 	if (s.seq_count != 1 + OSDP_CMD_MAX_RETRIES) {

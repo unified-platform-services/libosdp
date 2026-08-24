@@ -338,7 +338,7 @@ static bool test_cp_file_tx_abort_on_disable(void)
 		printf(SUB_2 "file-tx: register ops failed\n");
 		goto err;
 	}
-	if (osdp_cp_submit_command(g_nx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_nx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "file-tx: submit failed\n");
 		goto err;
 	}
@@ -430,7 +430,7 @@ static bool test_pd_file_tx_abort_on_offline(void)
 		printf(SUB_2 "pd-file-tx: register ops failed\n");
 		goto err;
 	}
-	if (osdp_cp_submit_command(g_nx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_nx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "pd-file-tx: submit failed\n");
 		goto err;
 	}
@@ -522,7 +522,7 @@ static bool test_file_tx_notifies_both_roles(void)
 	g_nx.pd_done_before_start = false;
 	pthread_mutex_unlock(&g_nx.lock);
 
-	if (osdp_cp_submit_command(g_nx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_nx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "both-roles: submit failed\n");
 		goto err;
 	}

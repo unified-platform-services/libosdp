@@ -19,6 +19,7 @@
 
 #include <utils/workqueue.h>
 #include <utils/circbuf.h>
+#include <utils/slab.h>
 
 #define MAX_TEST_WORK 20  /* Increased for async fuzz testing */
 #define MOCK_BUF_LEN 512
@@ -420,7 +421,19 @@ void test_suite_begin(struct test *t, const char *name)
 void test_suite_end(struct test *t)
 {
 	struct test_suite_record *suite;
-	int i;
+	int i, leaked;
+
+	/* Teardown completes everything still queued, so a suite that submits
+	 * through the helpers ends owing nothing. Anything left is a
+	 * completion callback that forgot to free, or a test that dropped
+	 * libosdp's reference by hand -- both silently drain the pool for
+	 * whatever runs next. */
+	leaked = test_alloc_outstanding();
+	if (leaked) {
+		test_log_warn("%d pooled command/event object(s) never "
+			      "returned", leaked);
+		test_alloc_reset();
+	}
 
 	if (t->suite_count >= TEST_MAX_SUITES) {
 		return;
@@ -862,14 +875,259 @@ void test_mock_pd_flush(void *data)
  * about completions inherit these no-ops; suites that do simply register
  * their own recorder over them.
  */
+/* --- Lifetime of submitted commands and events --------------------------
+ *
+ * osdp_cp_submit_command() and osdp_pd_submit_event() take the object by
+ * pointer and hold it until the completion callback fires. That happens on
+ * the refresh thread, typically after the test that submitted it has already
+ * returned, so a stack object is a use-after-return -- one that only shows up
+ * under ASAN's detect_stack_use_after_return. Giving each test a file-scope
+ * object hides the bug rather than fixing it, and breaks down as soon as two
+ * objects are in flight.
+ *
+ * These pools own the object instead: a test allocates, submits, and forgets;
+ * whichever completion callback runs hands the memory back. The pools are
+ * slab-backed so exhaustion is a hard failure rather than silent growth, and
+ * mutex-guarded because the allocating and freeing threads are different.
+ *
+ * What a completion callback observed goes to the test through the callback's
+ * user pointer -- see struct test_completion in test.h -- not through the
+ * object, which the callback is about to hand back.
+ */
+
+#define TEST_CMD_POOL_COUNT   16
+#define TEST_EVENT_POOL_COUNT 16
+
+/* slab_init() adds a per-unit header and rounds up; leave room for both. */
+#define TEST_SLAB_OVERHEAD 32
+
+static union {
+	uint64_t align;
+	uint8_t bytes[TEST_CMD_POOL_COUNT *
+		      (sizeof(struct osdp_cmd) + TEST_SLAB_OVERHEAD)];
+} cmd_pool_blob;
+
+static union {
+	uint64_t align;
+	uint8_t bytes[TEST_EVENT_POOL_COUNT *
+		      (sizeof(struct osdp_event) + TEST_SLAB_OVERHEAD)];
+} event_pool_blob;
+
+static slab_t cmd_pool;
+static slab_t event_pool;
+static int cmd_pool_leased;
+static int event_pool_leased;
+static bool alloc_pools_ready;
+static pthread_mutex_t alloc_pool_lock = PTHREAD_MUTEX_INITIALIZER;
+
+/* Caller holds alloc_pool_lock. */
+static void alloc_pools_init(void)
+{
+	slab_init(&cmd_pool, sizeof(struct osdp_cmd),
+		  cmd_pool_blob.bytes, sizeof(cmd_pool_blob.bytes));
+	slab_init(&event_pool, sizeof(struct osdp_event),
+		  event_pool_blob.bytes, sizeof(event_pool_blob.bytes));
+	cmd_pool_leased = 0;
+	event_pool_leased = 0;
+	alloc_pools_ready = true;
+}
+
+/*
+ * slab_free() reads a header behind the block, so it must never be handed a
+ * pointer it did not issue. Tests still hold some objects statically, and a
+ * completion callback cannot tell them apart -- so check first and let a
+ * foreign pointer fall through as a no-op.
+ */
+static bool slab_owns(const slab_t *slab, const void *block)
+{
+	const uint8_t *p = block;
+
+	return p > slab->blob && p < slab->blob + (slab->size * slab->count);
+}
+
+static void *test_pool_alloc(slab_t *slab, int *leased, size_t size,
+			     const char *what)
+{
+	void *block = NULL;
+
+	pthread_mutex_lock(&alloc_pool_lock);
+	if (!alloc_pools_ready) {
+		alloc_pools_init();
+	}
+	if (slab_alloc(slab, &block)) {
+		pthread_mutex_unlock(&alloc_pool_lock);
+		test_log_error("test %s pool exhausted; a completion callback "
+			       "is not freeing what it was handed", what);
+		return NULL;
+	}
+	*leased += 1;
+	pthread_mutex_unlock(&alloc_pool_lock);
+
+	memset(block, 0, size);
+	return block;
+}
+
+static void test_pool_free(slab_t *slab, int *leased, void *block)
+{
+	if (block == NULL) {
+		return;
+	}
+	pthread_mutex_lock(&alloc_pool_lock);
+	/* Range-check the object pointer before deriving the unit it sits
+	 * in, so a foreign pointer never becomes stray arithmetic. */
+	if (alloc_pools_ready && slab_owns(slab, block) &&
+	    slab_free(slab, block) == 0) {
+		*leased -= 1;
+	}
+	pthread_mutex_unlock(&alloc_pool_lock);
+}
+
+struct osdp_cmd *test_cmd_alloc(void)
+{
+	return test_pool_alloc(&cmd_pool, &cmd_pool_leased,
+			       sizeof(struct osdp_cmd), "command");
+}
+
+void test_cmd_free(struct osdp_cmd *cmd)
+{
+	test_pool_free(&cmd_pool, &cmd_pool_leased, cmd);
+}
+
+struct osdp_event *test_event_alloc(void)
+{
+	return test_pool_alloc(&event_pool, &event_pool_leased,
+			       sizeof(struct osdp_event), "event");
+}
+
+void test_event_free(struct osdp_event *ev)
+{
+	test_pool_free(&event_pool, &event_pool_leased, ev);
+}
+
+void test_completion_reset(struct test_completion *c)
+{
+	atomic_store(&c->id, -1);
+	atomic_store(&c->status, -1);
+	atomic_store(&c->count, 0);
+}
+
+bool test_completion_wait(struct test_completion *c, int min_count,
+			  int timeout_sec)
+{
+	int waited_ms = 0;
+
+	while (waited_ms < timeout_sec * 1000) {
+		if (test_completion_count(c) >= min_count) {
+			return true;
+		}
+		usleep(20 * 1000);
+		waited_ms += 20;
+	}
+	return false;
+}
+
+void test_cmd_completion_cb(void *arg, int pd, struct osdp_cmd *cmd,
+			    enum osdp_completion_status status)
+{
+	ARG_UNUSED(pd);
+
+	if (arg) {
+		test_completion_record(arg, cmd->id, (int)status);
+	}
+	test_cmd_free(cmd);
+}
+
+void test_event_completion_cb(void *arg, struct osdp_event *ev,
+			      enum osdp_completion_status status)
+{
+	if (arg) {
+		test_completion_record(arg, ev->type, (int)status);
+	}
+	test_event_free(ev);
+}
+
+struct osdp_cmd *test_cmd_dup(const struct osdp_cmd *src)
+{
+	struct osdp_cmd *cmd = test_cmd_alloc();
+
+	if (cmd) {
+		memcpy(cmd, src, sizeof(*cmd));
+	}
+	return cmd;
+}
+
+struct osdp_event *test_event_dup(const struct osdp_event *src)
+{
+	struct osdp_event *ev = test_event_alloc();
+
+	if (ev) {
+		memcpy(ev, src, sizeof(*ev));
+	}
+	return ev;
+}
+
+struct osdp_cmd *test_submit_command(osdp_t *ctx, int pd,
+				     const struct osdp_cmd *cmd)
+{
+	struct osdp_cmd *pooled = test_cmd_dup(cmd);
+
+	if (pooled == NULL) {
+		return NULL;
+	}
+	if (osdp_cp_submit_command(ctx, pd, pooled)) {
+		/* Rejected: libosdp never took ownership, so we still hold it
+		 * and no completion will fire to hand it back. */
+		test_cmd_free(pooled);
+		return NULL;
+	}
+	return pooled;
+}
+
+struct osdp_event *test_submit_event(osdp_t *ctx, const struct osdp_event *ev)
+{
+	struct osdp_event *pooled = test_event_dup(ev);
+
+	if (pooled == NULL) {
+		return NULL;
+	}
+	if (osdp_pd_submit_event(ctx, pooled)) {
+		test_event_free(pooled);
+		return NULL;
+	}
+	return pooled;
+}
+
+void test_alloc_reset(void)
+{
+	pthread_mutex_lock(&alloc_pool_lock);
+	alloc_pools_init();
+	pthread_mutex_unlock(&alloc_pool_lock);
+}
+
+int test_alloc_outstanding(void)
+{
+	int n;
+
+	pthread_mutex_lock(&alloc_pool_lock);
+	n = cmd_pool_leased + event_pool_leased;
+	pthread_mutex_unlock(&alloc_pool_lock);
+	return n;
+}
+
+/*
+ * The default completion callbacks exist to return pooled objects. A suite
+ * that installs its own must call test_cmd_free()/test_event_free() too --
+ * both are no-ops for an object the pools did not issue.
+ */
 static void test_default_cmd_completion_cb(void *arg, int pd,
 					   struct osdp_cmd *cmd,
 					   enum osdp_completion_status status)
 {
 	ARG_UNUSED(arg);
 	ARG_UNUSED(pd);
-	ARG_UNUSED(cmd);
 	ARG_UNUSED(status);
+
+	test_cmd_free(cmd);
 }
 
 static void test_default_event_completion_cb(void *arg,
@@ -877,8 +1135,9 @@ static void test_default_event_completion_cb(void *arg,
 					     enum osdp_completion_status status)
 {
 	ARG_UNUSED(arg);
-	ARG_UNUSED(ev);
 	ARG_UNUSED(status);
+
+	test_event_free(ev);
 }
 
 static int test_setup_devices_impl(struct test *t, osdp_t **cp, osdp_t **pd,

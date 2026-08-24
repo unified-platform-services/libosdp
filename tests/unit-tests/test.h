@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include "osdp_common.h"
 
 #define SUB_1 "    -- "
@@ -137,6 +138,116 @@ void test_suite_end(struct test *t);
 bool test_should_run_case(const char *name);
 int test_interrupted(void);
 void test_write_junit(struct test *t, const char *path);
+
+/*
+ * Lifetime of submitted commands and events.
+ *
+ * osdp_cp_submit_command() and osdp_pd_submit_event() do not copy: they hold
+ * the pointer until the completion callback fires, which happens on the
+ * refresh thread after the submitting test has usually returned. Anything
+ * submitted must therefore outlive the test that submitted it.
+ *
+ * Allocate it here. The object is zeroed, and the completion callback returns
+ * it to the pool -- so a test allocates, submits, and forgets. Free it
+ * yourself only when you allocated but did not submit (an early return, or a
+ * submit that was rejected), since no completion will fire for it.
+ *
+ * Both free functions ignore pointers the pools did not issue, so a suite
+ * with its own completion callback can call them unconditionally.
+ */
+struct osdp_cmd *test_cmd_alloc(void);
+void test_cmd_free(struct osdp_cmd *cmd);
+struct osdp_event *test_event_alloc(void);
+void test_event_free(struct osdp_event *ev);
+
+/*
+ * Copy a stack-built object into the pool and return the copy. Lets a test
+ * keep a designated initializer, which reads far better than a run of field
+ * assignments, while still submitting something that outlives it. Submit the
+ * returned pointer -- never the template it was copied from.
+ */
+struct osdp_cmd *test_cmd_dup(const struct osdp_cmd *src);
+struct osdp_event *test_event_dup(const struct osdp_event *src);
+
+/*
+ * Submit a stack-built command or event: copies it into the pool, hands the
+ * copy to libosdp, and returns that copy. Returns NULL if the pool is empty
+ * or libosdp rejected the object, having freed the copy in the latter case,
+ * since no completion fires for something never accepted.
+ *
+ * This is what a test should call. Reach for the alloc/dup helpers directly
+ * only when the object has to be built somewhere other than the submit site.
+ */
+struct osdp_cmd *test_submit_command(osdp_t *ctx, int pd,
+				     const struct osdp_cmd *cmd);
+struct osdp_event *test_submit_event(osdp_t *ctx, const struct osdp_event *ev);
+
+/*
+ * What a completion callback saw, written through the callback's user pointer
+ * into storage the test owns -- no file-scope hand-off, and the callback can
+ * be shared by suites that keep several of these.
+ *
+ * The refresh thread writes while the test thread polls, so the fields are
+ * atomic rather than volatile: volatile orders nothing between threads and
+ * makes count++ a plain read-modify-write. Record id and status before
+ * bumping count, so a test that waits on the count then reads the rest sees
+ * values that belong together.
+ *
+ * The struct must outlive the registration -- register it at suite setup, or
+ * point the callback elsewhere before it goes out of scope.
+ */
+struct test_completion {
+	atomic_int count;  /* completions seen */
+	atomic_int status; /* last enum osdp_completion_status */
+	atomic_int id;     /* last osdp_cmd::id, or osdp_event::type */
+};
+
+static inline void test_completion_record(struct test_completion *c, int id,
+					  int status)
+{
+	atomic_store(&c->id, id);
+	atomic_store(&c->status, status);
+	atomic_fetch_add(&c->count, 1);
+}
+
+static inline int test_completion_count(struct test_completion *c)
+{
+	return atomic_load(&c->count);
+}
+
+static inline int test_completion_status(struct test_completion *c)
+{
+	return atomic_load(&c->status);
+}
+
+static inline int test_completion_id(struct test_completion *c)
+{
+	return atomic_load(&c->id);
+}
+
+/* Clear to "nothing seen": count 0, status and id -1. */
+void test_completion_reset(struct test_completion *c);
+
+/* Poll until at least min_count completions have landed. */
+bool test_completion_wait(struct test_completion *c, int min_count,
+			  int timeout_sec);
+
+/*
+ * Ready-made callbacks for a suite whose only interest is what completed and
+ * how. Register with a struct test_completion * as the user pointer; they
+ * record into it and return the object to the pool.
+ */
+void test_cmd_completion_cb(void *arg, int pd, struct osdp_cmd *cmd,
+			    enum osdp_completion_status status);
+void test_event_completion_cb(void *arg, struct osdp_event *ev,
+			      enum osdp_completion_status status);
+
+/* Return every pooled object; for a suite that wants a clean slate. */
+void test_alloc_reset(void);
+
+/* Objects the pools have issued and not got back. Zero at the end of a
+ * well-behaved suite: every submitted object completes, teardown included. */
+int test_alloc_outstanding(void);
 
 /* Helpers */
 int test_setup_devices(struct test *t, osdp_t **cp, osdp_t **pd);

@@ -229,8 +229,8 @@ static bool test_pd_command_blocking()
 		},
 	};
 
-	int ret = osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd);
-	if (ret == 0) {
+	struct osdp_cmd *sent = test_submit_command(g_test_ctx.cp_ctx, 0, &cmd);
+	if (sent) {
 		printf(SUB_2 "Command submission succeeded on enabled PD\n");
 		/* Wait a bit for command to be processed */
 		if (wait_for_command(OSDP_CMD_BUZZER, 3)) {
@@ -258,8 +258,8 @@ static bool test_pd_command_blocking()
 
 	/* Try command on disabled PD - should fail */
 	reset_test_state();
-	ret = osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd);
-	if (ret == 0) {
+	sent = test_submit_command(g_test_ctx.cp_ctx, 0, &cmd);
+	if (sent) {
 		printf(SUB_2 "Command should fail on disabled PD\n");
 		return false;
 	}
@@ -274,14 +274,10 @@ static bool test_pd_command_blocking()
 	/* Wait for PD to come online before testing commands */
 	if (wait_for_pd_online(5)) {
 		reset_test_state();
-		ret = osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd);
+		sent = test_submit_command(g_test_ctx.cp_ctx, 0, &cmd);
 		printf(SUB_2 "Command on re-enabled PD: %s\n",
-			   ret == 0 ? "SUCCESS" : "FAILED");
-		/* The CP queue keeps a reference to the caller-owned `cmd`
-		 * (app-owned queue data); wait for it to be consumed before
-		 * `cmd` leaves scope, else the CP runner dereferences a stale
-		 * stack address. */
-		if (ret == 0) {
+			   sent ? "SUCCESS" : "FAILED");
+		if (sent) {
 			wait_for_command(OSDP_CMD_BUZZER, 3);
 		}
 	} else {
@@ -449,13 +445,15 @@ static bool test_dynamic_pd_management()
 	struct osdp_cmd cmd1 = { .id = OSDP_CMD_BUZZER, .buzzer = { .control_code = 1 } };
 	struct osdp_cmd cmd2 = { .id = OSDP_CMD_LED, .led = { .led_number = 0 } };
 
-	int ret1 = osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd1);
-	int ret2 = osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd2);
+	struct osdp_cmd *sent1, *sent2;
+
+	sent1 = test_submit_command(g_test_ctx.cp_ctx, 0, &cmd1);
+	sent2 = test_submit_command(g_test_ctx.cp_ctx, 0, &cmd2);
 
 	printf(SUB_2 "Commands on disabled PD: buzzer=%s, led=%s (both should fail)\n",
-	       ret1 == 0 ? "SUCCESS" : "FAILED", ret2 == 0 ? "SUCCESS" : "FAILED");
+	       sent1 ? "SUCCESS" : "FAILED", sent2 ? "SUCCESS" : "FAILED");
 
-	if (ret1 == 0 || ret2 == 0) {
+	if (sent1 || sent2) {
 		printf(SUB_2 "Commands should fail on disabled PD\n");
 		return false;
 	}

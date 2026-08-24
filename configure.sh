@@ -237,7 +237,10 @@ if [[ -z "${LOG_MINIMAL}" ]]; then
 	LIBOSDP_SOURCES+=" utils/src/logger.c"
 fi
 
+# Test-only utils; the CMake build globs utils/src/*.c and picks these up
+# on its own. slab.c backs the test harness command/event pools.
 UTILS_SOURCES+=" utils/src/workqueue.c utils/src/circbuf.c utils/src/event.c utils/src/fdutils.c"
+UTILS_SOURCES+=" utils/src/slab.c"
 
 if [[ ! -z "${PACKET_TRACE}" ]] || [[ ! -z "${DATA_TRACE}" ]]; then
 	LIBOSDP_SOURCES+=" src/osdp_diag.c utils/src/pcap_gen.c"

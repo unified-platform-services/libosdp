@@ -43,21 +43,15 @@ struct test_command_ctx {
 	int last_bio_event_type;
 
 	/* Command completion capture */
-	bool compl_seen;
-	int compl_cmd_id;
-	int compl_status;
+	/* Written by the completion callback on the refresh thread. */
+	struct test_completion completion;
 	/* last_mfg_event_type snapshot taken as the completion fired:
 	 * non-zero means the dedicated event arrived in the same exchange
 	 * as the command's reply (inline), not on a later poll. */
-	int compl_mfg_event_type;
+	atomic_int compl_mfg_event_type;
 };
 
 static struct test_command_ctx g_test_ctx = {0};
-
-/* Events are queued by reference, so an inline reply must outlive the
- * command callback's stack frame. One slot suffices: every test waits for
- * its reply to reach the CP before the next submission. */
-static struct osdp_event g_inline_reply;
 
 int test_commands_event_callback(void *arg, int pd, struct osdp_event *ev)
 {
@@ -90,17 +84,21 @@ int test_commands_event_callback(void *arg, int pd, struct osdp_event *ev)
 	return 0;
 }
 
-static void test_cmd_completion_cb(void *arg, int pd,
-				   struct osdp_cmd *cmd,
-				   enum osdp_completion_status status)
+/*
+ * Suite-local rather than test_cmd_completion_cb(): this one also snapshots
+ * which manufacturer reply the PD had sent by the time the command completed.
+ */
+static void commands_cmd_completion_cb(void *arg, int pd,
+				       struct osdp_cmd *cmd,
+				       enum osdp_completion_status status)
 {
 	ARG_UNUSED(pd);
 	struct test_command_ctx *ctx = arg;
 
-	ctx->compl_cmd_id = cmd->id;
-	ctx->compl_status = (int)status;
-	ctx->compl_mfg_event_type = ctx->last_mfg_event_type;
-	ctx->compl_seen = true;
+	atomic_store(&ctx->compl_mfg_event_type, ctx->last_mfg_event_type);
+	test_completion_record(&ctx->completion, cmd->id, (int)status);
+
+	test_cmd_free(cmd);
 }
 
 /* Stands in for a scanned fingerprint template */
@@ -136,9 +134,10 @@ int test_commands_command_callback(void *arg, struct osdp_cmd *cmd)
 
 	if (cmd->id == OSDP_CMD_BIOREAD || cmd->id == OSDP_CMD_BIOMATCH) {
 		if (ctx->bio_answer_inline) {
-			bio_make_reply(&g_inline_reply, cmd);
-			if (osdp_pd_submit_event(ctx->pd_ctx,
-						 &g_inline_reply)) {
+			struct osdp_event reply;
+
+			bio_make_reply(&reply, cmd);
+			if (!test_submit_event(ctx->pd_ctx, &reply)) {
 				printf(SUB_2 "Failed to submit inline bio reply\n");
 			}
 		}
@@ -157,7 +156,8 @@ int test_commands_command_callback(void *arg, struct osdp_cmd *cmd)
 		/* Answer synchronously: this must ride out as the reply to the
 		 * MFG command itself, not as a later poll response. */
 		if (ctx->mfg_inline_reply) {
-			struct osdp_event *ev = &g_inline_reply;
+			struct osdp_event reply;
+			struct osdp_event *ev = &reply;
 
 			memset(ev, 0, sizeof(*ev));
 			ev->type = ctx->mfg_inline_reply;
@@ -176,7 +176,7 @@ int test_commands_command_callback(void *arg, struct osdp_cmd *cmd)
 				ms->length = cmd->mfg.length;
 				memcpy(ms->data, cmd->mfg.data, cmd->mfg.length);
 			}
-			if (osdp_pd_submit_event(ctx->pd_ctx, ev)) {
+			if (!test_submit_event(ctx->pd_ctx, ev)) {
 				printf(SUB_2 "Failed to submit inline MFG reply\n");
 			}
 		}
@@ -220,7 +220,7 @@ static int setup_test_environment(struct test *t)
 
 	osdp_cp_set_event_callback(g_test_ctx.cp_ctx, test_commands_event_callback, &g_test_ctx);
 	osdp_cp_set_command_completion_callback(g_test_ctx.cp_ctx,
-						test_cmd_completion_cb,
+						commands_cmd_completion_cb,
 						&g_test_ctx);
 	osdp_pd_set_command_callback(g_test_ctx.pd_ctx, test_commands_command_callback, &g_test_ctx);
 
@@ -285,10 +285,8 @@ static void reset_test_state()
 	g_test_ctx.mfg_vendor_code = 0;
 	g_test_ctx.mfg_data_len = 0;
 	memset(g_test_ctx.mfg_data, 0, sizeof(g_test_ctx.mfg_data));
-	g_test_ctx.compl_seen = false;
-	g_test_ctx.compl_cmd_id = 0;
-	g_test_ctx.compl_status = -1;
-	g_test_ctx.compl_mfg_event_type = 0;
+	test_completion_reset(&g_test_ctx.completion);
+	atomic_store(&g_test_ctx.compl_mfg_event_type, 0);
 
 	if (g_test_ctx.last_event_data) {
 		free(g_test_ctx.last_event_data);
@@ -403,7 +401,7 @@ static bool test_bio_command(int cmd_id, int event_type, const char *name,
 		memcpy(cmd.biomatch.data, bio_template, sizeof(bio_template));
 	}
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send %s\n", name);
 		return false;
 	}
@@ -423,7 +421,7 @@ static bool test_bio_command(int cmd_id, int event_type, const char *name,
 			echo.bioread.type = OSDP_BIO_TYPE_RIGHT_INDEX_FINGER_PRINT;
 		}
 		bio_make_reply(&ev, &echo);
-		if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &ev)) {
+		if (!test_submit_event(g_test_ctx.pd_ctx, &ev)) {
 			printf(SUB_2 "Failed to submit deferred %s reply\n", name);
 			return false;
 		}
@@ -499,7 +497,7 @@ static bool test_buzzer_command()
 		},
 	};
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send buzzer command\n");
 		return false;
 	}
@@ -527,7 +525,7 @@ static bool test_led_command()
 		},
 	};
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send LED command\n");
 		return false;
 	}
@@ -549,7 +547,7 @@ static bool test_output_command()
 		},
 	};
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send output command\n");
 		return false;
 	}
@@ -583,13 +581,15 @@ enum out_submit_choice {
 	OUT_SUBMIT_INPUT_STATUS,  /* unrelated; must not be eaten by osdp_OUT */
 };
 
-/* The event queue links events by reference, so whatever the callback submits
- * has to outlive it. */
+/* Built once by out_init_events() and submitted from the command callback;
+ * test_submit_event() copies them into the pool. */
 static struct osdp_event g_out_status;
 static struct osdp_event g_input_status;
 static enum out_submit_choice g_out_submit;
 static osdp_t *g_out_pd_ctx;
 static bool g_out_cmd_seen;
+/* What the callback handed to libosdp -- the pooled copy, not the template. */
+static struct osdp_event *g_out_submitted;
 
 static int test_out_command_callback(void *arg, struct osdp_cmd *cmd)
 {
@@ -602,10 +602,12 @@ static int test_out_command_callback(void *arg, struct osdp_cmd *cmd)
 
 	switch (g_out_submit) {
 	case OUT_SUBMIT_OUTPUT_STATUS:
-		osdp_pd_submit_event(g_out_pd_ctx, &g_out_status);
+		g_out_submitted = test_submit_event(g_out_pd_ctx,
+						    &g_out_status);
 		break;
 	case OUT_SUBMIT_INPUT_STATUS:
-		osdp_pd_submit_event(g_out_pd_ctx, &g_input_status);
+		g_out_submitted = test_submit_event(g_out_pd_ctx,
+						    &g_input_status);
 		break;
 	case OUT_SUBMIT_NOTHING:
 		break;
@@ -680,10 +682,13 @@ static bool test_output_reply_selection(struct test *t)
 	result &= out_check_reply(pd, REPLY_OSTATR,
 				  "app reports status: osdp_OUT is answered"
 				  " inline with osdp_OSTATR");
-	if (pd->active_event != &g_out_status) {
+	if (pd->active_event != g_out_submitted) {
 		printf(SUB_2 "the reported status is not the active event\n");
 		result = false;
 	}
+	/* Dropping libosdp's reference by hand means no completion will fire
+	 * for it, so return it to the pool here. */
+	test_event_free((struct osdp_event *)pd->active_event);
 	pd->active_event = NULL;
 
 	/* Only the answer to osdp_OUT may ride out as its reply; an unrelated
@@ -698,6 +703,7 @@ static bool test_output_reply_selection(struct test *t)
 	test_pd_decode_command(pd, poll_cmd, sizeof(poll_cmd));
 	result &= out_check_reply(pd, REPLY_ISTATR,
 				  "it rides out on the following poll instead");
+	test_event_free((struct osdp_event *)pd->active_event);
 	pd->active_event = NULL;
 
 	osdp_cp_teardown(cp);
@@ -722,7 +728,7 @@ static bool test_text_command()
 	};
 	strcpy((char *)cmd.text.data, "LibOSDP");
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send text command\n");
 		return false;
 	}
@@ -747,7 +753,7 @@ static bool test_tdset_command()
 		},
 	};
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send tdset command\n");
 		return false;
 	}
@@ -770,7 +776,7 @@ static bool test_mfg_command_simple()
 	uint8_t test_data[] = {9,1,9,2,6,3,1,7,7,0};
 	memcpy(cmd.mfg.data, test_data, sizeof(test_data));
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send mfg command\n");
 		return false;
 	}
@@ -794,7 +800,7 @@ static bool test_mfg_command_with_reply()
 	};
 	memcpy(cmd.mfg.data, test_data, sizeof(test_data));
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send mfg command with reply\n");
 		return false;
 	}
@@ -813,7 +819,7 @@ static bool test_mfg_command_with_reply()
 	ev.mfgrep.vendor_code = g_test_ctx.mfg_vendor_code;
 	ev.mfgrep.length = g_test_ctx.mfg_data_len;
 	memcpy(ev.mfgrep.data, g_test_ctx.mfg_data, g_test_ctx.mfg_data_len);
-	if (osdp_pd_submit_event(g_test_ctx.pd_ctx, &ev)) {
+	if (!test_submit_event(g_test_ctx.pd_ctx, &ev)) {
 		printf(SUB_2 "Failed to submit async MFGREP event\n");
 		return false;
 	}
@@ -857,7 +863,7 @@ static bool test_mfg_command_nack_soft_fail()
 	uint8_t test_data[] = {1, 2, 3, 4};
 	memcpy(cmd.mfg.data, test_data, sizeof(test_data));
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send mfg command (NAK path)\n");
 		return false;
 	}
@@ -896,7 +902,7 @@ static bool test_led_permanent_command()
 		},
 	};
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send LED permanent command\n");
 		return false;
 	}
@@ -917,7 +923,7 @@ static bool test_comset_command()
 		},
 	};
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send comset command\n");
 		return false;
 	}
@@ -949,7 +955,7 @@ static bool test_keyset_command()
 	};
 	memcpy(cmd.keyset.data, key_data, sizeof(key_data));
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send keyset command\n");
 		return false;
 	}
@@ -968,9 +974,11 @@ static bool wait_for_cmd_completion(int expected_cmd, int expected_status,
 	int rc = 0; /* elapsed time in ms */
 	int timeout_ms = timeout_sec * 1000;
 	while (rc < timeout_ms) {
-		if (g_test_ctx.compl_seen &&
-		    g_test_ctx.compl_cmd_id == expected_cmd &&
-		    g_test_ctx.compl_status == expected_status) {
+		if (test_completion_count(&g_test_ctx.completion) &&
+		    test_completion_id(&g_test_ctx.completion) ==
+			    expected_cmd &&
+		    test_completion_status(&g_test_ctx.completion) ==
+			    expected_status) {
 			return true;
 		}
 		usleep(20 * 1000);
@@ -996,16 +1004,16 @@ static bool test_tdset_invalid_time_naks()
 		},
 	};
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send tdset command\n");
 		return false;
 	}
 
 	if (!wait_for_cmd_completion(OSDP_CMD_TDSET, OSDP_COMPLETION_FAILED, 5)) {
 		printf(SUB_2 "NAK not reported (compl cmd=%d status=%d seen=%d)\n",
-		       g_test_ctx.compl_cmd_id,
-		       g_test_ctx.compl_status,
-		       g_test_ctx.compl_seen);
+		       test_completion_id(&g_test_ctx.completion),
+		       test_completion_status(&g_test_ctx.completion),
+		       test_completion_count(&g_test_ctx.completion));
 		return false;
 	}
 
@@ -1048,7 +1056,7 @@ static bool test_mfg_command_inline_reply(int event_type, const char *name,
 	};
 	memcpy(cmd.mfg.data, test_data, sizeof(test_data));
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send mfg command\n");
 		goto out;
 	}
@@ -1076,7 +1084,8 @@ static bool test_mfg_command_inline_reply(int event_type, const char *name,
 			printf(SUB_2 "%s mfg command did not complete\n", name);
 			goto out;
 		}
-		if (g_test_ctx.compl_mfg_event_type != event_type) {
+		if (atomic_load(&g_test_ctx.compl_mfg_event_type) !=
+		    event_type) {
 			printf(SUB_2 "%s was ACK'd and deferred, not sent inline\n",
 			       name);
 			goto out;
@@ -1151,16 +1160,16 @@ static bool test_led_unsupported_capability_naks()
 		},
 	};
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send LED command\n");
 		return false;
 	}
 
 	if (!wait_for_cmd_completion(OSDP_CMD_LED, OSDP_COMPLETION_FAILED, 5)) {
 		printf(SUB_2 "NAK not reported (compl cmd=%d status=%d seen=%d)\n",
-		       g_test_ctx.compl_cmd_id,
-		       g_test_ctx.compl_status,
-		       g_test_ctx.compl_seen);
+		       test_completion_id(&g_test_ctx.completion),
+		       test_completion_status(&g_test_ctx.completion),
+		       test_completion_count(&g_test_ctx.completion));
 		return false;
 	}
 
@@ -1193,12 +1202,12 @@ static bool test_submit_requires_completion_callback()
 	reset_test_state();
 
 	osdp_cp_set_command_completion_callback(g_test_ctx.cp_ctx, NULL, NULL);
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd) == 0) {
+	if (test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "submit accepted without a completion callback\n");
 		return false;
 	}
 	osdp_cp_set_command_completion_callback(g_test_ctx.cp_ctx,
-						test_cmd_completion_cb,
+						commands_cmd_completion_cb,
 						&g_test_ctx);
 	return true;
 }
@@ -1215,7 +1224,7 @@ static bool test_status_command()
 		},
 	};
 
-	if (osdp_cp_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(g_test_ctx.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "Failed to send status command\n");
 		return false;
 	}

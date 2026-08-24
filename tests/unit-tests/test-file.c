@@ -188,18 +188,7 @@ struct file_tx_notification {
 
 static struct file_tx_notification g_notif;
 
-static volatile int g_compl_status = -1;
-static const struct osdp_cmd *g_compl_cmd;
-
-static void file_cmd_completion_cb(void *arg, int pd,
-				    struct osdp_cmd *cmd,
-				    enum osdp_completion_status status)
-{
-	ARG_UNUSED(arg);
-	ARG_UNUSED(pd);
-	g_compl_cmd = cmd;
-	g_compl_status = (int)status;
-}
+static struct test_completion g_compl;
 
 static int event_callback(void *arg, int pd, struct osdp_event *ev)
 {
@@ -294,9 +283,9 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 	osdp_file_register_ops(pd_ctx, 0, &receiver_ops);
 
 	osdp_cp_set_command_completion_callback(cp_ctx,
-						 file_cmd_completion_cb, NULL);
-	g_compl_status = -1;
-	g_compl_cmd = NULL;
+						 test_cmd_completion_cb,
+						 &g_compl);
+	test_completion_reset(&g_compl);
 
 	printf(SUB_1 "starting async runners\n");
 
@@ -330,12 +319,15 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 			.flags = 0,
 		}
 	};
-	if (osdp_cp_submit_command(cp_ctx, 0, &cmd)) {
+	if (!test_submit_command(cp_ctx, 0, &cmd)) {
 		printf(SUB_1 "Failed to initiate file tx command\n");
 		goto error;
 	}
 
-	if (g_compl_status != OSDP_COMPLETION_ACCEPTED || g_compl_cmd != &cmd) {
+	/* Reported before submit returned, so no waiting here. */
+	if (test_completion_count(&g_compl) != 1 ||
+	    test_completion_id(&g_compl) != OSDP_CMD_FILE_TX ||
+	    test_completion_status(&g_compl) != OSDP_COMPLETION_ACCEPTED) {
 		printf(SUB_1 "no synchronous ACCEPTED completion for file tx\n");
 		goto error;
 	}
