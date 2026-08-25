@@ -360,6 +360,117 @@ static void test_pd_phy_teardown(struct test *t)
 	t->mock_data = NULL;
 }
 
+/* Build a raw CP->PD frame whose length field is set to `declared_len`
+ * regardless of how many bytes we actually emit, so the framer's bound
+ * check can be probed at the buffer-capacity boundary. */
+static int pd_test_build_sized_packet(bool use_mark, int declared_len,
+				      uint8_t *out, int max_len)
+{
+	int len = 0, body;
+	uint8_t checksum;
+
+	if (max_len < declared_len + (use_mark ? 1 : 0)) {
+		return -1;
+	}
+	if (use_mark) {
+		out[len++] = 0xff;
+	}
+	out[len++] = 0x53; /* SOM */
+	out[len++] = PD_TEST_ADDR; /* addr, MSB clear for CP->PD */
+	out[len++] = declared_len & 0xff;
+	out[len++] = (declared_len >> 8) & 0xff;
+	out[len++] = 0x00; /* control: seq 0, no CRC, no SCB */
+
+	/* Pad the body out to the declared length, leaving room for the
+	 * trailing checksum byte. The 5 accounts for the header bytes emitted
+	 * above; the length field counts them but not the mark byte. */
+	body = declared_len - 5 - 1;
+	memset(out + len, 0x00, body);
+	len += body;
+
+	checksum = test_osdp_compute_checksum(out + (use_mark ? 1 : 0),
+					      len - (use_mark ? 1 : 0));
+	out[len++] = checksum;
+	return len;
+}
+
+/* A packet that declares the full buffer capacity *behind a mark byte* needs
+ * one more byte than the buffer holds, because the mark is buffered with the
+ * packet but not counted in its length field. The framer must reject it
+ * rather than overrun packet_buf by a byte. */
+static int test_pd_phy_max_len_with_mark_rejected(struct osdp *ctx)
+{
+	struct osdp_pd *p = osdp_to_pd(ctx, 0);
+	uint8_t packet[OSDP_PACKET_BUF_SIZE + 1];
+	int pkt_len, err;
+
+	printf(SUB_1
+	       "Testing max-length packet behind a mark byte is rejected -- ");
+
+	osdp_phy_state_reset(p, true);
+	sc_deactivate(p);
+	osdp_rb_reset(p->rx_rb);
+
+	pkt_len = pd_test_build_sized_packet(true, OSDP_PACKET_BUF_SIZE, packet,
+					     sizeof(packet));
+	if (pkt_len != OSDP_PACKET_BUF_SIZE + 1) {
+		printf("failed to build packet\n");
+		return -1;
+	}
+
+	osdp_rb_push_buf(p->rx_rb, packet, pkt_len);
+	err = osdp_phy_check_packet(p);
+
+	if (err == OSDP_ERR_PKT_NONE) {
+		printf("framer accepted an over-long packet\n");
+		return -1;
+	}
+	if (p->packet_len > OSDP_PACKET_BUF_SIZE) {
+		printf("packet_len %lu exceeds buffer capacity %d\n",
+		       p->packet_len, OSDP_PACKET_BUF_SIZE);
+		return -1;
+	}
+	printf("success!\n");
+	return 0;
+}
+
+/* The PD advertises OSDP_PACKET_BUF_SIZE as its receive buffer size, so a
+ * packet of exactly that length must still be framed when no mark byte eats
+ * into the buffer. Guards the check above from being tightened into a silent
+ * loss of one byte of advertised capacity. */
+static int test_pd_phy_max_len_without_mark_accepted(struct osdp *ctx)
+{
+	struct osdp_pd *p = osdp_to_pd(ctx, 0);
+	uint8_t packet[OSDP_PACKET_BUF_SIZE + 1];
+	int pkt_len;
+
+	printf(SUB_1
+	       "Testing max-length packet without a mark byte is framed -- ");
+
+	osdp_phy_state_reset(p, true);
+	sc_deactivate(p);
+	osdp_rb_reset(p->rx_rb);
+
+	pkt_len = pd_test_build_sized_packet(false, OSDP_PACKET_BUF_SIZE,
+					     packet, sizeof(packet));
+	if (pkt_len != OSDP_PACKET_BUF_SIZE) {
+		printf("failed to build packet\n");
+		return -1;
+	}
+
+	osdp_rb_push_buf(p->rx_rb, packet, pkt_len);
+	osdp_phy_check_packet(p);
+
+	if (p->packet_len != OSDP_PACKET_BUF_SIZE) {
+		printf("framer did not accept a full-capacity packet; "
+		       "packet_len %lu\n",
+		       p->packet_len);
+		return -1;
+	}
+	printf("success!\n");
+	return 0;
+}
+
 void run_pd_phy_tests(struct test *t)
 {
 	printf("\nStarting pd_phy tests\n");
@@ -373,6 +484,8 @@ void run_pd_phy_tests(struct test *t)
 	DO_TEST(t, test_pd_phy_seq_zero_clears_cache);
 	DO_TEST(t, test_pd_phy_sc_deactivate_clears_cache);
 	DO_TEST(t, test_pd_phy_sc_setup_clears_cache);
+	DO_TEST(t, test_pd_phy_max_len_with_mark_rejected);
+	DO_TEST(t, test_pd_phy_max_len_without_mark_accepted);
 
 	test_pd_phy_teardown(t);
 }

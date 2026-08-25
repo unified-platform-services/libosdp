@@ -128,6 +128,48 @@ static int find_som(const uint8_t *buf, int len)
 	return -1;
 }
 
+/* Same LSTAT command with no leading mark byte, as a peer built with
+ * OPT_OSDP_SKIP_MARK_BYTE emits. On a packet channel the delivered frame is
+ * exactly the packet, so pkt_len == max_len. */
+static int build_lstat_cmd_nomark(uint8_t *out)
+{
+	int len = 0;
+	int body_len = 5 /* header */ + 1 /* cmd_id */ + 1 /* checksum */;
+
+	out[len++] = WIRE_SOM;
+	out[len++] = PD_TEST_ADDR;
+	out[len++] = body_len & 0xff;
+	out[len++] = (body_len >> 8) & 0xff;
+	out[len++] = 0x00;
+	out[len++] = CMD_LSTAT;
+	out[len] = test_osdp_compute_checksum(out, len);
+	len++;
+	return len;
+}
+
+static int test_pd_zc_unmarked_exact_fit(void *mock_data)
+{
+	struct osdp *ctx = mock_data;
+
+	printf(SUB_1 "Testing unmarked exact-fit frame is accepted -- ");
+
+	g_tx_len = 0;
+	g_cmd_len = build_lstat_cmd_nomark(g_cmd);
+	g_cmd_pending = true;
+
+	osdp_pd_refresh((osdp_t *)ctx);
+	osdp_pd_refresh((osdp_t *)ctx);
+
+	if (g_tx_len <= 0) {
+		printf("PD did not reply: unmarked frame was rejected "
+		       "(pkt_len == max_len == %d)\n",
+		       g_cmd_len);
+		return -1;
+	}
+	printf("success!\n");
+	return 0;
+}
+
 /* Feed one LSTAT command and assert the LSTATR reply reaches the wire. With
  * the release-packet bug the send channel is handed a NULL buffer and captures
  * nothing; with the fix the full LSTATR frame is captured. */
@@ -233,6 +275,7 @@ void run_pd_zc_tests(struct test *t)
 	}
 
 	DO_TEST(t, test_pd_zc_status_reply_reaches_wire);
+	DO_TEST(t, test_pd_zc_unmarked_exact_fit);
 
 	test_pd_zc_teardown(t);
 }

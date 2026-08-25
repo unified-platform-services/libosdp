@@ -452,7 +452,14 @@ static int phy_validate_header(struct osdp_pd *pd, uint8_t *buf,
 	}
 
 	pkt_len = ((uint32_t)pkt->len_msb << 8) | pkt->len_lsb;
-	if (pkt_len > max_len ||
+	/**
+	 * The mark byte is not counted in the packet's length field but it is
+	 * buffered along with the packet, so it must be charged against the
+	 * space the packet has to fit into. Validating pkt_len alone lets a
+	 * peer declare a full-capacity packet behind a mark byte and overrun
+	 * the buffer by one byte.
+	 */
+	if (pkt_len + mark > max_len ||
 	    pkt_len < sizeof(struct osdp_packet_header) + 1) {
 		return OSDP_ERR_PKT_FMT;
 	}
