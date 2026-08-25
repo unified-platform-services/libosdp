@@ -1,3 +1,19 @@
+v3.2.7
+------
+
+25 August 2026
+
+Point release to fix a heap-overflow and other fixes
+
+Fixes:
+  - phy: Count the mark byte against the packet buffer bound
+  - ci: Publish to PlatformIO off the tag push
+  - cp: Handle OSDP_ERR_PKT_SKIP in cp_process_reply
+  - phy: Skip packets that don't belong to current context
+  - phy: Drain software rx ring on error-path state reset
+  - CP: Don't update sequence number on command retry probes
+
+
 v3.2.6
 ------
 
