@@ -2478,7 +2478,7 @@ static void cp_release_pd_resources(struct osdp_pd *pd_array, int count)
 
 	for (i = 0; i < count; i++) {
 		pd = pd_array + i;
-		if (is_capture_enabled(pd) && pd->packet_capture_ctx) {
+		if (is_capture_enabled(pd)) {
 			osdp_packet_capture_finish(pd);
 		}
 #ifndef OPT_OSDP_STATIC

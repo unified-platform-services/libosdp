@@ -46,7 +46,9 @@ void osdp_packet_capture_finish(struct osdp_pd *pd)
 	pcap_t *cap = pd->packet_capture_ctx;
 	size_t num_packets;
 
-	assert(cap);
+	if (!cap) {
+		return; /* init failed and already reported it */
+	}
 	num_packets = cap->num_packets;
 	if (pcap_stop(cap)) {
 		LOG_ERR("Unable to stop capture (flush/close failed)");
@@ -59,7 +61,19 @@ void osdp_capture_packet(struct osdp_pd *pd, uint8_t *buf, int len)
 {
 	pcap_t *cap = pd->packet_capture_ctx;
 
-	assert(cap);
+	if (!cap) {
+		return; /* init failed and already reported it */
+	}
+	/**
+	 * The framer bounds packet_buf_len to OSDP_PACKET_BUF_SIZE; this
+	 * tripwire caught it when that bound was wrong. Keep it enforced in
+	 * release builds too, where assert() compiles out.
+	 */
 	assert(len <= OSDP_PACKET_BUF_SIZE);
+	if (len > OSDP_PACKET_BUF_SIZE) {
+		LOG_ERR("Capture length %d exceeds %d; dropping packet", len,
+			OSDP_PACKET_BUF_SIZE);
+		return;
+	}
 	pcap_add(cap, buf, len);
 }
