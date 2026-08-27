@@ -2078,6 +2078,234 @@ static bool test_trs_session_stop()
 	return true;
 }
 
+/* A send-APDU with a real payload, built fresh for each of the two in-flight
+ * commands the failure test needs (the queue node lives inside the struct,
+ * so the two cannot share one instance). */
+static struct osdp_cmd trs_band_flush_apdu_cmd(void)
+{
+	struct osdp_cmd cmd = {
+		.id = OSDP_CMD_XWR,
+		.trs = {
+			.command = OSDP_TRS_CMD_SEND_APDU,
+			.apdu = { .length = sizeof(g_req_apdu) },
+		},
+	};
+
+	memcpy(cmd.trs.apdu.data, g_req_apdu, sizeof(g_req_apdu));
+	return cmd;
+}
+
+static struct osdp_cmd trs_band_flush_led_cmd(void)
+{
+	struct osdp_cmd cmd;
+
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.id = OSDP_CMD_LED;
+	cmd.led.reader = 0;
+	cmd.led.led_number = 0;
+	cmd.led.temporary.control_code = OSDP_CMD_LED_TEMPORARY_CC_SET;
+	cmd.led.temporary.on_count = 2;
+	cmd.led.temporary.off_count = 2;
+	cmd.led.temporary.on_color = OSDP_LED_COLOR_RED;
+	cmd.led.temporary.off_color = OSDP_LED_COLOR_NONE;
+	cmd.led.temporary.timer_count = 2;
+	cmd.led.permanent.control_code = OSDP_CMD_LED_PERMANENT_CC_NOP;
+	return cmd;
+}
+
+static struct osdp_cmd trs_band_flush_buzzer_cmd(void)
+{
+	struct osdp_cmd cmd;
+
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.id = OSDP_CMD_BUZZER;
+	cmd.buzzer.reader = 0;
+	cmd.buzzer.control_code = OSDP_CMD_BUZZER_CC_DEFAULT_TONE;
+	cmd.buzzer.on_count = 2;
+	cmd.buzzer.off_count = 2;
+	cmd.buzzer.rep_count = 1;
+	return cmd;
+}
+
+/* What test_trs_band_flush_on_session_failure() below needs from a
+ * completion: the order they arrived in (the ordering guarantee is the
+ * point of the test) and a one-shot hook to resubmit from inside a FLUSHED
+ * completion, the way test-completion.c's resubmit_completion_cb does for
+ * the whole-queue flush. */
+struct trs_band_flush_log {
+	atomic_int count;
+	int id[8];
+	int status[8];
+	atomic_bool resubmit_armed;
+	atomic_int resubmit_rc;
+};
+
+static void trs_band_flush_completion_cb(void *arg, int pd,
+					 struct osdp_cmd *cmd,
+					 enum osdp_completion_status status)
+{
+	struct trs_band_flush_log *log = arg;
+	int idx = atomic_fetch_add(&log->count, 1);
+
+	ARG_UNUSED(pd);
+	if (idx < (int)(sizeof(log->id) / sizeof(log->id[0]))) {
+		log->id[idx] = cmd->id;
+		log->status[idx] = (int)status;
+	}
+	/*
+	 * Resubmit from inside the first FLUSHED completion. The new command
+	 * must outlive this callback's stack frame, so it goes in through the
+	 * pool (test_submit_command()) rather than a local passed straight to
+	 * osdp_cp_submit_command() -- the queue keeps it by reference.
+	 */
+	if (status == OSDP_COMPLETION_FLUSHED &&
+	    atomic_exchange(&log->resubmit_armed, false)) {
+		struct osdp_cmd next = trs_band_flush_buzzer_cmd();
+
+		atomic_store(&log->resubmit_rc,
+			    test_submit_command(g_trs.cp_ctx, 0, &next) ?
+				    1 : 0);
+	}
+	test_cmd_free(cmd);
+}
+
+static bool wait_for_log_count(struct trs_band_flush_log *log, int want,
+			       int timeout_sec)
+{
+	int rc = 0;
+
+	while (rc++ < timeout_sec) {
+		if (atomic_load(&log->count) >= want) {
+			return true;
+		}
+		usleep(1000 * 1000);
+	}
+	return false;
+}
+
+/*
+ * A session that dies of a genuine link fault -- not an orderly STOP -- must
+ * still flush its band cleanly. Silencing every reply once the app's first
+ * send-APDU is in flight drives osdp_trs_state_update_err() through both its
+ * retry stages (XMIT -> TEARDOWN -> DONE) without the STOP ever dequeuing the
+ * ordinary way, so cp_flush_trs_band() is what closes the session out: the
+ * second APDU and the STOP still sitting behind the failed one must complete
+ * FLUSHED, in order, and whatever the app queued after the STOP must survive
+ * and run -- ahead of anything a FLUSHED completion submits while the flush
+ * is still draining.
+ */
+static bool test_trs_band_flush_on_session_failure(void)
+{
+	struct trs_wire_nak_hook hook = { .drop_reply = true };
+	struct trs_band_flush_log log = { 0 };
+	struct osdp_cmd start_cmd, stop_cmd;
+	struct osdp_cmd cmd_a = trs_band_flush_apdu_cmd();
+	struct osdp_cmd cmd_b = trs_band_flush_apdu_cmd();
+	struct osdp_cmd tail_cmd = trs_band_flush_led_cmd();
+	bool ok = true;
+
+	printf(SUB_2 "testing TRS band flush on session failure\n");
+
+	g_trs.status_seen = false;
+	if (submit_trs_cmd(&start_cmd, OSDP_TRS_CMD_START)) {
+		printf(SUB_2 "failed to submit TRS start\n");
+		return false;
+	}
+	if (!wait_for_trs_status(OSDP_TRS_SESSION_OPENED, 10)) {
+		printf(SUB_2 "TRS session never opened\n");
+		return false;
+	}
+
+	atomic_store(&log.resubmit_armed, true);
+	atomic_store(&log.resubmit_rc, -1);
+	osdp_cp_set_command_completion_callback(g_trs.cp_ctx,
+						trs_band_flush_completion_cb,
+						&log);
+	g_trs.status_seen = false;
+	test_set_channel_hook(trs_wire_nak_hook, &hook);
+
+	if (!test_submit_command(g_trs.cp_ctx, 0, &cmd_a) ||
+	    !test_submit_command(g_trs.cp_ctx, 0, &cmd_b)) {
+		printf(SUB_2 "failed to submit the send-APDUs\n");
+		ok = false;
+		goto out;
+	}
+	if (submit_trs_cmd(&stop_cmd, OSDP_TRS_CMD_STOP)) {
+		printf(SUB_2 "failed to submit TRS stop\n");
+		ok = false;
+		goto out;
+	}
+	if (!test_submit_command(g_trs.cp_ctx, 0, &tail_cmd)) {
+		printf(SUB_2 "failed to submit the post-band command\n");
+		ok = false;
+		goto out;
+	}
+
+	/* Two retry-exhaustion stages (XMIT, then TEARDOWN's own restore
+	 * attempt), each costing close to OSDP_CMD_MAX_RETRIES *
+	 * OSDP_CMD_RETRY_WAIT_MS -- give it generous headroom. */
+	if (!wait_for_trs_status(OSDP_TRS_SESSION_FAILED, 40)) {
+		printf(SUB_2 "session-failed notification not received\n");
+		ok = false;
+		goto out;
+	}
+	test_set_channel_hook(NULL, NULL);
+
+	if (!wait_for_log_count(&log, 5, 10) ||
+	    atomic_load(&log.count) != 5) {
+		printf(SUB_2 "want 5 completions, got %d\n",
+		       atomic_load(&log.count));
+		ok = false;
+		goto out;
+	}
+	if (log.id[0] != OSDP_CMD_XWR ||
+	    log.status[0] != OSDP_COMPLETION_FAILED) {
+		printf(SUB_2 "1st APDU: want XWR/FAILED, got %d/%d\n",
+		       log.id[0], log.status[0]);
+		ok = false;
+	}
+	if (log.id[1] != OSDP_CMD_XWR ||
+	    log.status[1] != OSDP_COMPLETION_FLUSHED) {
+		printf(SUB_2 "2nd APDU: want XWR/FLUSHED, got %d/%d\n",
+		       log.id[1], log.status[1]);
+		ok = false;
+	}
+	if (log.id[2] != OSDP_CMD_XWR ||
+	    log.status[2] != OSDP_COMPLETION_FLUSHED) {
+		printf(SUB_2 "STOP: want XWR/FLUSHED, got %d/%d\n",
+		       log.id[2], log.status[2]);
+		ok = false;
+	}
+	if (log.id[3] != OSDP_CMD_LED || log.status[3] != OSDP_COMPLETION_OK) {
+		printf(SUB_2 "post-band tail: want LED/OK, got %d/%d\n",
+		       log.id[3], log.status[3]);
+		ok = false;
+	}
+	if (log.id[4] != OSDP_CMD_BUZZER ||
+	    log.status[4] != OSDP_COMPLETION_OK) {
+		printf(SUB_2 "resubmitted cmd: want BUZZER/OK, got %d/%d\n",
+		       log.id[4], log.status[4]);
+		ok = false;
+	}
+	if (atomic_load(&log.resubmit_rc) != 1) {
+		printf(SUB_2 "resubmit from a FLUSHED completion failed\n");
+		ok = false;
+	}
+
+	/* After the flush the PD is back to ordinary online operation */
+	if (!test_wait_for_online(g_trs.cp_ctx, 0, 10)) {
+		printf(SUB_2 "PD did not return online after the failure\n");
+		ok = false;
+	}
+
+out:
+	test_set_channel_hook(NULL, NULL);
+	osdp_cp_set_command_completion_callback(g_trs.cp_ctx,
+						trs_cp_completion_callback,
+						&g_trs);
+	return ok;
+}
+
 void run_trs_tests(struct test *t)
 {
 	bool result = true;
@@ -2150,6 +2378,12 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_scan_card_scan_timeout_is_not_unsupported();
 	result &= test_trs_scan_card_scan_unsupported_latches();
 	result &= test_trs_scan_probe_failure_backoff();
+	/*
+	 * Last on this link: two full retry-exhaustion stages leave the CP
+	 * having just burned a long backlog of timeouts, which is not a
+	 * clean starting point for a test tuned to a short scan cadence.
+	 */
+	result &= test_trs_band_flush_on_session_failure();
 
 	teardown_test_environment();
 

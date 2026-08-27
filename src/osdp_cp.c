@@ -1296,14 +1296,37 @@ static void cp_discard_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd,
  */
 static void cp_flush_trs_band(struct osdp_pd *pd)
 {
+	queue_t drain = pd->cmd_queue;
+	queue_t kept;
 	const struct osdp_cmd *cmd;
+	queue_node_t *node;
 	bool stop_seen = false;
 
-	while (!stop_seen && cp_cmd_dequeue(pd, &cmd) == 0) {
+	/*
+	 * Detach before completing: a completion may submit, and its command
+	 * belongs after the band, not inside it. What survives the band is
+	 * re-queued ahead of anything submitted meanwhile, so the app's
+	 * ordering is preserved.
+	 */
+	queue_init(&pd->cmd_queue);
+	queue_init(&kept);
+
+	while (!stop_seen && queue_dequeue(&drain, &node) == 0) {
+		cmd = CONTAINER_OF(node, struct osdp_cmd, _node);
 		stop_seen = cp_cmd_is_trs(cmd, OSDP_TRS_CMD_STOP);
 		cp_complete_cmd(pd, cmd, OSDP_COMPLETION_FLUSHED);
 		cp_cmd_free(pd, cmd);
 	}
+	/* Whatever the band did not swallow keeps its place at the front. */
+	while (queue_dequeue(&drain, &node) == 0) {
+		queue_enqueue(&kept, node);
+	}
+	/* Then anything a completion submitted while we were draining. */
+	while (queue_dequeue(&pd->cmd_queue, &node) == 0) {
+		queue_enqueue(&kept, node);
+	}
+	pd->cmd_queue = kept;
+
 	if (!stop_seen) {
 		/* Ran to the end of the queue: the STOP was never submitted, so
 		 * the tail is inside the band we just dropped. */
