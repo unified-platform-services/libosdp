@@ -16,6 +16,7 @@ test-events.c
 test-bio.c
 test-hotplug.c
 test-notifications.c
+test-completion.c
 test-async-fuzz.c
 test-codec-fuzz.c
 test-sc.c

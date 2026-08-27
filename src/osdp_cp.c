@@ -27,6 +27,8 @@ enum osdp_cp_error_e {
 };
 
 static void notify_pd_id(struct osdp_pd *pd);
+static int cp_drain_queue(struct osdp_pd *pd,
+			  enum osdp_completion_status status);
 
 static void cp_dispatch_event(struct osdp_pd *pd,
 			      const struct osdp_event *event)
@@ -2642,15 +2644,11 @@ void osdp_cp_teardown(osdp_t *ctx)
 	input_check(ctx);
 	int i;
 	struct osdp_pd *pd;
-	const struct osdp_cmd *cmd;
 	struct osdp *cp_ctx = TO_OSDP(ctx);
 
 	for (i = 0; i < cp_ctx->_num_pd; i++) {
 		pd = osdp_to_pd(cp_ctx, i);
-		while (cp_cmd_dequeue(pd, &cmd) == 0) {
-			cp_complete_cmd(pd, cmd, OSDP_COMPLETION_ABORTED);
-			cp_cmd_free(pd, cmd);
-		}
+		cp_drain_queue(pd, OSDP_COMPLETION_ABORTED);
 		cp_complete_cmd(pd, pd->active_cmd, OSDP_COMPLETION_ABORTED);
 		pd->active_cmd = NULL;
 		if (is_capture_enabled(pd)) {
@@ -2740,18 +2738,38 @@ int osdp_cp_submit_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 	return cp_submit_command(pd, cmd);
 }
 
+/*
+ * Detach the queue, then drain the detached copy. A completion may submit,
+ * flush or tear down, and must not mutate the list this loop is walking.
+ * list_t holds only head/tail and node_t has no back-pointer to its list, so
+ * taking the struct by value and re-initialising the live one is a safe O(1)
+ * splice that needs no new c-utils API.
+ */
+static int cp_drain_queue(struct osdp_pd *pd,
+			  enum osdp_completion_status status)
+{
+	queue_t drain = pd->cmd_queue;
+	const struct osdp_cmd *cmd;
+	queue_node_t *node;
+	int count = 0;
+
+	queue_init(&pd->cmd_queue);
+	while (queue_dequeue(&drain, &node) == 0) {
+		cmd = CONTAINER_OF(node, struct osdp_cmd, _node);
+		cp_complete_cmd(pd, cmd, status);
+		cp_cmd_free(pd, cmd);
+		count++;
+	}
+	return count;
+}
+
 int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)
 {
 	input_check(ctx, pd_idx);
 	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
-	const struct osdp_cmd *cmd;
-	int count = 0;
+	int count;
 
-	while (cp_cmd_dequeue(pd, &cmd) == 0) {
-		cp_complete_cmd(pd, cmd, OSDP_COMPLETION_FLUSHED);
-		cp_cmd_free(pd, cmd);
-		count++;
-	}
+	count = cp_drain_queue(pd, OSDP_COMPLETION_FLUSHED);
 #ifdef OPT_BUILD_OSDP_TRS
 	/*
 	 * The band markers went out with the queue, so the tail is now wherever

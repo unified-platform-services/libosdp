@@ -29,6 +29,9 @@ enum osdp_pd_error_e {
 	OSDP_PD_ERR_RETRY_SEND = -6,
 };
 
+static int pd_drain_queue(struct osdp_pd *pd,
+			  enum osdp_completion_status status);
+
 /* Implicit capabilities */
 static struct osdp_pd_cap osdp_pd_cap[] = {
 	{
@@ -2039,11 +2042,8 @@ void osdp_pd_teardown(osdp_t *ctx)
 	assert(ctx);
 	struct osdp *pd_ctx = TO_OSDP(ctx);
 	struct osdp_pd *pd = osdp_to_pd(ctx, 0);
-	const struct osdp_event *ev;
 
-	while (pd_event_dequeue(pd, &ev) == 0) {
-		pd_complete_event(pd, ev, OSDP_COMPLETION_ABORTED);
-	}
+	pd_drain_queue(pd, OSDP_COMPLETION_ABORTED);
 	pd_complete_event(pd, pd->active_event, OSDP_COMPLETION_ABORTED);
 	pd->active_event = NULL;
 
@@ -2190,17 +2190,34 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 	return pd_event_enqueue(pd, event);
 }
 
+/*
+ * Detach the queue, then drain the detached copy -- see cp_drain_queue() in
+ * osdp_cp.c for why the struct copy is a safe splice.
+ */
+static int pd_drain_queue(struct osdp_pd *pd,
+			  enum osdp_completion_status status)
+{
+	queue_t drain = pd->event_queue;
+	const struct osdp_event *ev;
+	queue_node_t *node;
+	int count = 0;
+
+	queue_init(&pd->event_queue);
+	while (queue_dequeue(&drain, &node) == 0) {
+		ev = CONTAINER_OF(node, struct osdp_event, _node);
+		pd_complete_event(pd, ev, status);
+		count++;
+	}
+	return count;
+}
+
 int osdp_pd_flush_events(osdp_t *ctx)
 {
 	input_check(ctx);
-	int count = 0;
-	const struct osdp_event *ev;
+	int count;
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 
-	while (pd_event_dequeue(pd, &ev) == 0) {
-		pd_complete_event(pd, ev, OSDP_COMPLETION_FLUSHED);
-		count++;
-	}
+	count = pd_drain_queue(pd, OSDP_COMPLETION_FLUSHED);
 
 	return count;
 }
