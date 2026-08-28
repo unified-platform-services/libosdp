@@ -328,9 +328,8 @@ class CompletionStatus(IntEnum):
     """The context was torn down while it was still queued."""
 
     Accepted = _sys.COMPLETION_ACCEPTED
-    """Copied by an internal engine (file transfer, PIV); ownership returned
-    before submit_command() returned. Outcome arrives via Multipart*
-    notifications."""
+    """Deprecated; no longer produced. Engine-owned commands (file transfer,
+    PIV) now settle as Ok or Failed when their operation ends."""
 
 
 class BioType(_WireEnum):

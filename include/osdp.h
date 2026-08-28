@@ -1914,10 +1914,10 @@ enum osdp_completion_status {
 	OSDP_COMPLETION_FLUSHED, /**< Removed by flush API */
 	OSDP_COMPLETION_ABORTED, /**< Removed during teardown */
 	/**
-	 * Consumed by an internal engine (file transfer, PIV); ownership
-	 * returned before osdp_cp_submit_command() returned. The
-	 * operation's progress/outcome arrives via the
-	 * OSDP_NOTIFICATION_MP_* notifications.
+	 * @deprecated No longer produced. Engine-owned commands (file
+	 * transfer, PIV) now complete when their operation ends, with
+	 * @c OSDP_COMPLETION_OK or @c OSDP_COMPLETION_FAILED. Kept only so
+	 * existing switch statements still compile.
 	 */
 	OSDP_COMPLETION_ACCEPTED,
 };
@@ -1926,8 +1926,9 @@ enum osdp_completion_status {
  * @brief Callback for CP command completion notifications.
  *
  * Invoked on the caller's thread from within osdp_cp_refresh(),
- * osdp_cp_flush_commands() and osdp_cp_teardown(), and -- for engine-owned
- * commands reported as @c OSDP_COMPLETION_ACCEPTED -- from within
+ * osdp_cp_flush_commands() and osdp_cp_teardown(), and -- for an
+ * OSDP_CMD_FILE_TX carrying @ref OSDP_CMD_FILE_TX_FLAG_CANCEL, which acts on
+ * a transfer already running rather than starting one -- from within
  * osdp_cp_submit_command() itself, before it returns. It must not block.
  */
 typedef void (*cp_command_completion_callback_t)(void *arg, int pd,
@@ -2160,11 +2161,15 @@ void osdp_cp_teardown(osdp_t *ctx);
  * return the command was never queued and is the application's to reuse at once.
  *
  * @note OSDP_CMD_FILE_TX, OSDP_CMD_PIVDATA, OSDP_CMD_GENAUTH and
- * OSDP_CMD_CRAUTH do not ride the command queue: the engine copies what it
- * needs during this call and the completion callback fires with
- * @c OSDP_COMPLETION_ACCEPTED before this function returns. Progress and
- * outcome of the operation are then reported via the
- * OSDP_NOTIFICATION_MP_* notifications.
+ * OSDP_CMD_CRAUTH do not ride the command queue; a feature engine runs them
+ * across many exchanges. The completion callback fires when the operation
+ * ends, not when it is accepted, so @a cmd must stay alive for the whole
+ * operation. Progress is reported meanwhile by the OSDP_NOTIFICATION_MP_*
+ * notifications. The one exception is an OSDP_CMD_FILE_TX carrying
+ * @ref OSDP_CMD_FILE_TX_FLAG_CANCEL: it acts on a transfer already running
+ * rather than starting one of its own, so it completes as soon as the request
+ * is recorded; the transfer it cancels completes separately, on the command
+ * that started it.
  *
  * @note Submission fails unless a completion callback is registered (see
  * osdp_cp_set_command_completion_callback()) -- the completion callback is

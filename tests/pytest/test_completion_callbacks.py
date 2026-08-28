@@ -114,11 +114,11 @@ class Recorder:
         return status in self.statuses()
 
 
-def _make_pair(name):
+def _make_pair(name, cp_flags=None):
     cp_channel, pd_channel = make_fifo_pair(name)
     pd_cap = PDCapabilities([(Capability.OutputControl, 1, 1)])
     cp = ControlPanel(
-        [PDInfo(PD_ADDR, cp_channel, flags=[])],
+        [PDInfo(PD_ADDR, cp_channel, flags=cp_flags or [])],
         log_level=LogLevel.Debug,
     )
     pd = PeripheralDevice(
@@ -285,22 +285,39 @@ def test_pd_event_completion_statuses():
         _teardown(cp, pd, "completion-pd")
 
 
-def test_file_tx_command_completes_accepted():
-    """Engine-owned commands return ownership synchronously as Accepted."""
+def test_file_tx_command_completes_at_multipart_done():
+    """An engine-owned command settles when its operation ends, not when it is
+    accepted: exactly one Ok completion, arriving no earlier than the
+    MultipartDone that reports the transfer's outcome."""
     rec = Recorder()
-    cp, pd = _make_pair("completion-accepted")
+    cp, pd = _make_pair("completion-mp-done",
+                        cp_flags=[LibFlag.EnableNotification])
+    mp_done = threading.Event()
+
+    def on_event(address, event):
+        if (isinstance(event, events.Notification)
+                and event.type == NotificationType.MultipartDone):
+            mp_done.set()
+        return 0
+
     try:
         pd.start()
         cp.start()
         assert cp.online_wait(PD_ADDR, timeout=10), "PD did not come online"
 
+        cp.set_event_handler(on_event)
         cp.set_command_completion_handler(rec.on_command_complete)
         assert cp.register_file_ops(PD_ADDR, SenderFileOps())
         assert pd.register_file_ops(ReceiverFileOps())
 
         assert cp.submit_command(PD_ADDR, commands.FileTransfer(id=FILE_ID))
-        assert rec.wait_for_status(CompletionStatus.Accepted, timeout=1.0), (
-            "no Accepted completion for a file transfer command"
+        # The engine owns it until the transfer ends; nothing settles here.
+        assert rec.statuses() == [], "file transfer completed at submit"
+
+        assert rec.wait_for_status(CompletionStatus.Ok, timeout=10.0), (
+            "no Ok completion for a finished file transfer"
         )
+        assert mp_done.is_set(), "completion fired before MultipartDone"
+        assert rec.statuses() == [CompletionStatus.Ok]
     finally:
-        _teardown(cp, pd, "completion-accepted")
+        _teardown(cp, pd, "completion-mp-done")

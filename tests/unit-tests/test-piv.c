@@ -284,6 +284,62 @@ static int piv_stub_fclose(void *arg)
 	return 0;
 }
 
+/*
+ * A PIVDATA completes when the operation ends, not when it is accepted: one
+ * completion, carrying OK, arriving no earlier than MP_DONE.
+ */
+static bool test_pivdata_completes_at_mp_done(void)
+{
+	struct osdp_cmd cmd = {
+		.id = OSDP_CMD_PIVDATA,
+		.pivdata = { .oid = { 0x5F, 0xC1, 0x02 }, .element = 3 },
+	};
+
+	printf(SUB_2 "PIVDATA completes when the operation ends\n");
+
+	g_piv.cmd_count = 0;
+	g_piv.reply_count = 0;
+	g_piv.mp_done = 0;
+	g_piv.inline_reply = true;
+	g_piv.reply_event_type = OSDP_EVENT_PIVDATAR;
+	test_completion_reset(&g_piv_compl);
+
+	if (!test_submit_command(g_piv.cp_ctx, 0, &cmd)) {
+		printf(SUB_2 "piv: submit rejected\n");
+		return false;
+	}
+	/* Must NOT have completed synchronously. */
+	if (test_completion_count(&g_piv_compl) != 0) {
+		printf(SUB_2 "piv: completed at submit (count %d)\n",
+		       test_completion_count(&g_piv_compl));
+		return false;
+	}
+	if (!test_completion_wait(&g_piv_compl, 1, 5)) {
+		printf(SUB_2 "piv: never completed\n");
+		return false;
+	}
+	if (g_piv.mp_done != 1) {
+		printf(SUB_2 "piv: mp_done %d, want 1\n", g_piv.mp_done);
+		return false;
+	}
+	if (test_completion_count(&g_piv_compl) != 1) {
+		printf(SUB_2 "piv: %d completions, want exactly 1\n",
+		       test_completion_count(&g_piv_compl));
+		return false;
+	}
+	if (test_completion_id(&g_piv_compl) != OSDP_CMD_PIVDATA) {
+		printf(SUB_2 "piv: completed id %d, want PIVDATA\n",
+		       test_completion_id(&g_piv_compl));
+		return false;
+	}
+	if (test_completion_status(&g_piv_compl) != OSDP_COMPLETION_OK) {
+		printf(SUB_2 "piv: status %d, want OK\n",
+		       test_completion_status(&g_piv_compl));
+		return false;
+	}
+	return true;
+}
+
 static bool test_pivdata_busy_reject(void)
 {
 	struct osdp_cmd cmd = {
@@ -304,13 +360,11 @@ static bool test_pivdata_busy_reject(void)
 		printf(SUB_2 "busy: first submit failed\n");
 		return false;
 	}
-	if (test_completion_count(&g_piv_compl) != 1 ||
-	    test_completion_id(&g_piv_compl) != OSDP_CMD_PIVDATA ||
-	    test_completion_status(&g_piv_compl) != OSDP_COMPLETION_ACCEPTED) {
-		printf(SUB_2 "no synchronous ACCEPTED completion for pivdata\n");
+	/* The engine owns it until the op ends; nothing settles at submit. */
+	if (test_completion_count(&g_piv_compl) != 0) {
+		printf(SUB_2 "pivdata completed at submit\n");
 		return false;
 	}
-	test_completion_reset(&g_piv_compl);
 	if (test_submit_command(g_piv.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "busy: second submit was accepted\n");
 		return false;
@@ -352,6 +406,15 @@ static bool test_pivdata_busy_reject(void)
 	}
 	if (!piv_wait_for(&g_piv.reply_count, 1, 5000)) {
 		printf(SUB_2 "busy: op never completed\n");
+		return false;
+	}
+	/* Only the accepted submit settles, and only once the op is over. */
+	if (!test_completion_wait(&g_piv_compl, 1, 5) ||
+	    test_completion_count(&g_piv_compl) != 1 ||
+	    test_completion_status(&g_piv_compl) != OSDP_COMPLETION_OK) {
+		printf(SUB_2 "busy: %d completions, last status %d\n",
+		       test_completion_count(&g_piv_compl),
+		       test_completion_status(&g_piv_compl));
 		return false;
 	}
 	return true;
@@ -415,6 +478,8 @@ void run_piv_tests(struct test *t)
 	TEST_CASE(t, "crauth_deferred",
 		  test_auth_roundtrip("CRAUTH", "deferred", OSDP_CMD_CRAUTH,
 				      OSDP_EVENT_CRAUTHR, false));
+	TEST_CASE(t, "pivdata_completes_at_mp_done",
+		  test_pivdata_completes_at_mp_done());
 	TEST_CASE(t, "pivdata_busy_reject", test_pivdata_busy_reject());
 
 teardown:

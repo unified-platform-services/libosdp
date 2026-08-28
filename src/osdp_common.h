@@ -673,6 +673,20 @@ struct osdp_pd {
 	};
 	const struct osdp_cmd *active_cmd;      /* in-flight cmd (app-owned mode) */
 	const struct osdp_event *active_event;  /* in-flight event (app-owned mode) */
+	/*
+	 * App command handed to a feature engine, and the multipart family
+	 * that owns it. One slot, because file and PIV each hold
+	 * osdp_mp_engine_busy() at submit, so two operations of those kinds
+	 * cannot overlap -- and one place for teardown and abort to look.
+	 *
+	 * The tag is what makes one slot safe in general: osdp_mp_engine_busy()
+	 * is consulted at submit only, and the CP bio engine arms itself on
+	 * reply receipt without asking, so a bio transfer really can run
+	 * alongside a file transfer. Completing on the tag keeps each
+	 * operation's outcome with the command that asked for it.
+	 */
+	const struct osdp_cmd *engine_cmd;
+	enum osdp_mp_msg_type engine_cmd_mp_type;
 
 	struct osdp_secure_channel sc;   /* Secure Channel session context */
 	struct osdp_file *file;          /* File transfer context */
@@ -717,6 +731,13 @@ struct osdp {
 };
 
 void osdp_keyset_complete(struct osdp_pd *pd);
+
+/* --- from osdp_cp.c --- */
+/* Hand an engine-owned command (pd->engine_cmd) back to the application. The
+ * completion machinery lives in osdp_cp.c; this is its only entry point for
+ * the engines, which terminate in osdp_mp_pd_notify(). */
+void cp_complete_engine_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd,
+			    enum osdp_completion_status status);
 
 #ifdef OPT_BUILD_OSDP_TRS
 /* --- from osdp_trs.c --- */

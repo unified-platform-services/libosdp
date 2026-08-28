@@ -94,6 +94,42 @@ static inline void cp_complete_cmd(struct osdp_pd *pd,
 					 status);
 }
 
+void cp_complete_engine_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd,
+			    enum osdp_completion_status status)
+{
+	cp_complete_cmd(pd, cmd, status);
+	cp_cmd_free(pd, cmd);
+}
+
+/* Which multipart family an engine-owned command's operation belongs to; the
+ * tag the completion hook matches p->msg_type against. */
+static enum osdp_mp_msg_type cp_cmd_mp_type(int cmd_id)
+{
+	switch (cmd_id) {
+	case OSDP_CMD_PIVDATA:
+		return OSDP_MP_MSG_PIV;
+	case OSDP_CMD_GENAUTH:
+		return OSDP_MP_MSG_GENAUTH;
+	case OSDP_CMD_CRAUTH:
+		return OSDP_MP_MSG_CRAUTH;
+	default:
+		/* A command routed to an engine but missing from this map would
+		 * be tagged with another family's type, and a mis-tagged slot
+		 * never completes. Fail loudly instead. */
+		BUG();
+	}
+
+	return OSDP_MP_MSG_PIV;
+}
+
+static inline void cp_own_engine_cmd(struct osdp_pd *pd,
+				     const struct osdp_cmd *cmd,
+				     enum osdp_mp_msg_type mp_type)
+{
+	pd->engine_cmd = cmd;
+	pd->engine_cmd_mp_type = mp_type;
+}
+
 static const char *cp_get_cap_name(int cap)
 {
 	if (cap <= OSDP_PD_CAP_UNUSED || cap >= OSDP_PD_CAP_SENTINEL) {
@@ -2379,7 +2415,20 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		ret = osdp_file_tx_command(pd, cmd->file_tx.id,
 					   cmd->file_tx.flags);
 		if (ret == 0) {
-			cp_complete_cmd(pd, cmd, OSDP_COMPLETION_ACCEPTED);
+			if (cmd->file_tx.flags & OSDP_CMD_FILE_TX_FLAG_CANCEL) {
+				/* A control message against a transfer already
+				 * running, not an operation of its own: the
+				 * command that started that transfer keeps the
+				 * slot and reports its outcome, so this one
+				 * settles here. */
+				cp_complete_engine_cmd(pd, cmd,
+						       OSDP_COMPLETION_OK);
+			} else {
+				/* The engine owns it now; it completes at
+				 * MP_DONE. */
+				cp_own_engine_cmd(pd, cmd,
+						  OSDP_MP_MSG_FILE_TRANSFER);
+			}
 		}
 		return ret;
 	} else if (cmd->id == OSDP_CMD_PIVDATA ||
@@ -2389,7 +2438,7 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		 * FILE_TX); it does not ride the command queue. */
 		ret = osdp_piv_cp_submit(pd, cmd);
 		if (ret == 0) {
-			cp_complete_cmd(pd, cmd, OSDP_COMPLETION_ACCEPTED);
+			cp_own_engine_cmd(pd, cmd, cp_cmd_mp_type(cmd->id));
 		}
 		return ret;
 	} else if (cmd->id == OSDP_CMD_KEYSET &&
@@ -2677,6 +2726,17 @@ void osdp_cp_teardown(osdp_t *ctx)
 	for (i = 0; i < cp_ctx->_num_pd; i++) {
 		pd = osdp_to_pd(cp_ctx, i);
 		cp_drain_queue(pd, OSDP_COMPLETION_ABORTED);
+		if (pd->engine_cmd) {
+			/* An engine that never reached osdp_mp_finish(). Where
+			 * an abort path did fire MP_DONE, the hook in
+			 * osdp_mp_pd_notify() already cleared the slot, so
+			 * this cannot double-complete. */
+			const struct osdp_cmd *ecmd = pd->engine_cmd;
+
+			pd->engine_cmd = NULL;
+			cp_complete_engine_cmd(pd, ecmd,
+					       OSDP_COMPLETION_ABORTED);
+		}
 		cp_complete_cmd(pd, pd->active_cmd, OSDP_COMPLETION_ABORTED);
 		pd->active_cmd = NULL;
 		if (is_capture_enabled(pd)) {

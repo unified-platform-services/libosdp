@@ -226,8 +226,10 @@ struct file_tx_opts {
 	int read_busy_mod;        /* 0 = no busy injection */
 	bool read_always_busy;
 	int expected_outcome;     /* OSDP_MP_OUTCOME_* */
-	int wait_deciseconds;     /* notification wait budget, 100ms units */
+	int wait_deciseconds;     /* transfer wait budget, 100ms units */
 	bool verify_content;      /* compare REC_FILE against SEND_FILE */
+	bool no_notifications;    /* set up without MP_* notifications */
+	bool cancel_mid_transfer; /* cancel once the transfer is under way */
 };
 
 static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts)
@@ -237,6 +239,7 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 	uint32_t size, offset;
 	osdp_t *cp_ctx, *pd_ctx;
 	int cp_runner = -1, pd_runner = -1;
+	int settled = 0; /* completions that are not the transfer's own */
 	uint8_t status = 0;
 
 	memset(&g_notif, 0, sizeof(g_notif));
@@ -266,7 +269,9 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 	printf(SUB_1 "setting up OSDP devices\n");
 
 	if (test_setup_devices_ext(t, &cp_ctx, &pd_ctx,
-				   OSDP_FLAG_ENABLE_NOTIFICATION, 0)) {
+				   opts->no_notifications ?
+					   0 : OSDP_FLAG_ENABLE_NOTIFICATION,
+				   0)) {
 		printf(SUB_1 "Failed to setup devices!\n");
 		goto error;
 	}
@@ -324,46 +329,126 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 		goto error;
 	}
 
-	/* Reported before submit returned, so no waiting here. */
-	if (test_completion_count(&g_compl) != 1 ||
-	    test_completion_id(&g_compl) != OSDP_CMD_FILE_TX ||
-	    test_completion_status(&g_compl) != OSDP_COMPLETION_ACCEPTED) {
-		printf(SUB_1 "no synchronous ACCEPTED completion for file tx\n");
+	/* The engine owns the command until the transfer ends, so nothing may
+	 * have settled yet. */
+	if (test_completion_count(&g_compl) != 0) {
+		printf(SUB_1 "file tx completed at submit (count %d)\n",
+		       test_completion_count(&g_compl));
 		goto error;
+	}
+
+	if (opts->cancel_mid_transfer) {
+		/* A cancel request acts on a transfer already running, so it
+		 * settles at submit with OK. The transfer itself still settles
+		 * FAILED, on the command that started it. */
+		struct osdp_cmd cancel = {
+			.id = OSDP_CMD_FILE_TX,
+			.file_tx = {
+				.id = 1,
+				.flags = OSDP_CMD_FILE_TX_FLAG_CANCEL,
+			}
+		};
+
+		rc = 0;
+		while (osdp_get_file_tx_status(cp_ctx, 0, &size, &offset) ||
+		       offset == 0) {
+			usleep(20 * 1000);
+			if (++rc > 250) { /* 5s */
+				printf(SUB_1 "transfer never got under way\n");
+				goto error;
+			}
+		}
+		if (!test_submit_command(cp_ctx, 0, &cancel)) {
+			printf(SUB_1 "cancel submit rejected\n");
+			goto error;
+		}
+		/*
+		 * The cancel itself settles inline at submit, so it is the
+		 * first completion. Assert on that one and not on the total:
+		 * the runner may already have driven cancel_req through to
+		 * MP_DONE(ABORTED), landing the transfer's own completion.
+		 */
+		if (test_completion_count(&g_compl) < 1 ||
+		    test_completion_first_id(&g_compl) != OSDP_CMD_FILE_TX ||
+		    test_completion_first_status(&g_compl) !=
+			    OSDP_COMPLETION_OK) {
+			printf(SUB_1 "cancel: %d completions, first id %d "
+			       "status %d (want FILE_TX, OK)\n",
+			       test_completion_count(&g_compl),
+			       test_completion_first_id(&g_compl),
+			       test_completion_first_status(&g_compl));
+			goto error;
+		}
+		settled = 1;
 	}
 
 	printf(SUB_1 "waiting for file tx done notification\n");
 	if (opts->line_noise)
 		enable_line_noise();
 
-	rc = 0;
-	while (g_notif.count == 0) {
-		usleep(100 * 1000);
-		if (++rc > opts->wait_deciseconds) {
-			printf(SUB_1 "file tx notification not received! "
-			       "empty_reads=%d\n", sender_data.empty_read_count);
-			if (opts->line_noise)
-				print_line_noise_stats();
+	if (!opts->no_notifications) {
+		rc = 0;
+		while (g_notif.count == 0) {
+			if (test_completion_count(&g_compl) != settled) {
+				printf(SUB_1 "completed before MP_DONE\n");
+				goto error;
+			}
+			usleep(100 * 1000);
+			if (++rc > opts->wait_deciseconds) {
+				printf(SUB_1 "file tx notification not "
+				       "received! empty_reads=%d\n",
+				       sender_data.empty_read_count);
+				if (opts->line_noise)
+					print_line_noise_stats();
+				goto error;
+			}
+		}
+
+		if (g_notif.count != 1) {
+			printf(SUB_1 "notification fired %d times; "
+			       "expected 1\n", g_notif.count);
+			goto error;
+		}
+		if (g_notif.type != OSDP_NOTIFICATION_MP_DONE) {
+			printf(SUB_1 "unexpected notification type: %d\n",
+			       g_notif.type);
+			goto error;
+		}
+		if (g_notif.arg0 != 1) {
+			printf(SUB_1 "unexpected file_id: %d (want 1)\n",
+			       g_notif.arg0);
+			goto error;
+		}
+		if (g_notif.arg1 != opts->expected_outcome) {
+			printf(SUB_1 "unexpected outcome: %d (want %d)\n",
+			       g_notif.arg1, opts->expected_outcome);
 			goto error;
 		}
 	}
 
-	if (g_notif.count != 1) {
-		printf(SUB_1 "notification fired %d times; expected 1\n",
-		       g_notif.count);
+	/* The command settles once the transfer ends: exactly one completion,
+	 * carrying the transfer's outcome. An aborted transfer reports FAILED,
+	 * not ABORTED -- that status means "removed during teardown". */
+	if (!test_completion_wait(&g_compl, settled + 1,
+				  (opts->wait_deciseconds + 9) / 10)) {
+		printf(SUB_1 "file tx never completed\n");
 		goto error;
 	}
-	if (g_notif.type != OSDP_NOTIFICATION_MP_DONE) {
-		printf(SUB_1 "unexpected notification type: %d\n", g_notif.type);
+	if (opts->no_notifications &&
+	    g_notif.count + g_notif.start + g_notif.progress != 0) {
+		printf(SUB_1 "notifications fired while disabled\n");
 		goto error;
 	}
-	if (g_notif.arg0 != 1) {
-		printf(SUB_1 "unexpected file_id: %d (want 1)\n", g_notif.arg0);
-		goto error;
-	}
-	if (g_notif.arg1 != opts->expected_outcome) {
-		printf(SUB_1 "unexpected outcome: %d (want %d)\n",
-		       g_notif.arg1, opts->expected_outcome);
+	if (test_completion_count(&g_compl) != settled + 1 ||
+	    test_completion_id(&g_compl) != OSDP_CMD_FILE_TX ||
+	    test_completion_status(&g_compl) !=
+		    (opts->expected_outcome == OSDP_MP_OUTCOME_OK ?
+			     OSDP_COMPLETION_OK :
+			     OSDP_COMPLETION_FAILED)) {
+		printf(SUB_1 "file tx: %d completions, id %d, status %d\n",
+		       test_completion_count(&g_compl),
+		       test_completion_id(&g_compl),
+		       test_completion_status(&g_compl));
 		goto error;
 	}
 
@@ -374,7 +459,8 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 	}
 
 	if (opts->verify_content) {
-		if (g_notif.start != 1 || g_notif.progress < 1) {
+		if (!opts->no_notifications &&
+		    (g_notif.start != 1 || g_notif.progress < 1)) {
 			printf(SUB_1 "unexpected lifecycle: start=%d progress=%d "
 			       "(want start==1, progress>=1)\n",
 			       g_notif.start, g_notif.progress);
@@ -384,6 +470,12 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 		printf(SUB_1 "%s: %s (empty_reads=%d)\n", opts->label,
 		       result ? "succeeded" : "failed",
 		       sender_data.empty_read_count);
+	} else if (opts->cancel_mid_transfer) {
+		result = true;
+		printf(SUB_1 "%s: cancelled mid-transfer as expected\n",
+		       opts->label);
+		unlink(SEND_FILE);
+		unlink(REC_FILE);
 	} else {
 		/* Aborted case: pin the "bounded retries then abort"
 		 * contract. The transfer must not collapse on the first
@@ -435,6 +527,37 @@ void run_file_tx_tests(struct test *t, bool line_noise)
 	};
 
 	TEST_CASE(t, "file_tx_baseline", run_one_file_tx_case(t, &opts));
+}
+
+void run_file_tx_no_notification_tests(struct test *t)
+{
+	/* Completions and notifications are independent features: an app that
+	 * never asked for MP_* must still get its command back when the
+	 * transfer ends. */
+	struct file_tx_opts opts = {
+		.label = "notifications disabled",
+		.expected_outcome = OSDP_MP_OUTCOME_OK,
+		.wait_deciseconds = 600, /* 60s */
+		.verify_content = true,
+		.no_notifications = true,
+	};
+
+	TEST_CASE(t, "file_tx_no_notification", run_one_file_tx_case(t, &opts));
+}
+
+void run_file_tx_cancel_tests(struct test *t)
+{
+	/* A cancel request rides in on its own command but is a control
+	 * message, not an operation: it settles at submit while the transfer
+	 * it cancels settles FAILED on the command that started it. */
+	struct file_tx_opts opts = {
+		.label = "cancelled mid-transfer",
+		.expected_outcome = OSDP_MP_OUTCOME_ABORTED,
+		.wait_deciseconds = 300, /* 30s */
+		.cancel_mid_transfer = true,
+	};
+
+	TEST_CASE(t, "file_tx_cancel", run_one_file_tx_case(t, &opts));
 }
 
 void run_file_tx_intermittent_tests(struct test *t)

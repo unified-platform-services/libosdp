@@ -449,15 +449,46 @@ void osdp_get_status_mask(const osdp_t *ctx, uint8_t *bitmask)
 	}
 }
 
-void osdp_mp_pd_notify(void *arg, enum osdp_mp_phase phase,
-		       const struct osdp_mp_progress *p)
+/*
+ * Map a multipart outcome onto a completion status. Deliberately lossy: the
+ * finer reason stays on the notification channel, which fires either way.
+ * OK_REBOOTING is OK because the transfer succeeded -- the pending reset is
+ * informational. ABORTED maps to FAILED because OSDP_COMPLETION_ABORTED means
+ * "removed during teardown", and blurring that would stop the four statuses
+ * meaning distinct things.
+ */
+static enum osdp_completion_status engine_status(struct osdp_pd *pd,
+						 int outcome)
+{
+	struct osdp *ctx = pd_to_osdp(pd);
+
+	if (ctx->tearing_down) {
+		return OSDP_COMPLETION_ABORTED;
+	}
+	switch (outcome) {
+	case OSDP_MP_OUTCOME_OK:
+	case OSDP_MP_OUTCOME_OK_REBOOTING:
+		return OSDP_COMPLETION_OK;
+	default:
+		return OSDP_COMPLETION_FAILED;
+	}
+}
+
+/*
+ * Split out of osdp_mp_pd_notify() so that its several "nobody is listening"
+ * early returns cannot skip the completion hook: notifications and command
+ * completions are independent features, and an application that runs with
+ * notifications off must still get its engine-owned commands back.
+ */
+static void mp_deliver_notification(struct osdp_pd *pd,
+				    enum osdp_mp_phase phase,
+				    const struct osdp_mp_progress *p)
 {
 	static const enum osdp_notification_type ph2t[] = {
 		[OSDP_MP_PHASE_START] = OSDP_NOTIFICATION_MP_START,
 		[OSDP_MP_PHASE_PROGRESS] = OSDP_NOTIFICATION_MP_PROGRESS,
 		[OSDP_MP_PHASE_DONE] = OSDP_NOTIFICATION_MP_DONE,
 	};
-	struct osdp_pd *pd = arg;
 	struct osdp_notification notif;
 
 	if (!is_notifications_enabled(pd)) {
@@ -491,6 +522,44 @@ void osdp_mp_pd_notify(void *arg, enum osdp_mp_phase phase,
 		(void)pd->command_callback(pd->command_callback_arg, &cmd);
 	}
 	osdp_metrics_report(pd, OSDP_METRIC_EVENT);
+}
+
+void osdp_mp_pd_notify(void *arg, enum osdp_mp_phase phase,
+		       const struct osdp_mp_progress *p)
+{
+	struct osdp_pd *pd = arg;
+
+	mp_deliver_notification(pd, phase, p);
+
+	/*
+	 * Every terminal path of every engine converges on osdp_mp_finish(),
+	 * which is idempotent -- so this one hook gives the submitter exactly
+	 * one completion, NAK, timeout and abort included. It runs after the
+	 * notification so an observer sees MP_DONE first.
+	 *
+	 * Gate on the family: a bio transfer can be live alongside a file one
+	 * (the CP bio engine arms on reply receipt, without consulting
+	 * osdp_mp_engine_busy()), and its DONE must not settle the file
+	 * transfer's command with the wrong operation's outcome.
+	 *
+	 * Two operations of the same family can never contend for the slot:
+	 * bio_op_open() calls osdp_bio_abort() first, which fires
+	 * MP_DONE(ABORTED) for the superseded op -- completing it and clearing
+	 * the slot -- before the new one ever reaches this gate.
+	 */
+	if (phase == OSDP_MP_PHASE_DONE && is_cp_mode(pd) && pd->engine_cmd &&
+	    p->msg_type == (int)pd->engine_cmd_mp_type) {
+		const struct osdp_cmd *cmd = pd->engine_cmd;
+
+		/* Clear before completing: a PIV resubmit from the callback is
+		 * refused (the op is still non-IDLE at emit time) and one from
+		 * a queued command lands after this returns. FIXME: the file
+		 * engine is at OSDP_MP_DONE here, so it accepts a resubmit that
+		 * file_state_reset() then wipes -- a pre-existing hazard, not
+		 * one this hook introduces. */
+		pd->engine_cmd = NULL;
+		cp_complete_engine_cmd(pd, cmd, engine_status(pd, p->outcome));
+	}
 }
 
 void osdp_engines_abort(struct osdp_pd *pd)

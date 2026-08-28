@@ -21,6 +21,7 @@
 #include <osdp.h>
 #include "test.h"
 #include "osdp_bio.h"
+#include "osdp_file.h"
 
 /* Exported as a test_<fn> alias under UNIT_TESTING via OSDP_TEST_ALIAS. */
 extern int test_pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len);
@@ -278,6 +279,114 @@ static bool test_bio_multipart_transfer(struct osdp_pd *pd_tx,
 	return true;
 }
 
+/* Enough for a file transfer to open and stay open; never actually read. */
+static int bio_stub_fopen(void *arg, int file_id, uint32_t *size)
+{
+	ARG_UNUSED(arg); ARG_UNUSED(file_id);
+	*size = 4096;
+	return 0;
+}
+
+static int bio_stub_fread(void *arg, void *buf, uint32_t size, uint32_t offset)
+{
+	ARG_UNUSED(arg); ARG_UNUSED(offset);
+	memset(buf, 0x5A, size);
+	return (int)size;
+}
+
+static int bio_stub_fwrite(void *arg, const void *buf, uint32_t size,
+			   uint32_t offset)
+{
+	ARG_UNUSED(arg); ARG_UNUSED(buf); ARG_UNUSED(offset);
+	return (int)size;
+}
+
+static int bio_stub_fclose(void *arg)
+{
+	ARG_UNUSED(arg);
+	return 0;
+}
+
+/*
+ * Two multipart engines really can be live at once on one PD:
+ * osdp_mp_engine_busy() is consulted at submit only, and the CP bio engine
+ * arms itself on reply receipt without asking. So a bio MP_DONE must not
+ * settle a file transfer's command -- the completion hook is gated on the
+ * multipart family that owns pd->engine_cmd, and the file command must still
+ * be outstanding afterwards and later report its own outcome.
+ */
+static bool test_bio_done_does_not_steal_file_cmd(osdp_t *cp_ctx,
+						  struct osdp_pd *pd,
+						  struct osdp_pd *cp_pd)
+{
+	struct osdp_file_ops fops = {
+		.arg = NULL,
+		.open = bio_stub_fopen, .read = bio_stub_fread,
+		.write = bio_stub_fwrite, .close = bio_stub_fclose,
+	};
+	struct osdp_cmd cmd = {
+		.id = OSDP_CMD_FILE_TX,
+		.file_tx = { .id = 1, .flags = 0 },
+	};
+	struct test_completion comp;
+	enum osdp_cp_state_e saved = cp_pd->state;
+	bool result = false;
+
+	printf(SUB_2 "a bio MP_DONE does not settle the file tx command\n");
+
+	test_completion_reset(&comp);
+	osdp_cp_set_command_completion_callback(cp_ctx, test_cmd_completion_cb,
+						&comp);
+	if (osdp_file_register_ops(cp_ctx, 0, &fops)) {
+		printf(SUB_2 "file ops registration failed\n");
+		goto out;
+	}
+
+	/* Submission is gated on ONLINE and this suite drives no link. */
+	cp_pd->state = OSDP_CP_STATE_ONLINE;
+	if (!test_submit_command(cp_ctx, 0, &cmd)) {
+		printf(SUB_2 "file tx submit rejected\n");
+		goto out;
+	}
+	if (!osdp_file_tx_is_active(cp_pd) || cp_pd->engine_cmd == NULL) {
+		printf(SUB_2 "file tx did not take the engine slot\n");
+		goto out;
+	}
+
+	/* Now run a whole multi-fragment BIOREADR to DONE on the same PD. */
+	if (!test_bio_multipart_transfer(pd, cp_pd, 200, 64,
+					 "bio reply alongside a file tx")) {
+		goto out;
+	}
+	if (test_completion_count(&comp) != 0) {
+		printf(SUB_2 "bio DONE settled the file cmd (count %d, "
+		       "status %d)\n", test_completion_count(&comp),
+		       test_completion_status(&comp));
+		goto out;
+	}
+	if (cp_pd->engine_cmd == NULL) {
+		printf(SUB_2 "bio DONE cleared the file tx engine slot\n");
+		goto out;
+	}
+
+	/* The file transfer's own terminal path still reports to it. */
+	osdp_file_tx_abort(cp_pd);
+	if (test_completion_count(&comp) != 1 ||
+	    test_completion_id(&comp) != OSDP_CMD_FILE_TX ||
+	    test_completion_status(&comp) != OSDP_COMPLETION_FAILED) {
+		printf(SUB_2 "file tx: %d completions, id %d, status %d\n",
+		       test_completion_count(&comp),
+		       test_completion_id(&comp),
+		       test_completion_status(&comp));
+		goto out;
+	}
+	result = true;
+out:
+	cp_pd->state = saved;
+	osdp_cp_set_command_completion_callback(cp_ctx, NULL, NULL);
+	return result;
+}
+
 /*
  * Losing CP activity mid multi-part BIOREADR reply must tear the bio op down
  * exactly like CMD_ABORT does: the op goes inactive and the app receives
@@ -362,6 +471,8 @@ void run_bio_tests(struct test *t)
 		  test_bio_multipart_transfer(
 			  pd, cp_pd, 30, 200,
 			  "single-packet BIOREADR stays single-part"));
+	TEST_CASE(t, "bio_done_does_not_steal_file_cmd",
+		  test_bio_done_does_not_steal_file_cmd(cp, pd, cp_pd));
 	TEST_CASE(t, "bio_abort_on_pd_offline",
 		  test_bio_abort_on_pd_offline(pd, pd_ctx));
 

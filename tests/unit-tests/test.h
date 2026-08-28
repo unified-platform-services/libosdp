@@ -200,6 +200,8 @@ struct test_completion {
 	atomic_int count;  /* completions seen */
 	atomic_int status; /* last enum osdp_completion_status */
 	atomic_int id;     /* last osdp_cmd::id, or osdp_event::type */
+	atomic_int first_status; /* the same two, as first recorded */
+	atomic_int first_id;
 };
 
 static inline void test_completion_record(struct test_completion *c, int id,
@@ -207,6 +209,16 @@ static inline void test_completion_record(struct test_completion *c, int id,
 {
 	atomic_store(&c->id, id);
 	atomic_store(&c->status, status);
+	/*
+	 * The first completion is the only one a test can assert on without
+	 * racing a refresh thread that may land the next one at any moment.
+	 * Written before count goes to 1, so a reader that saw the count is
+	 * guaranteed to see these.
+	 */
+	if (atomic_load(&c->count) == 0) {
+		atomic_store(&c->first_id, id);
+		atomic_store(&c->first_status, status);
+	}
 	atomic_fetch_add(&c->count, 1);
 }
 
@@ -223,6 +235,16 @@ static inline int test_completion_status(struct test_completion *c)
 static inline int test_completion_id(struct test_completion *c)
 {
 	return atomic_load(&c->id);
+}
+
+static inline int test_completion_first_status(struct test_completion *c)
+{
+	return atomic_load(&c->first_status);
+}
+
+static inline int test_completion_first_id(struct test_completion *c)
+{
+	return atomic_load(&c->first_id);
 }
 
 /* Clear to "nothing seen": count 0, status and id -1. */
@@ -294,6 +316,8 @@ void run_cp_phy_tests(struct test *t);
 void run_pd_phy_tests(struct test *t);
 void run_file_tx_tests(struct test *t, bool line_noise);
 void run_file_tx_intermittent_tests(struct test *t);
+void run_file_tx_cancel_tests(struct test *t);
+void run_file_tx_no_notification_tests(struct test *t);
 void run_file_tx_permanent_busy_tests(struct test *t);
 void run_file_tx_pd_keep_alive_tests(struct test *t);
 void run_file_rx_idle_frame_tests(struct test *t);
