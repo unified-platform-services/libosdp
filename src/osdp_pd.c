@@ -2041,6 +2041,12 @@ void osdp_pd_teardown(osdp_t *ctx)
 {
 	assert(ctx);
 	struct osdp *pd_ctx = TO_OSDP(ctx);
+
+	if (pd_ctx->tearing_down) {
+		return; /* re-entrant teardown from a completion */
+	}
+	pd_ctx->tearing_down = true;
+
 	struct osdp_pd *pd = osdp_to_pd(ctx, 0);
 
 	pd_drain_queue(pd, OSDP_COMPLETION_ABORTED);
@@ -2150,6 +2156,7 @@ static int pd_status_report_capacity(struct osdp_pd *pd,
 int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 {
 	input_check(ctx);
+	input_check_not_tearing_down(ctx);
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 
 	if (!pd->event_completion_callback) {
@@ -2214,6 +2221,7 @@ static int pd_drain_queue(struct osdp_pd *pd,
 int osdp_pd_flush_events(osdp_t *ctx)
 {
 	input_check(ctx);
+	input_check_not_tearing_down(ctx);
 	int count;
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 

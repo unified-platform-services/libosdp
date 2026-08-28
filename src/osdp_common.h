@@ -237,6 +237,21 @@ static inline __noreturn void die()
 #define input_check(...)                                                       \
 	get_macro(__VA_ARGS__, input_check2, input_check1)(__VA_ARGS__)
 
+/*
+ * A completion fires from inside flush and teardown, and may call back into
+ * libosdp. That is fine for flush -- the queue is detached first -- but during
+ * teardown the context is being dismantled, so refuse rather than touch it.
+ * Separate from input_check() because that one is BUG_ON-based and fatal.
+ */
+#define input_check_not_tearing_down(_ctx)                                     \
+	do {                                                                   \
+		struct osdp *__ctx = (struct osdp *)_ctx;                      \
+		if (__ctx->tearing_down) {                                     \
+			LOG_PRINT("API called during teardown");               \
+			return -1;                                             \
+		}                                                              \
+	} while (0)
+
 /**
  * @brief OSDP reserved commands
  */
@@ -683,6 +698,7 @@ struct osdp_pd {
 struct osdp {
 	uint32_t _magic; /* Canary to be used in input_check() */
 	int _num_pd; /* Number of PDs attached to this context */
+	bool tearing_down; /* set by teardown; public API refuses while set */
 	struct osdp_pd *_current_pd; /* current operational pd's pointer */
 	struct osdp_pd *pd; /* base of PD list (must be at lest one) */
 	struct osdp_channel channel; /* OSDP channel */

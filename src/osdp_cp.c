@@ -2669,6 +2669,11 @@ void osdp_cp_teardown(osdp_t *ctx)
 	struct osdp_pd *pd;
 	struct osdp *cp_ctx = TO_OSDP(ctx);
 
+	if (cp_ctx->tearing_down) {
+		return; /* re-entrant teardown from a completion */
+	}
+	cp_ctx->tearing_down = true;
+
 	for (i = 0; i < cp_ctx->_num_pd; i++) {
 		pd = osdp_to_pd(cp_ctx, i);
 		cp_drain_queue(pd, OSDP_COMPLETION_ABORTED);
@@ -2756,6 +2761,7 @@ void osdp_cp_set_command_completion_callback(osdp_t *ctx,
 int osdp_cp_submit_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 {
 	input_check(ctx, pd_idx);
+	input_check_not_tearing_down(ctx);
 	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
 
 	return cp_submit_command(pd, cmd);
@@ -2789,6 +2795,7 @@ static int cp_drain_queue(struct osdp_pd *pd,
 int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)
 {
 	input_check(ctx, pd_idx);
+	input_check_not_tearing_down(ctx);
 	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
 	int count;
 

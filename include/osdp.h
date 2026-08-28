@@ -1929,9 +1929,6 @@ enum osdp_completion_status {
  * osdp_cp_flush_commands() and osdp_cp_teardown(), and -- for engine-owned
  * commands reported as @c OSDP_COMPLETION_ACCEPTED -- from within
  * osdp_cp_submit_command() itself, before it returns. It must not block.
- * Submitting a new command from an OK/FAILED/ACCEPTED completion is safe; do
- * not call any osdp_* API from a FLUSHED or ABORTED completion -- those fire
- * inside the flush/teardown drain loops.
  */
 typedef void (*cp_command_completion_callback_t)(void *arg, int pd,
 						 struct osdp_cmd *cmd,
@@ -1942,9 +1939,6 @@ typedef void (*cp_command_completion_callback_t)(void *arg, int pd,
  *
  * Invoked on the caller's thread from within osdp_pd_refresh(),
  * osdp_pd_flush_events() and osdp_pd_teardown(). It must not block.
- * Submitting a new event from an OK/FAILED completion is safe; do not call
- * any osdp_* API from a FLUSHED or ABORTED completion -- those fire inside
- * the flush/teardown drain loops.
  */
 typedef void (*pd_event_completion_callback_t)(void *arg,
 					       struct osdp_event *ev,
