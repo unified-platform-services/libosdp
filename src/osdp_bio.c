@@ -81,6 +81,13 @@ bool osdp_bio_is_active(struct osdp_pd *pd)
 	return TO_BIO(pd) && TO_BIO(pd)->phase != OSDP_BIO_IDLE;
 }
 
+bool osdp_bio_owns_cmd(struct osdp_pd *pd, int cmd_id)
+{
+	/* CMD_BIOREAD is the only wire command whose reply this engine
+	 * reassembles; REPLY_BIOMATCHR is always single-part. */
+	return osdp_bio_is_active(pd) && cmd_id == CMD_BIOREAD;
+}
+
 void osdp_bio_abort(struct osdp_pd *pd)
 {
 	struct osdp_bio *b = TO_BIO(pd);

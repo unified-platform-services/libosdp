@@ -39,6 +39,9 @@ struct osdp_bio {
 };
 
 bool osdp_bio_is_active(struct osdp_pd *pd);
+/* True while a bio operation owns the app command that started it -- i.e. a
+ * multipart BIOREADR still being reassembled. Mirrors osdp_piv_owns_cmd(). */
+bool osdp_bio_owns_cmd(struct osdp_pd *pd, int cmd_id);
 void osdp_bio_abort(struct osdp_pd *pd);
 
 /* --- PD role --- */

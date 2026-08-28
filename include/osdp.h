@@ -618,6 +618,12 @@ enum osdp_biometric_status_e {
 /**
  * @brief Command sent from CP to instruct the PD to perform a biometric scan
  * and return the scan data in an `OSDP_EVENT_BIOREADR` event.
+ *
+ * @note When the reply is multi-part (see @ref OSDP_FLAG_BIOREADR_MULTIPART),
+ * this command completes once the template has been reassembled, not when its
+ * first fragment arrives -- unless another feature engine (a file transfer,
+ * say) is already running an operation on this PD, in which case the command
+ * completes when the first fragment is accepted, as it does without the flag.
  */
 struct osdp_cmd_bioread {
 	/**

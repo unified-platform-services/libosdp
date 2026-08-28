@@ -388,6 +388,175 @@ out:
 }
 
 /*
+ * A live CP/PD pair with multipart BIOREADR enabled on both roles. The
+ * white-box cases above drive no link, so the completion path -- which only
+ * exists inside a real transaction -- needs a pair of its own.
+ */
+#define BIO_MP_TEMPLATE_LEN OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN
+
+struct test_bio_mp_ctx {
+	osdp_t *cp_ctx;
+	osdp_t *pd_ctx;
+	int cp_runner;
+	int pd_runner;
+	atomic_int mp_done;
+	atomic_int reply_len;
+	struct test_completion comp;
+};
+
+static struct test_bio_mp_ctx g_bio_mp;
+
+/* Answer the scan inline, so the CP's own BIOREAD transaction carries
+ * fragment 0 -- the moment the command used to complete at. */
+static int bio_mp_pd_command_callback(void *arg, struct osdp_cmd *cmd)
+{
+	struct test_bio_mp_ctx *ctx = arg;
+	struct osdp_event ev;
+	int i;
+
+	if (cmd->id != OSDP_CMD_BIOREAD) {
+		return 0;
+	}
+	memset(&ev, 0, sizeof(ev));
+	ev.type = OSDP_EVENT_BIOREADR;
+	ev.bioreadr.reader = cmd->bioread.reader;
+	ev.bioreadr.status = OSDP_BIO_STATUS_SUCCESS;
+	ev.bioreadr.type = cmd->bioread.type;
+	ev.bioreadr.quality = 0x80;
+	ev.bioreadr.length = BIO_MP_TEMPLATE_LEN;
+	for (i = 0; i < BIO_MP_TEMPLATE_LEN; i++) {
+		ev.bioreadr.data[i] = (uint8_t)(0xC0 + i);
+	}
+	return test_submit_event(ctx->pd_ctx, &ev) ? 0 : -1;
+}
+
+static int bio_mp_cp_event_callback(void *arg, int pd, struct osdp_event *ev)
+{
+	struct test_bio_mp_ctx *ctx = arg;
+
+	ARG_UNUSED(pd);
+	if (ev->type == OSDP_EVENT_BIOREADR) {
+		ctx->reply_len = ev->bioreadr.length;
+	} else if (ev->type == OSDP_EVENT_NOTIFICATION &&
+		   ev->notif.type == OSDP_NOTIFICATION_MP_DONE) {
+		ctx->mp_done++;
+	}
+	return 0;
+}
+
+/*
+ * With multipart BIOREADR on, the command owns the whole reassembly: it must
+ * not complete when the first fragment lands, but once -- with OK -- after the
+ * template is whole.
+ */
+static bool test_bioread_multipart_completes_at_reassembly(void)
+{
+	struct osdp_cmd cmd = {
+		.id = OSDP_CMD_BIOREAD,
+		.bioread = {
+			.reader = 0,
+			.type = OSDP_BIO_TYPE_RIGHT_THUMB_PRINT,
+			.format = OSDP_BIO_FMT_ANSI_INCITS_378,
+			.quality = 0x80,
+		},
+	};
+
+	printf(SUB_2 "a multipart BIOREAD completes at reassembly\n");
+
+	test_completion_reset(&g_bio_mp.comp);
+	g_bio_mp.mp_done = 0;
+	g_bio_mp.reply_len = 0;
+
+	if (!test_submit_command(g_bio_mp.cp_ctx, 0, &cmd)) {
+		printf(SUB_2 "bio: submit rejected\n");
+		return false;
+	}
+	if (test_completion_count(&g_bio_mp.comp) != 0) {
+		printf(SUB_2 "bio: completed at submit\n");
+		return false;
+	}
+	if (!test_completion_wait(&g_bio_mp.comp, 1, 5)) {
+		printf(SUB_2 "bio: never completed\n");
+		return false;
+	}
+	if (g_bio_mp.mp_done != 1) {
+		printf(SUB_2 "bio: completed before reassembly finished "
+		       "(mp_done %d)\n", (int)g_bio_mp.mp_done);
+		return false;
+	}
+	if (g_bio_mp.reply_len != BIO_MP_TEMPLATE_LEN) {
+		printf(SUB_2 "bio: reassembled %d bytes, want %d\n",
+		       (int)g_bio_mp.reply_len, BIO_MP_TEMPLATE_LEN);
+		return false;
+	}
+	if (test_completion_count(&g_bio_mp.comp) != 1) {
+		printf(SUB_2 "bio: %d completions, want exactly 1\n",
+		       test_completion_count(&g_bio_mp.comp));
+		return false;
+	}
+	if (test_completion_id(&g_bio_mp.comp) != OSDP_CMD_BIOREAD) {
+		printf(SUB_2 "bio: completed id %d, want BIOREAD\n",
+		       test_completion_id(&g_bio_mp.comp));
+		return false;
+	}
+	if (test_completion_status(&g_bio_mp.comp) != OSDP_COMPLETION_OK) {
+		printf(SUB_2 "bio: status %d, want OK\n",
+		       test_completion_status(&g_bio_mp.comp));
+		return false;
+	}
+	return true;
+}
+
+static void run_bio_multipart_link_tests(struct test *t)
+{
+	memset(&g_bio_mp, 0, sizeof(g_bio_mp));
+	g_bio_mp.cp_runner = g_bio_mp.pd_runner = -1; /* 0 is a valid work id */
+	if (test_setup_devices_ext(t, &g_bio_mp.cp_ctx, &g_bio_mp.pd_ctx,
+				   OSDP_FLAG_BIOREADR_MULTIPART |
+					   OSDP_FLAG_ENABLE_NOTIFICATION,
+				   OSDP_FLAG_BIOREADR_MULTIPART)) {
+		printf(SUB_1 "multipart device setup failed!\n");
+		TEST_REPORT(t, false);
+		return;
+	}
+	osdp_cp_set_event_callback(g_bio_mp.cp_ctx, bio_mp_cp_event_callback,
+				   &g_bio_mp);
+	osdp_pd_set_command_callback(g_bio_mp.pd_ctx,
+				     bio_mp_pd_command_callback, &g_bio_mp);
+	osdp_cp_set_command_completion_callback(g_bio_mp.cp_ctx,
+						test_cmd_completion_cb,
+						&g_bio_mp.comp);
+
+	g_bio_mp.cp_runner = async_runner_start(g_bio_mp.cp_ctx,
+						osdp_cp_refresh);
+	g_bio_mp.pd_runner = async_runner_start(g_bio_mp.pd_ctx,
+						osdp_pd_refresh);
+	if (g_bio_mp.cp_runner < 0 || g_bio_mp.pd_runner < 0) {
+		printf(SUB_1 "Failed to create CP/PD runners\n");
+		TEST_REPORT(t, false);
+		goto teardown;
+	}
+	if (!test_wait_for_online(g_bio_mp.cp_ctx, 0, 10)) {
+		printf(SUB_1 "PD failed to come online\n");
+		TEST_REPORT(t, false);
+		goto teardown;
+	}
+
+	TEST_CASE(t, "bioread_multipart_completes_at_reassembly",
+		  test_bioread_multipart_completes_at_reassembly());
+
+teardown:
+	if (g_bio_mp.cp_runner >= 0) {
+		async_runner_stop(g_bio_mp.cp_runner);
+	}
+	if (g_bio_mp.pd_runner >= 0) {
+		async_runner_stop(g_bio_mp.pd_runner);
+	}
+	osdp_cp_teardown(g_bio_mp.cp_ctx);
+	osdp_pd_teardown(g_bio_mp.pd_ctx);
+}
+
+/*
  * Losing CP activity mid multi-part BIOREADR reply must tear the bio op down
  * exactly like CMD_ABORT does: the op goes inactive and the app receives
  * MP_DONE(ABORTED). Drives the real osdp_pd_refresh() offline path by
@@ -478,4 +647,7 @@ void run_bio_tests(struct test *t)
 
 	osdp_cp_teardown(cp);
 	osdp_pd_teardown(pd_ctx);
+
+	/* Needs a live link, so it runs on a pair of its own. */
+	run_bio_multipart_link_tests(t);
 }

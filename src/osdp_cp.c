@@ -2205,9 +2205,36 @@ static void state_update(struct osdp_pd *pd)
 		__fallthrough;
 	case OSDP_CP_PHY_STATE_DONE:
 		status = state_check_reply(pd);
-		cp_complete_cmd(pd, pd->active_cmd,
-				status ? OSDP_COMPLETION_OK :
-					 OSDP_COMPLETION_FAILED);
+		if (status && pd->active_cmd && !pd->engine_cmd &&
+		    osdp_bio_owns_cmd(pd, pd->cmd_id)) {
+			/*
+			 * A multipart BIOREADR is still reassembling across
+			 * polls. Hand the command to the engine, which
+			 * completes it at MP_DONE, and free the phy layer for
+			 * the polls that pull the remaining fragments. A
+			 * failed reply needs none of this: there is no
+			 * reassembly left to wait for.
+			 *
+			 * The slot is taken only when it is free. Unlike file
+			 * and PIV, nothing stops a BIOREAD from being queued
+			 * mid file transfer, and displacing that transfer's
+			 * command would strand it; such a reply settles here,
+			 * as it did before.
+			 */
+			cp_own_engine_cmd(pd, pd->active_cmd,
+					  OSDP_MP_MSG_BIOREAD);
+		} else {
+			if (status && pd->active_cmd && pd->engine_cmd &&
+			    osdp_bio_owns_cmd(pd, pd->cmd_id)) {
+				/* The only notice an app gets that the
+				 * reassembly guarantee lapsed for this one. */
+				LOG_WRN("BIOREAD completes at first fragment; "
+					"another engine holds this PD");
+			}
+			cp_complete_cmd(pd, pd->active_cmd,
+					status ? OSDP_COMPLETION_OK :
+						 OSDP_COMPLETION_FAILED);
+		}
 		pd->active_cmd = NULL;
 		if (!status) {
 			err = cp_cmd_failure_is_soft(pd) ? OSDP_CP_ERR_NONE :
