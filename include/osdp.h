@@ -1919,13 +1919,6 @@ enum osdp_completion_status {
 	OSDP_COMPLETION_FAILED, /**< Transport/protocol failure */
 	OSDP_COMPLETION_FLUSHED, /**< Removed by flush API */
 	OSDP_COMPLETION_ABORTED, /**< Removed during teardown */
-	/**
-	 * @deprecated No longer produced. Engine-owned commands (file
-	 * transfer, PIV) now complete when their operation ends, with
-	 * @c OSDP_COMPLETION_OK or @c OSDP_COMPLETION_FAILED. Kept only so
-	 * existing switch statements still compile.
-	 */
-	OSDP_COMPLETION_ACCEPTED,
 };
 
 /**

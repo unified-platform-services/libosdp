@@ -61,7 +61,6 @@ static const char *completion_status_name(enum osdp_completion_status status)
 	case OSDP_COMPLETION_FAILED:   return "FAILED";
 	case OSDP_COMPLETION_FLUSHED:  return "FLUSHED";
 	case OSDP_COMPLETION_ABORTED:  return "ABORTED";
-	case OSDP_COMPLETION_ACCEPTED: return "ACCEPTED";
 	default:                       return "?";
 	}
 }

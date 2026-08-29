@@ -327,10 +327,6 @@ class CompletionStatus(IntEnum):
     Aborted = _sys.COMPLETION_ABORTED
     """The context was torn down while it was still queued."""
 
-    Accepted = _sys.COMPLETION_ACCEPTED
-    """Deprecated; no longer produced. Engine-owned commands (file transfer,
-    PIV) now settle as Ok or Failed when their operation ends."""
-
 
 class BioType(_WireEnum):
     """Which biometric a reader should capture or match.
