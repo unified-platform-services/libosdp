@@ -2442,20 +2442,8 @@ static int cp_submit_command(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		ret = osdp_file_tx_command(pd, cmd->file_tx.id,
 					   cmd->file_tx.flags);
 		if (ret == 0) {
-			if (cmd->file_tx.flags & OSDP_CMD_FILE_TX_FLAG_CANCEL) {
-				/* A control message against a transfer already
-				 * running, not an operation of its own: the
-				 * command that started that transfer keeps the
-				 * slot and reports its outcome, so this one
-				 * settles here. */
-				cp_complete_engine_cmd(pd, cmd,
-						       OSDP_COMPLETION_OK);
-			} else {
-				/* The engine owns it now; it completes at
-				 * MP_DONE. */
-				cp_own_engine_cmd(pd, cmd,
-						  OSDP_MP_MSG_FILE_TRANSFER);
-			}
+			/* The engine owns it now; it completes at MP_DONE. */
+			cp_own_engine_cmd(pd, cmd, OSDP_MP_MSG_FILE_TRANSFER);
 		}
 		return ret;
 	} else if (cmd->id == OSDP_CMD_PIVDATA ||
@@ -2877,6 +2865,33 @@ static int cp_drain_queue(struct osdp_pd *pd,
 		count++;
 	}
 	return count;
+}
+
+int osdp_cp_cancel(osdp_t *ctx, int pd_idx, enum osdp_mp_msg_type what)
+{
+	input_check(ctx, pd_idx);
+	input_check_not_tearing_down(ctx);
+	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+
+	/*
+	 * Dispatch on what the app names, not on which engine happens to hold
+	 * the completion slot: an operation that never took the slot is still
+	 * on the wire and still cancellable. Each engine answers -1 when it is
+	 * not running the named op.
+	 */
+	switch (what) {
+	case OSDP_MP_MSG_FILE_TRANSFER:
+		return osdp_file_tx_request_cancel(pd);
+	case OSDP_MP_MSG_PIV:
+	case OSDP_MP_MSG_GENAUTH:
+	case OSDP_MP_MSG_CRAUTH:
+		return osdp_piv_request_cancel(pd, (int)what);
+	case OSDP_MP_MSG_BIOREAD:
+		return osdp_bio_request_cancel(pd);
+	default:
+		LOG_ERR("Cancel: unknown multi-part type %d", (int)what);
+		return -1;
+	}
 }
 
 int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)

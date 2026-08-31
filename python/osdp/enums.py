@@ -25,7 +25,7 @@ __all__ = [
     "CommandId",
     "CompletionStatus",
     "EventId",
-    "FileTxFlag",
+    "MpMsgType",
     "MpOutcome",
     "LEDColor",
     "LibFlag",
@@ -285,11 +285,18 @@ class NotificationType(IntEnum):
     model, version, serial_number, firmware_version)."""
 
 
-class FileTxFlag(IntFlag):
-    """Flags for a `FileTransfer` command. @see osdp_cmd_file_tx"""
+class MpMsgType(_WireEnum):
+    """Which multi-part operation a notification or cancel refers to.
 
-    Cancel = _sys.CMD_FILE_TX_FLAG_CANCEL
-    """Abort an in-progress transfer instead of starting one."""
+    Reported as ``MultipartNotification.mp_type`` and passed back to
+    `ControlPanel.cancel()`. @see osdp_mp_msg_type
+    """
+
+    FileTransfer = _sys.MP_MSG_FILE_TRANSFER
+    PivData = _sys.MP_MSG_PIV
+    GenAuth = _sys.MP_MSG_GENAUTH
+    CrAuth = _sys.MP_MSG_CRAUTH
+    BioRead = _sys.MP_MSG_BIOREAD
 
 
 class MpOutcome(_WireEnum):

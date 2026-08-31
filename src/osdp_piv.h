@@ -44,6 +44,8 @@ bool osdp_piv_is_active(struct osdp_pd *pd);
 /* True when the active PIV op's wire command is `cmd_id`. */
 bool osdp_piv_owns_cmd(struct osdp_pd *pd, int cmd_id);
 void osdp_piv_abort(struct osdp_pd *pd);
+/* Ask the running op to stop. -1 unless an op of `mp_msg` is in progress. */
+int osdp_piv_request_cancel(struct osdp_pd *pd, int mp_msg);
 
 /* --- CP role --- */
 int osdp_piv_cp_submit(struct osdp_pd *pd, const struct osdp_cmd *cmd);

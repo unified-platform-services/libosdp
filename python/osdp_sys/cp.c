@@ -294,6 +294,27 @@ static PyObject *pyosdp_cp_submit_command(pyosdp_cp_t *self, PyObject *args)
 	Py_RETURN_FALSE;
 }
 
+#define pyosdp_cp_cancel_doc                                                   \
+	"cancel(pd, what) -> bool\n"                                           \
+	"\n"                                                                   \
+	"Ask a running multi-part operation to stop; False if none is."
+static PyObject *pyosdp_cp_cancel(pyosdp_cp_t *self, PyObject *args)
+{
+	int pd, what;
+
+	if (!PyArg_ParseTuple(args, "II", &pd, &what)) {
+		PyErr_SetString(PyExc_ValueError, "Invalid arguments");
+		return NULL;
+	}
+	if (pd < 0 || pd >= self->num_pd) {
+		PyErr_SetString(PyExc_ValueError, "Invalid PD offset");
+		return NULL;
+	}
+
+	return PyBool_FromLong(
+		osdp_cp_cancel(self->ctx, pd, (enum osdp_mp_msg_type)what) == 0);
+}
+
 #define pyosdp_cp_flush_commands_doc                                           \
 	"flush_commands(pd) -> int\n"                                          \
 	"\n"                                                                   \
@@ -616,6 +637,8 @@ static PyMethodDef pyosdp_cp_tp_methods[] = {
 	  METH_VARARGS, pyosdp_cp_submit_command_doc },
 	{ "flush_commands", (PyCFunction)pyosdp_cp_flush_commands,
 	  METH_VARARGS, pyosdp_cp_flush_commands_doc },
+	{ "cancel", (PyCFunction)pyosdp_cp_cancel,
+	  METH_VARARGS, pyosdp_cp_cancel_doc },
 	{ "status", (PyCFunction)pyosdp_cp_pd_status,
 	  METH_NOARGS, pyosdp_cp_pd_status_doc },
 	{ "sc_status", (PyCFunction)pyosdp_cp_sc_status,

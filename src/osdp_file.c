@@ -55,7 +55,6 @@ static inline void file_state_reset(struct osdp_pd *pd)
 	f->keep_alive_pending = false;
 	f->finalize_tstamp = 0;
 	f->file_id = 0;
-	f->cancel_req = false;
 	f->in_terminal = false;
 	osdp_mp_reset(&f->mp);
 	osdp_mp_bind_ops(&f->mp, &ops);
@@ -484,6 +483,22 @@ serialize:
 
 /* --- State Management --- */
 
+int osdp_file_tx_request_cancel(struct osdp_pd *pd)
+{
+	struct osdp_file *f = TO_FILE(pd);
+
+	if (!osdp_file_tx_is_active(pd)) {
+		return -1;
+	}
+	/*
+	 * Cooperative, not immediate: the transfer ends on the next refresh
+	 * tick, which is also where CMD_ABORT goes out to the PD. Tearing it
+	 * down here would skip that and leave the PD waiting.
+	 */
+	osdp_mp_request_cancel(&f->mp);
+	return 0;
+}
+
 void osdp_file_tx_abort(struct osdp_pd *pd)
 {
 	if (osdp_file_tx_is_active(pd)) {
@@ -511,7 +526,8 @@ int osdp_file_tx_get_command(struct osdp_pd *pd)
 	 * refresh context, before any fragment (PROGRESS) or terminal (DONE). */
 	osdp_mp_emit_start(&f->mp);
 
-	if (f->errors > OSDP_FILE_ERROR_RETRY_MAX || f->cancel_req) {
+	if (f->errors > OSDP_FILE_ERROR_RETRY_MAX ||
+	    osdp_mp_cancel_requested(&f->mp)) {
 		LOG_ERR("Aborting transfer of file fd:%d", f->file_id);
 		file_transition_done(pd, OSDP_MP_OUTCOME_ABORTED);
 		return CMD_ABORT;
@@ -549,20 +565,7 @@ int osdp_file_tx_command(struct osdp_pd *pd, int file_id, uint32_t flags)
 	}
 
 	if (osdp_file_tx_is_active(pd)) {
-		if (flags & OSDP_CMD_FILE_TX_FLAG_CANCEL) {
-			if (file_id == f->file_id) {
-				f->cancel_req = true;
-				return 0;
-			}
-			LOG_ERR("TX_init: invalid cancel request; no such tx!");
-			return -1;
-		}
 		LOG_ERR("TX_init: A file tx is already in progress");
-		return -1;
-	}
-
-	if (flags & OSDP_CMD_FILE_TX_FLAG_CANCEL) {
-		LOG_ERR("TX_init: invalid cancel request");
 		return -1;
 	}
 

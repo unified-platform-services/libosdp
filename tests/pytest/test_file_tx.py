@@ -185,8 +185,9 @@ def test_file_tx_abort(utils):
     # Allow some number of transfers to go through
     time.sleep(0.5)
 
-    file_tx_abort = commands.FileTransfer(id=FILE_ID, flags=FileTxFlag.Cancel)
-    assert cp.submit_command(101, file_tx_abort)
+    # Nothing else is running, so a mistargeted cancel must be refused.
+    assert not cp.cancel(101, MpMsgType.BioRead)
+    assert cp.cancel(101, MpMsgType.FileTransfer)
 
     # Wait for the abort completion notification
     wait_for_file_tx_done(101, MpOutcome.Aborted)

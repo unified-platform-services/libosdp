@@ -43,6 +43,8 @@ bool osdp_bio_is_active(struct osdp_pd *pd);
  * multipart BIOREADR still being reassembled. Mirrors osdp_piv_owns_cmd(). */
 bool osdp_bio_owns_cmd(struct osdp_pd *pd, int cmd_id);
 void osdp_bio_abort(struct osdp_pd *pd);
+/* Ask the running reassembly to stop; -1 if none is running. */
+int osdp_bio_request_cancel(struct osdp_pd *pd);
 
 /* --- PD role --- */
 bool osdp_bio_pd_reply_pending(struct osdp_pd *pd);

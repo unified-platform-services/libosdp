@@ -19,6 +19,7 @@ from .enums import (
     CompletionStatus,
     LibFlag,
     LogLevel,
+    MpMsgType,
     NotificationType,
 )
 from .events import Event, Notification
@@ -203,6 +204,19 @@ class ControlPanel:
         pd = self.pd_addr.index(address)
         with self.lock:
             return self.ctx.flush_commands(pd)
+
+    def cancel(self, address: int, what: MpMsgType) -> bool:
+        """Ask a running multi-part operation on a PD to stop early.
+
+        `what` is the value the operation reported as ``mp_type`` when it
+        started. Returns False if no such operation is running.
+
+        The request is cooperative: the operation winds down on a later
+        refresh, and the command that started it then completes as Failed.
+        """
+        pd = self.pd_addr.index(address)
+        with self.lock:
+            return self.ctx.cancel(pd, int(what))
 
     def get_event(self, address: int, timeout: float = 5) -> Event | None:
         """Pop the next event from a PD, or None if none arrives in time.

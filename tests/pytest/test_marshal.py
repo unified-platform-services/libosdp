@@ -29,7 +29,6 @@ from osdp.enums import (
     CardFormat,
     CommandId,
     EventId,
-    FileTxFlag,
     LEDColor,
     NotificationType,
     OutputControlCode,
@@ -104,7 +103,6 @@ ALL_COMMANDS = [
         data=b"template-bytes",
     ),
     commands.FileTransfer(id=1),
-    commands.FileTransfer(id=1, flags=FileTxFlag.Cancel),
     commands.Status(type=StatusReportType.Input),
     commands.Status(type=StatusReportType.Input, report=bytes([0, 1, 0, 1])),
     commands.Notification(

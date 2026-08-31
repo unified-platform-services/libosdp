@@ -315,6 +315,68 @@ static int bio_stub_fclose(void *arg)
  * multipart family that owns pd->engine_cmd, and the file command must still
  * be outstanding afterwards and later report its own outcome.
  */
+/*
+ * A cancel ends a reassembly at the engine's next tick, and says so on the
+ * wire with CMD_ABORT. Driven fragment-by-fragment rather than over a live
+ * link: on a real pair this template reassembles in a couple of polls, so
+ * there is no reliable window to cancel in.
+ */
+static bool test_bio_cancel_ends_reassembly(struct osdp_pd *pd_tx,
+					    struct osdp_pd *pd_rx)
+{
+	struct osdp_event ev, out;
+	uint8_t frag[OSDP_EVENT_BIOREADR_MAX_TEMPLATE_LEN + 32];
+	int n;
+
+	printf(SUB_2 "a cancel ends a bio reassembly\n");
+
+	/* Nothing running yet: the request must be refused. */
+	if (osdp_bio_request_cancel(pd_rx) == 0) {
+		printf(SUB_2 "cancel accepted while idle\n");
+		return false;
+	}
+
+	memset(&ev, 0, sizeof(ev));
+	ev.type = OSDP_EVENT_BIOREADR;
+	ev.bioreadr.reader = 3;
+	ev.bioreadr.status = OSDP_BIO_STATUS_SUCCESS;
+	ev.bioreadr.type = OSDP_BIO_TYPE_RIGHT_THUMB_PRINT;
+	ev.bioreadr.quality = 200;
+	ev.bioreadr.length = 200;
+	memset(&out, 0, sizeof(out));
+
+	/* Fragment 0 only: enough to arm the CP engine, short of completing. */
+	n = osdp_bio_pd_reply_build(pd_tx, &ev, frag, 64);
+	if (n < 0 || osdp_bio_cp_reply_consume(pd_rx, frag, n, &out) != 0) {
+		printf(SUB_2 "failed to arm the CP reassembly\n");
+		return false;
+	}
+	if (!osdp_bio_is_active(pd_rx)) {
+		printf(SUB_2 "engine not active after fragment 0\n");
+		return false;
+	}
+
+	if (osdp_bio_request_cancel(pd_rx)) {
+		printf(SUB_2 "cancel refused a running reassembly\n");
+		return false;
+	}
+	/* Still running: the request is cooperative, not immediate. */
+	if (!osdp_bio_is_active(pd_rx)) {
+		printf(SUB_2 "cancel tore the op down synchronously\n");
+		return false;
+	}
+	if (osdp_bio_cp_get_command(pd_rx) != CMD_ABORT) {
+		printf(SUB_2 "cancelled op did not yield CMD_ABORT\n");
+		return false;
+	}
+	if (osdp_bio_is_active(pd_rx)) {
+		printf(SUB_2 "engine still active after the abort tick\n");
+		return false;
+	}
+	osdp_bio_abort(pd_tx); /* leave the sender idle for later cases */
+	return true;
+}
+
 static bool test_bio_done_does_not_steal_file_cmd(osdp_t *cp_ctx,
 						  struct osdp_pd *pd,
 						  struct osdp_pd *cp_pd)
@@ -642,6 +704,8 @@ void run_bio_tests(struct test *t)
 			  "single-packet BIOREADR stays single-part"));
 	TEST_CASE(t, "bio_done_does_not_steal_file_cmd",
 		  test_bio_done_does_not_steal_file_cmd(cp, pd, cp_pd));
+	TEST_CASE(t, "bio_cancel_ends_reassembly",
+		  test_bio_cancel_ends_reassembly(pd, cp_pd));
 	TEST_CASE(t, "bio_abort_on_pd_offline",
 		  test_bio_abort_on_pd_offline(pd, pd_ctx));
 

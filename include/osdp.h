@@ -1059,12 +1059,6 @@ struct osdp_cmd_mfg {
 };
 
 /**
- * @brief A CP only flag that can be used by the application to cancel an
- * in-flight file transfer.
- */
-#define OSDP_CMD_FILE_TX_FLAG_CANCEL (1UL << 31)
-
-/**
  * @brief File transfer start command
  */
 struct osdp_cmd_file_tx {
@@ -1076,9 +1070,8 @@ struct osdp_cmd_file_tx {
 	 * Reserved and set to zero by OSDP spec.
 	 *
 	 * @note: The upper bits are used by libosdp internally (IOW, not sent
-	 * over the OSDP bus). Currently the following flags are defined:
-	 *
-	 * - @ref OSDP_CMD_FILE_TX_FLAG_CANCEL
+	 * over the OSDP bus). No application-settable flags are defined; to
+	 * stop a running transfer, call osdp_cp_cancel().
 	 */
 	uint32_t flags;
 };
@@ -1925,10 +1918,7 @@ enum osdp_completion_status {
  * @brief Callback for CP command completion notifications.
  *
  * Invoked on the caller's thread from within osdp_cp_refresh(),
- * osdp_cp_flush_commands() and osdp_cp_teardown(), and -- for an
- * OSDP_CMD_FILE_TX carrying @ref OSDP_CMD_FILE_TX_FLAG_CANCEL, which acts on
- * a transfer already running rather than starting one -- from within
- * osdp_cp_submit_command() itself, before it returns. It must not block.
+ * osdp_cp_flush_commands() and osdp_cp_teardown(). It must not block.
  */
 typedef void (*cp_command_completion_callback_t)(void *arg, int pd,
 						 struct osdp_cmd *cmd,
@@ -2164,11 +2154,7 @@ void osdp_cp_teardown(osdp_t *ctx);
  * across many exchanges. The completion callback fires when the operation
  * ends, not when it is accepted, so @a cmd must stay alive for the whole
  * operation. Progress is reported meanwhile by the OSDP_NOTIFICATION_MP_*
- * notifications. The one exception is an OSDP_CMD_FILE_TX carrying
- * @ref OSDP_CMD_FILE_TX_FLAG_CANCEL: it acts on a transfer already running
- * rather than starting one of its own, so it completes as soon as the request
- * is recorded; the transfer it cancels completes separately, on the command
- * that started it.
+ * notifications, and osdp_cp_cancel() asks such an operation to stop early.
  *
  * @note Submission fails unless a completion callback is registered (see
  * osdp_cp_set_command_completion_callback()) -- the completion callback is
@@ -2183,6 +2169,33 @@ void osdp_cp_teardown(osdp_t *ctx);
  */
 OSDP_EXPORT
 int osdp_cp_submit_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
+
+/**
+ * @brief Ask a running multi-part operation to stop early.
+ *
+ * Multi-part operations (file transfer, PIV data retrieval, general and
+ * challenge/response authenticate, and a multi-part biometric read) run across
+ * many exchanges after osdp_cp_submit_command() accepts them. This asks the
+ * one named by @a what to terminate at the next opportunity.
+ *
+ * The request is cooperative, not immediate: the operation ends on a
+ * subsequent osdp_cp_refresh(), which is also when the PD is told to stop. The
+ * command that started it then completes exactly as any other failed operation
+ * does -- @c OSDP_COMPLETION_FAILED, with @c OSDP_MP_OUTCOME_ABORTED on the
+ * accompanying @c OSDP_NOTIFICATION_MP_DONE -- so a cancel adds no completion
+ * of its own.
+ *
+ * @param ctx OSDP context
+ * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
+ * osdp_cp_setup()
+ * @param what Which multi-part operation to cancel. This is the same value
+ * reported as @c osdp_mp_notification::mp_type when the operation started.
+ *
+ * @retval 0 the request was recorded
+ * @retval -1 no operation of that type is in progress on this PD
+ */
+OSDP_EXPORT
+int osdp_cp_cancel(osdp_t *ctx, int pd, enum osdp_mp_msg_type what);
 
 /**
  * @brief Deletes all commands queued for a give PD

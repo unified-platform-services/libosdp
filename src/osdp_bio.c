@@ -88,6 +88,18 @@ bool osdp_bio_owns_cmd(struct osdp_pd *pd, int cmd_id)
 	return osdp_bio_is_active(pd) && cmd_id == CMD_BIOREAD;
 }
 
+int osdp_bio_request_cancel(struct osdp_pd *pd)
+{
+	struct osdp_bio *b = TO_BIO(pd);
+
+	if (!osdp_bio_is_active(pd)) {
+		return -1;
+	}
+	/* Consumed by osdp_bio_cp_get_command(), which also sends CMD_ABORT. */
+	osdp_mp_request_cancel(&b->mp);
+	return 0;
+}
+
 void osdp_bio_abort(struct osdp_pd *pd)
 {
 	struct osdp_bio *b = TO_BIO(pd);
@@ -207,8 +219,11 @@ int osdp_bio_cp_get_command(struct osdp_pd *pd)
 	if (!b || b->phase == OSDP_BIO_IDLE) {
 		return 0;
 	}
-	if (osdp_millis_since(b->tstamp) > OSDP_BIO_OP_TIMEOUT_MS) {
-		LOG_ERR("BIO: operation timed out; aborting");
+	if (osdp_mp_cancel_requested(&b->mp) ||
+	    osdp_millis_since(b->tstamp) > OSDP_BIO_OP_TIMEOUT_MS) {
+		LOG_ERR("BIO: operation %s; aborting",
+			osdp_mp_cancel_requested(&b->mp) ? "cancelled" :
+							   "timed out");
 		osdp_bio_abort(pd);
 		return CMD_ABORT;
 	}

@@ -26,7 +26,6 @@ from .enums import (
     CardFormat,
     CommandId,
     EventId,
-    FileTxFlag,
     LEDColor,
     NotificationType,
     OutputControlCode,
@@ -326,7 +325,7 @@ _COMMAND_DECODERS: dict[CommandId, Callable[[Payload], c.Command]] = {
         data=p["data"],
     ),
     CommandId.FileTransfer: lambda p: c.FileTransfer(
-        id=p["id"], flags=FileTxFlag(p["flags"])
+        id=p["id"], flags=p["flags"]
     ),
     CommandId.Status: lambda p: c.Status(
         type=StatusReportType(p["type"]), report=p["report"]

@@ -158,6 +158,18 @@ bool osdp_piv_owns_cmd(struct osdp_pd *pd, int cmd_id)
 	return osdp_piv_is_active(pd) && TO_PIV(pd)->wire_cmd == cmd_id;
 }
 
+int osdp_piv_request_cancel(struct osdp_pd *pd, int mp_msg)
+{
+	struct osdp_piv *p = TO_PIV(pd);
+
+	if (!p || p->phase == OSDP_PIV_IDLE || p->mp_msg != mp_msg) {
+		return -1;
+	}
+	/* Consumed by osdp_piv_cp_get_command(), which also sends CMD_ABORT. */
+	osdp_mp_request_cancel(&p->mp);
+	return 0;
+}
+
 void osdp_piv_abort(struct osdp_pd *pd)
 {
 	struct osdp_piv *p = TO_PIV(pd);
@@ -225,8 +237,11 @@ int osdp_piv_cp_get_command(struct osdp_pd *pd)
 	if (!p || p->phase == OSDP_PIV_IDLE) {
 		return 0;
 	}
-	if (osdp_millis_since(p->tstamp) > OSDP_PIV_OP_TIMEOUT_MS) {
-		LOG_ERR("PIV: operation timed out; aborting");
+	if (osdp_mp_cancel_requested(&p->mp) ||
+	    osdp_millis_since(p->tstamp) > OSDP_PIV_OP_TIMEOUT_MS) {
+		LOG_ERR("PIV: operation %s; aborting",
+			osdp_mp_cancel_requested(&p->mp) ? "cancelled" :
+							   "timed out");
 		osdp_piv_abort(pd);
 		return CMD_ABORT;
 	}

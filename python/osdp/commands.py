@@ -39,7 +39,6 @@ from .enums import (
     BioType,
     BuzzerControlCode,
     CommandId,
-    FileTxFlag,
     LEDColor,
     NotificationType,
     OutputControlCode,
@@ -594,11 +593,13 @@ class FileTransfer:
 
     @see osdp_cmd_file_tx
 
+    To stop a transfer that is already running, call
+    `ControlPanel.cancel()` rather than submitting another command.
+
     Example:
         >>> cmd = FileTransfer(id=1)
-        >>> cancel = FileTransfer(id=1, flags=FileTxFlag.Cancel)
-        >>> bool(cancel.flags & FileTxFlag.Cancel)
-        True
+        >>> cmd.id
+        1
     """
 
     ID: ClassVar[CommandId] = CommandId.FileTransfer
@@ -606,8 +607,8 @@ class FileTransfer:
     id: int = 0
     """The file id, agreed out of band between the CP and the PD."""
 
-    flags: FileTxFlag = FileTxFlag(0)
-    """Set Cancel to abort a transfer that is already running."""
+    flags: int = 0
+    """Reserved by the OSDP spec; set to zero."""
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

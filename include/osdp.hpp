@@ -117,6 +117,11 @@ public:
 		return osdp_cp_submit_command(_ctx, pd, cmd);
 	}
 
+	int cancel(int pd, enum osdp_mp_msg_type what)
+	{
+		return osdp_cp_cancel(_ctx, pd, what);
+	}
+
 	int flush_commands(int pd)
 	{
 		return osdp_cp_flush_commands(_ctx, pd);
