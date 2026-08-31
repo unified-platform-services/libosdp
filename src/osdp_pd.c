@@ -2089,6 +2089,7 @@ void osdp_pd_teardown(osdp_t *ctx)
 void osdp_pd_refresh(osdp_t *ctx)
 {
 	input_check(ctx);
+	input_check_not_tearing_down_noret(ctx);
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 
 	osdp_pd_update(pd);

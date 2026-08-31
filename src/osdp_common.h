@@ -252,6 +252,16 @@ static inline __noreturn void die()
 		}                                                              \
 	} while (0)
 
+/* Same guard for the void-returning entry points; refresh is one of them. */
+#define input_check_not_tearing_down_noret(_ctx)                               \
+	do {                                                                   \
+		struct osdp *__ctx = (struct osdp *)_ctx;                      \
+		if (__ctx->tearing_down) {                                     \
+			LOG_PRINT("API called during teardown");               \
+			return;                                                \
+		}                                                              \
+	} while (0)
+
 /**
  * @brief OSDP reserved commands
  */

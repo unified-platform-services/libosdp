@@ -2784,6 +2784,7 @@ void osdp_cp_teardown(osdp_t *ctx)
 void osdp_cp_refresh(osdp_t *ctx)
 {
 	input_check(ctx);
+	input_check_not_tearing_down_noret(ctx);
 	int next_pd_idx, refresh_count = 0;
 	struct osdp_pd *pd;
 	struct osdp *cp_ctx = TO_OSDP(ctx);

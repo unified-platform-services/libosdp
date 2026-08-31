@@ -231,6 +231,12 @@ static void reenter_on_abort_cb(void *arg, int pd, struct osdp_cmd *cmd,
 
 		atomic_store(&c->resubmit_rc,
 			     osdp_cp_submit_command(c->cp, 0, &next));
+		/*
+		 * Refresh returns void, so it cannot report the refusal --
+		 * exercise it anyway: unguarded it would drive the state
+		 * machine over a context teardown is dismantling.
+		 */
+		osdp_cp_refresh(c->cp);
 	}
 	test_cmd_free(cmd);
 }
