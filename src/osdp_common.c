@@ -553,10 +553,9 @@ void osdp_mp_pd_notify(void *arg, enum osdp_mp_phase phase,
 
 		/* Clear before completing: a PIV resubmit from the callback is
 		 * refused (the op is still non-IDLE at emit time) and one from
-		 * a queued command lands after this returns. FIXME: the file
-		 * engine is at OSDP_MP_DONE here, so it accepts a resubmit that
-		 * file_state_reset() then wipes -- a pre-existing hazard, not
-		 * one this hook introduces. */
+		 * a queued command lands after this returns. The file engine is
+		 * already at OSDP_MP_DONE here, so it refuses a resubmit on its
+		 * in_terminal latch instead. */
 		pd->engine_cmd = NULL;
 		cp_complete_engine_cmd(pd, cmd, engine_status(pd, p->outcome));
 	}

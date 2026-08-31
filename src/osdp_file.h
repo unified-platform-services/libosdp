@@ -42,6 +42,14 @@ struct osdp_file {
 	tick_t finalize_tstamp; /* PD: when finalize first said "not yet" */
 	int errors;
 	bool cancel_req;
+	/*
+	 * Set while file_transition_done() runs, which includes the completion
+	 * callback it fires. The engine is already at OSDP_MP_DONE by then, so
+	 * the "a transfer is active" guard no longer holds and a transfer
+	 * started from that callback would be wiped by the file_state_reset()
+	 * still to come. This latch refuses it instead.
+	 */
+	bool in_terminal;
 	struct osdp_file_ops ops;
 };
 

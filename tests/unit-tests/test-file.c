@@ -25,6 +25,14 @@ struct test_data {
 	int read_busy_mod;     /* if >0, every Nth read returns 0 */
 	bool read_always_busy; /* if true, every read returns 0 */
 	int empty_read_count;  /* observed 0-length reads */
+	/*
+	 * Tolerate an open() that arrives with the previous transfer's
+	 * descriptor still around. Only the restart-from-completion case needs
+	 * it: the engine closes the file after the completion callback, so a
+	 * transfer started from inside that callback would otherwise be
+	 * refused by the fops rather than by the engine under test.
+	 */
+	bool allow_reopen;
 };
 
 struct test_data sender_data;
@@ -34,10 +42,15 @@ static int test_fops_open(void *arg, int file_id, uint32_t *size)
 {
 	struct test_data *t = arg;
 
-	if (file_id != 1 || t->fd != 0) {
+	if (file_id != 1 || (t->fd != 0 && !t->allow_reopen)) {
 		printf("%s_open: fd:%d send_fd:%d\n",
 			t->is_cp ? "sender" : "receiver", file_id, t->fd);
 		return -1;
+	}
+
+	if (t->fd != 0) {
+		close(t->fd);
+		t->fd = 0;
 	}
 
 	t->file_id = file_id;
@@ -220,6 +233,33 @@ static int cmd_callback(void *arg, struct osdp_cmd *cmd)
 	return 0;
 }
 
+/* Restart-from-completion probe: state for restart_completion_cb(). */
+static osdp_t *g_restart_cp;
+static atomic_int g_restart_rc;
+static atomic_bool g_restart_armed;
+
+/*
+ * Starts a fresh FILE_TX from inside the FILE_TX completion. The engine is
+ * mid-teardown there, so libosdp must refuse it -- accepting it would set up a
+ * transfer that the completion's own file_state_reset() then wipes, silently
+ * stranding the command.
+ */
+static void restart_completion_cb(void *arg, int pd, struct osdp_cmd *cmd,
+				  enum osdp_completion_status status)
+{
+	if (cmd->id == OSDP_CMD_FILE_TX &&
+	    atomic_exchange(&g_restart_armed, false)) {
+		struct osdp_cmd again = {
+			.id = OSDP_CMD_FILE_TX,
+			.file_tx = { .id = 1, .flags = 0 },
+		};
+
+		atomic_store(&g_restart_rc,
+			     osdp_cp_submit_command(g_restart_cp, 0, &again));
+	}
+	test_cmd_completion_cb(arg, pd, cmd, status);
+}
+
 struct file_tx_opts {
 	const char *label;
 	bool line_noise;
@@ -230,6 +270,7 @@ struct file_tx_opts {
 	bool verify_content;      /* compare REC_FILE against SEND_FILE */
 	bool no_notifications;    /* set up without MP_* notifications */
 	bool cancel_mid_transfer; /* cancel once the transfer is under way */
+	bool restart_from_completion; /* re-submit FILE_TX from its completion */
 };
 
 static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts)
@@ -248,6 +289,7 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 	sender_data.is_cp = true;
 	sender_data.read_busy_mod = opts->read_busy_mod;
 	sender_data.read_always_busy = opts->read_always_busy;
+	sender_data.allow_reopen = opts->restart_from_completion;
 
 	struct osdp_file_ops sender_ops = {
 		.arg = (void *)&sender_data,
@@ -287,9 +329,18 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 	osdp_file_register_ops(cp_ctx, 0, &sender_ops);
 	osdp_file_register_ops(pd_ctx, 0, &receiver_ops);
 
-	osdp_cp_set_command_completion_callback(cp_ctx,
-						 test_cmd_completion_cb,
-						 &g_compl);
+	if (opts->restart_from_completion) {
+		g_restart_cp = cp_ctx;
+		atomic_store(&g_restart_rc, 0);
+		atomic_store(&g_restart_armed, true);
+		osdp_cp_set_command_completion_callback(cp_ctx,
+							 restart_completion_cb,
+							 &g_compl);
+	} else {
+		osdp_cp_set_command_completion_callback(cp_ctx,
+							 test_cmd_completion_cb,
+							 &g_compl);
+	}
 	test_completion_reset(&g_compl);
 
 	printf(SUB_1 "starting async runners\n");
@@ -452,6 +503,18 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 		goto error;
 	}
 
+	if (opts->restart_from_completion) {
+		if (atomic_load(&g_restart_armed)) {
+			printf(SUB_1 "restart probe never ran\n");
+			goto error;
+		}
+		if (atomic_load(&g_restart_rc) != -1) {
+			printf(SUB_1 "restart from completion returned %d "
+			       "(want -1)\n", atomic_load(&g_restart_rc));
+			goto error;
+		}
+	}
+
 	/* Poll API must report not-in-progress after completion. */
 	if (osdp_get_file_tx_status(cp_ctx, 0, &size, &offset) != -1) {
 		printf(SUB_1 "poll status did not reset after completion\n");
@@ -527,6 +590,14 @@ void run_file_tx_tests(struct test *t, bool line_noise)
 	};
 
 	TEST_CASE(t, "file_tx_baseline", run_one_file_tx_case(t, &opts));
+
+	/* Same transfer, but the app tries to start the next one from inside
+	 * the completion -- which the engine must refuse with -1. */
+	opts.label = "restart from completion";
+	opts.line_noise = false;
+	opts.restart_from_completion = true;
+	TEST_CASE(t, "file_tx_restart_from_completion",
+		  run_one_file_tx_case(t, &opts));
 }
 
 void run_file_tx_no_notification_tests(struct test *t)

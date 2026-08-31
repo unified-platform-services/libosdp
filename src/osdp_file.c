@@ -56,6 +56,7 @@ static inline void file_state_reset(struct osdp_pd *pd)
 	f->finalize_tstamp = 0;
 	f->file_id = 0;
 	f->cancel_req = false;
+	f->in_terminal = false;
 	osdp_mp_reset(&f->mp);
 	osdp_mp_bind_ops(&f->mp, &ops);
 	osdp_mp_set_event_cb(&f->mp, osdp_mp_pd_notify, pd);
@@ -79,6 +80,11 @@ static void file_transition_done(struct osdp_pd *pd,
 				 enum osdp_mp_outcome outcome)
 {
 	struct osdp_file *f = TO_FILE(pd);
+
+	/* Held for the whole terminal, callback included; the trailing
+	 * file_state_reset() is what clears it, and it is the only way out of
+	 * this function. */
+	f->in_terminal = true;
 
 	/* If a terminal is reached before the first osdp_file_tx_get_command()
 	 * tick emitted START (e.g. an abort on the CP going offline), emit it
@@ -536,6 +542,12 @@ int osdp_file_tx_command(struct osdp_pd *pd, int file_id, uint32_t flags)
 		return -1;
 	}
 
+	if (f->in_terminal) {
+		LOG_ERR("TX_init: cannot start a transfer from inside a "
+			"file-transfer completion");
+		return -1;
+	}
+
 	if (osdp_file_tx_is_active(pd)) {
 		if (flags & OSDP_CMD_FILE_TX_FLAG_CANCEL) {
 			if (file_id == f->file_id) {
@@ -622,6 +634,14 @@ int osdp_file_register_ops(osdp_t *ctx, int pd_idx,
 			return -1;
 		}
 #endif
+	}
+
+	if (osdp_file_tx_is_active(pd)) {
+		/* Resetting under a live transfer orphans the command the
+		 * engine holds; end it properly first. Done before the ops are
+		 * swapped so the open file is closed by the ops that opened
+		 * it. */
+		osdp_file_tx_abort(pd);
 	}
 
 	memcpy(&pd->file->ops, ops, sizeof(struct osdp_file_ops));
