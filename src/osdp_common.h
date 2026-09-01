@@ -172,7 +172,7 @@ int osdp_log_cb_emit(bool is_cp, int pd_address, int log_level,
 
 #define safe_free(p)                                                           \
 	if (p)                                                                 \
-	free(p)
+	osdp_free(p)
 
 #define osdp_dump hexdump // for zephyr compatibility.
 
@@ -780,6 +780,12 @@ __weak tick_t osdp_millis_now(void);
 tick_t osdp_millis_since(tick_t last);
 uint16_t osdp_compute_crc16(const uint8_t *buf, size_t len);
 
+/* Every heap allocation in libosdp; OPT_OSDP_STATIC builds bypass these. An
+ * application supplies its own heap by defining them and linking libosdp
+ * statically. utils/src/pcap_gen.c (packet trace only) is outside the hook. */
+__weak void *osdp_calloc(size_t nmemb, size_t size);
+__weak void osdp_free(void *ptr);
+
 const char *osdp_cmd_name(int cmd_id);
 const char *osdp_reply_name(int reply_id);
 
@@ -1242,7 +1248,7 @@ static inline struct osdp *cp_ctx_alloc(void)
 	ctx = cp_static_ctx_get();
 	memset(ctx, 0, sizeof(struct osdp));
 #else
-	ctx = calloc(1, sizeof(struct osdp));
+	ctx = osdp_calloc(1, sizeof(struct osdp));
 	if (!ctx) {
 		return NULL;
 	}
@@ -1264,7 +1270,7 @@ static inline struct osdp_pd *cp_pd_array_alloc(int old_num_pd, int num_pd)
 	memset(pd + old_num_pd, 0, sizeof(struct osdp_pd) * num_pd);
 	return pd;
 #else
-	return calloc(old_num_pd + num_pd, sizeof(struct osdp_pd));
+	return osdp_calloc(old_num_pd + num_pd, sizeof(struct osdp_pd));
 #endif
 }
 
@@ -1278,7 +1284,7 @@ static inline struct osdp_rx_pkt *cp_rx_pkt_alloc(int pd_idx)
 	return &rx_pkt[pd_idx];
 #else
 	ARG_UNUSED(pd_idx);
-	return calloc(1, sizeof(struct osdp_rx_pkt));
+	return osdp_calloc(1, sizeof(struct osdp_rx_pkt));
 #endif
 }
 
@@ -1292,7 +1298,7 @@ static inline struct osdp_rb *cp_rx_rb_alloc(int pd_idx)
 	return &rx_rb[pd_idx];
 #else
 	ARG_UNUSED(pd_idx);
-	return calloc(1, sizeof(struct osdp_rb));
+	return osdp_calloc(1, sizeof(struct osdp_rb));
 #endif
 }
 
@@ -1368,13 +1374,13 @@ static inline struct osdp *pd_ctx_alloc(void)
 	memset(ctx, 0, sizeof(struct osdp));
 	ctx->rx_buf = pd_static_rx_buf_get();
 #else
-	ctx = calloc(1, sizeof(struct osdp));
+	ctx = osdp_calloc(1, sizeof(struct osdp));
 	if (!ctx) {
 		return NULL;
 	}
-	ctx->rx_buf = calloc(1, OSDP_PACKET_BUF_SIZE);
+	ctx->rx_buf = osdp_calloc(1, OSDP_PACKET_BUF_SIZE);
 	if (!ctx->rx_buf) {
-		free(ctx);
+		osdp_free(ctx);
 		return NULL;
 	}
 #endif /* OPT_OSDP_STATIC */
@@ -1388,7 +1394,7 @@ static inline struct osdp_pd *pd_instance_alloc(void)
 	memset(pd, 0, sizeof(struct osdp_pd));
 	return pd;
 #else
-	return calloc(1, sizeof(struct osdp_pd));
+	return osdp_calloc(1, sizeof(struct osdp_pd));
 #endif /* OPT_OSDP_STATIC */
 }
 
@@ -1400,7 +1406,7 @@ static inline struct osdp_rx_pkt *pd_rx_pkt_alloc(void)
 	memset(rx_pkt, 0, sizeof(struct osdp_rx_pkt));
 	return rx_pkt;
 #else
-	return calloc(1, sizeof(struct osdp_rx_pkt));
+	return osdp_calloc(1, sizeof(struct osdp_rx_pkt));
 #endif /* OPT_OSDP_STATIC */
 }
 #else /* OPT_OSDP_RX_ZERO_COPY */
@@ -1411,7 +1417,7 @@ static inline struct osdp_rb *pd_rx_rb_alloc(void)
 	memset(rx_rb, 0, sizeof(struct osdp_rb));
 	return rx_rb;
 #else
-	return calloc(1, sizeof(struct osdp_rb));
+	return osdp_calloc(1, sizeof(struct osdp_rb));
 #endif /* OPT_OSDP_STATIC */
 }
 #endif /* OPT_OSDP_RX_ZERO_COPY */

@@ -99,7 +99,7 @@ static struct osdp_piv *piv_get(struct osdp_pd *pd)
 			memset(pd->piv, 0, sizeof(struct osdp_piv));
 		}
 #else
-		pd->piv = calloc(1, sizeof(struct osdp_piv));
+		pd->piv = osdp_calloc(1, sizeof(struct osdp_piv));
 #endif
 		if (pd->piv == NULL) {
 			LOG_ERR("PIV: failed to allocate context");

@@ -39,7 +39,7 @@ static struct osdp_bio *bio_get(struct osdp_pd *pd)
 			memset(pd->bio, 0, sizeof(struct osdp_bio));
 		}
 #else
-		pd->bio = calloc(1, sizeof(struct osdp_bio));
+		pd->bio = osdp_calloc(1, sizeof(struct osdp_bio));
 #endif
 		if (pd->bio == NULL) {
 			LOG_ERR("BIO: failed to allocate context");

@@ -21,6 +21,16 @@
 
 #include <utils/crc16.h>
 
+__weak void *osdp_calloc(size_t nmemb, size_t size)
+{
+	return calloc(nmemb, size);
+}
+
+__weak void osdp_free(void *ptr)
+{
+	free(ptr);
+}
+
 #if defined(OPT_OSDP_STATIC) && defined(OPT_OSDP_EXCLUSIVE_ROLE)
 /* One shared instance overlaying the CP and PD static pools; the accessors
  * in osdp_common.h carve role-specific pointers out of it. Defined once here so

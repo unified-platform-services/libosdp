@@ -631,7 +631,7 @@ int osdp_file_register_ops(osdp_t *ctx, int pd_idx,
 		}
 		memset(pd->file, 0, sizeof(struct osdp_file));
 #else
-		pd->file = calloc(1, sizeof(struct osdp_file));
+		pd->file = osdp_calloc(1, sizeof(struct osdp_file));
 		if (pd->file == NULL) {
 			LOG_PRINT("Failed to alloc struct osdp_file");
 			return -1;

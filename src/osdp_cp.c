@@ -2652,7 +2652,7 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		 * session keys of every PD already registered. */
 		osdp_fill_zeros(old_pd_array,
 				sizeof(struct osdp_pd) * old_num_pd);
-		free(old_pd_array);
+		osdp_free(old_pd_array);
 	}
 #endif
 	return 0;
@@ -2667,7 +2667,7 @@ error:
 #ifndef OPT_OSDP_STATIC
 	osdp_fill_zeros(new_pd_array,
 			sizeof(struct osdp_pd) * (old_num_pd + num_pd));
-	free(new_pd_array);
+	osdp_free(new_pd_array);
 #else
 	memset(new_pd_array + old_num_pd, 0, sizeof(struct osdp_pd) * num_pd);
 #endif
