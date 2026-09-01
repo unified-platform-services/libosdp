@@ -91,3 +91,6 @@ coverage/
 .coverage.*
 *.gcda
 *.gcno
+
+## Component registry pack output (compote component pack)
+/dist/

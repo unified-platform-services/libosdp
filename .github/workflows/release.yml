@@ -253,6 +253,166 @@ jobs:
           name: platformio-package
           path: libosdp-platformio-${{ github.ref_name }}.tar.gz
 
+  build_esp_idf:
+    name: Build ESP-IDF component (${{ matrix.target }})
+    needs: preflight
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    strategy:
+      fail-fast: false
+      matrix:
+        # One Xtensa and one RISC-V target. The component is portable C over
+        # esp_timer/esp_random, so the instruction set is the only axis that can
+        # plausibly break it; a per-chip matrix would buy nothing but minutes.
+        target: [esp32, esp32c3]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          submodules: recursive
+      - name: Mark the checkout safe for git
+        shell: bash
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+      - name: Link the checkout in as the libosdp component
+        shell: bash
+        run: |
+          set -euo pipefail
+          # ESP-IDF names a component after its directory basename, so the
+          # component must be reached through a path called "libosdp". The
+          # link is generated rather than committed because a checked-in
+          # symlink to the repo root makes the tree infinitely deep to
+          # anything that walks it following links.
+          mkdir -p tests/esp-idf/component-build/components
+          ln -sfn ../../../.. tests/esp-idf/component-build/components/libosdp
+      - name: Build for ${{ matrix.target }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          cd tests/esp-idf/component-build
+          idf.py set-target "${{ matrix.target }}"
+          idf.py build
+
+  package_idf_component:
+    name: Pack ESP-IDF component
+    needs: preflight
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          submodules: recursive
+      - name: Mark the checkout safe for git
+        shell: bash
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+      - name: Pack the component
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          # Proves the manifest packs before the pipeline reaches the
+          # irreversible upload, and leaves the exact tarball as an artifact so
+          # a rejected release can be diagnosed without reproducing the build.
+          compote component pack \
+            --name libosdp \
+            --version "${{ needs.preflight.outputs.version }}"
+      - name: Verify the submodule made it into the archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          # utils/ is a git submodule and the packer globs the working tree, so
+          # a non-recursive checkout would publish a component that cannot
+          # compile -- with no error at pack time. Fail here instead.
+          archive="$(find dist -name 'libosdp_*.tgz' -print -quit)"
+          if [[ -z "${archive}" ]]; then
+            echo "::error::compote produced no archive" >&2
+            exit 1
+          fi
+          # List once into a file rather than piping tar into each grep: under
+          # pipefail, "grep -q" exits on its first match and the SIGPIPE that
+          # kills tar fails the pipeline, so a file that IS present reports as
+          # missing whenever it matches early in the listing.
+          tar -tzf "${archive}" > contents.txt
+          # compote writes entries with a leading "./", so match them exactly
+          # rather than anchoring on the bare path.
+          missing=()
+          for f in ./utils/src/utils.c ./esp-idf/component.cmake \
+                   ./esp-idf/src/osdp_esp.c ./src/osdp_cp.c ./include/osdp.h
+          do
+            grep -qxF "${f}" contents.txt || missing+=("${f}")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::${archive} is missing: ${missing[*]}" >&2
+            exit 1
+          fi
+          echo "Packed ${archive} ($(stat -c%s "${archive}") bytes), contents verified"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: idf-component-package
+          path: dist/*.tgz
+
+  publish_idf_component:
+    name: Publish ESP Component Registry
+    needs: [preflight, ci, cross_platform_build, build_esp_idf, package_idf_component, build_pypi, build_sdist]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.ref }}
+          submodules: recursive
+      - name: Check whether this version is already published
+        id: registry
+        shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The registry rejects re-uploading an existing version, so rerunning
+          # the workflow after a later job failed would fail here on work that
+          # already succeeded. PlatformIO has to infer that from the failure
+          # text; this registry can be asked directly, so ask it -- skipping
+          # deliberately beats swallowing a failure that merely says "exists".
+          url="https://components.espressif.com/api/components/sidcha/libosdp"
+          code="$(curl -sS -o response.json -w '%{http_code}' \
+            --retry 5 --retry-all-errors --retry-delay 2 "${url}")"
+          case "${code}" in
+          200)
+            if jq -e --arg v "${VERSION}" \
+                 'any(.versions[]?; .version == $v)' response.json >/dev/null
+            then
+              published=true
+            else
+              published=false
+            fi
+            ;;
+          404)
+            # Component not in the registry at all: this is the first upload.
+            published=false
+            ;;
+          *)
+            echo "::error::Registry returned HTTP ${code} for ${url}" >&2
+            exit 1
+            ;;
+          esac
+          echo "published=${published}" >> "${GITHUB_OUTPUT}"
+          echo "Version ${VERSION} already published: ${published}"
+      - name: Upload to the ESP Component Registry
+        if: steps.registry.outputs.published != 'true'
+        uses: espressif/upload-components-ci-action@v2.2.1
+        with:
+          namespace: sidcha
+          # "<name>:<path>" -- the name is mandatory for a component at the
+          # repo root, where there is no directory basename to infer it from.
+          components: libosdp:.
+          # idf_component.yml deliberately carries no `version`: this input
+          # only fills in a version the manifest does not state, it cannot
+          # override one. Take it from preflight, which has already checked the
+          # tag against all four in-tree version files.
+          version: ${{ needs.preflight.outputs.version }}
+          api_token: ${{ secrets.IDF_COMPONENT_API_TOKEN }}
+
   publish_platformio:
     name: Publish PlatformIO
     needs: [preflight, ci, cross_platform_build, package_platformio, build_pypi, build_sdist]
@@ -317,7 +477,7 @@ jobs:
 
   create_release:
     name: Create GitHub release
-    needs: [preflight, cross_platform_build, publish_pypi]
+    needs: [preflight, cross_platform_build, publish_pypi, publish_idf_component]
     runs-on: ubuntu-latest
     permissions:
       contents: write

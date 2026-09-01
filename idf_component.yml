@@ -7,12 +7,14 @@
 # ESP-IDF component root (see the ESP_PLATFORM branch in CMakeLists.txt); the
 # component definition itself is in esp-idf/.
 #
-# Keep `version` in step with project(libosdp VERSION ...) and LIBOSDP_PRERELEASE
-# in CMakeLists.txt -- the registry rejects a re-upload of an existing version,
-# so a stale value here fails the publish rather than shipping something wrong.
+# No `version` key: the release workflow passes it from the git tag, and the
+# upload action only fills in a version the manifest does not already state --
+# it cannot override one. Leaving it out is what keeps the published version
+# tied to the tag that preflight already checked against CMakeLists.txt,
+# pyproject.toml, library.json and platformio/osdp_config.h. A manual
+# `compote component upload` must therefore pass --version explicitly.
 
 name: libosdp
-version: "4.0.0-dev"
 
 description: >-
   Open Supervised Device Protocol (OSDP, IEC 60839-11-5) library for access
@@ -66,6 +68,23 @@ files:
     - "examples/**/*"
     - "config.make"
     - "library.json"
+
+    # utils/ is a submodule and only its src/ and include/ are compiled. Its
+    # test fixtures are 95% of the packed bytes and unreachable from the
+    # component -- excluding them is the single biggest size win here.
+    - "utils/tests/**/*"
+
+    # The packer globs the working tree rather than git (see `use_gitignore`
+    # below), so anything a developer happens to have lying around is packed.
+    # CI packs a fresh checkout and never sees these, but a hand-run
+    # `compote component pack` would otherwise publish local editor caches,
+    # agent scratch space and internal notes to a public registry.
+    - ".cache/**/*"
+    - ".claude/**/*"
+    - ".superpowers/**/*"
+    - ".pytest_cache/**/*"
+    - "dist/**/*"
+    - "CLAUDE.md"
 
   # `use_gitignore` is deliberately not set: it makes the packer skip
   # DEFAULT_EXCLUDE entirely, which would pack .git/ into the archive.
