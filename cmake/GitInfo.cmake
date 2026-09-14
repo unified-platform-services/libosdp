@@ -27,7 +27,15 @@ execute_process(
 	ERROR_QUIET
 )
 
-if(_git_ok EQUAL 0)
+# A tree with no git metadata -- a Nix sandbox, a release tarball -- cannot
+# describe itself. A caller that fetched it knows the revision and passes
+# LIBOSDP_GIT_REV (plus LIBOSDP_GIT_TAG when that revision is a release), so the
+# version string still says which commit this is instead of going silently empty.
+if(DEFINED LIBOSDP_GIT_REV)
+	set(GIT_REV "${LIBOSDP_GIT_REV}")
+	set(GIT_TAG "${LIBOSDP_GIT_TAG}")
+	set(GIT_BRANCH "none")
+elseif(_git_ok EQUAL 0)
 	execute_process(
 		COMMAND git -C "${GIT_INFO_ROOT}" describe --tags --long --always --abbrev=7
 		OUTPUT_VARIABLE GIT_REV
