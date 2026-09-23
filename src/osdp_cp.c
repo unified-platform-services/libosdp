@@ -1321,6 +1321,12 @@ static void cp_state_change(struct osdp_pd *pd, enum osdp_cp_state_e next)
 		break;
 	case OSDP_CP_STATE_ONLINE:
 		LOG_INF("Online; %s SC", sc_is_active(pd) ? "With" : "Without");
+		/*
+		 * Set state to ONLINE before notifying so that the event
+		 * callback can submit commands (osdp_cp_submit_command
+		 * checks pd->state == ONLINE).
+		 */
+		pd->state = next;
 		notify_pd_status(pd, true);
 		break;
 	case OSDP_CP_STATE_OFFLINE:
