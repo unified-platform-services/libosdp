@@ -94,3 +94,7 @@ coverage/
 
 ## Component registry pack output (compote component pack)
 /dist/
+
+## Native artifact staging
+/build-native-*/
+/native-*/
