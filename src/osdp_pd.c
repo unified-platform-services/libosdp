@@ -17,26 +17,26 @@
 #include <stdlib.h>
 #endif
 
-#define CMD_POLL_DATA_LEN              0
-#define CMD_LSTAT_DATA_LEN             0
-#define CMD_ISTAT_DATA_LEN             0
-#define CMD_OSTAT_DATA_LEN             0
-#define CMD_RSTAT_DATA_LEN             0
-#define CMD_ID_DATA_LEN                1
-#define CMD_CAP_DATA_LEN               1
-#define CMD_OUT_DATA_LEN               4
-#define CMD_LED_DATA_LEN               14
-#define CMD_BUZ_DATA_LEN               5
-#define CMD_TDSET_DATA_LEN             7
-#define CMD_TEXT_DATA_LEN              6   /* variable length command */
-#define CMD_COMSET_DATA_LEN            5
-#define CMD_KEYSET_DATA_LEN            18
-#define CMD_CHLNG_DATA_LEN             8
-#define CMD_SCRYPT_DATA_LEN            16
-#define CMD_ABORT_DATA_LEN             0
-#define CMD_ACURXSIZE_DATA_LEN         2
-#define CMD_KEEPACTIVE_DATA_LEN        2
-#define CMD_MFG_DATA_LEN               3 /* variable length command */
+#define CMD_POLL_DATA_LEN	0
+#define CMD_LSTAT_DATA_LEN	0
+#define CMD_ISTAT_DATA_LEN	0
+#define CMD_OSTAT_DATA_LEN	0
+#define CMD_RSTAT_DATA_LEN	0
+#define CMD_ID_DATA_LEN		1
+#define CMD_CAP_DATA_LEN	1
+#define CMD_OUT_DATA_LEN	4
+#define CMD_LED_DATA_LEN	14
+#define CMD_BUZ_DATA_LEN	5
+#define CMD_TDSET_DATA_LEN	7
+#define CMD_TEXT_DATA_LEN	6 /* variable length command */
+#define CMD_COMSET_DATA_LEN	5
+#define CMD_KEYSET_DATA_LEN	18
+#define CMD_CHLNG_DATA_LEN	8
+#define CMD_SCRYPT_DATA_LEN	16
+#define CMD_ABORT_DATA_LEN	0
+#define CMD_ACURXSIZE_DATA_LEN	2
+#define CMD_KEEPACTIVE_DATA_LEN 2
+#define CMD_MFG_DATA_LEN	3 /* variable length command */
 
 #define REPLY_ACK_LEN	       1
 #define REPLY_PDID_LEN	       13
@@ -51,7 +51,7 @@
 #define REPLY_KEYPAD_LEN       2
 #define REPLY_RAW_LEN	       4
 #define REPLY_MFGREP_LEN       4 /* variable length command */
-#define REPLY_FMT_LEN 3
+#define REPLY_FMT_LEN	       3
 
 enum osdp_pd_error_e {
 	OSDP_PD_ERR_NONE = 0,
@@ -161,7 +161,8 @@ void pd_event_enqueue(struct osdp_pd *pd, struct osdp_event *event)
 	for (uint8_t i = 0; i < OSDP_PD_EVENT_POOL_SIZE; i++) {
 		if ((taken_index & (1 << i)) == 0) {
 			taken_index |= (1 << i);
-			memcpy(&pd_event_pool[i], event, sizeof(struct osdp_event));
+			memcpy(&pd_event_pool[i], event,
+			       sizeof(struct osdp_event));
 			return;
 		}
 	}
@@ -253,7 +254,7 @@ static bool validate_command(struct osdp_pd *pd, struct osdp_cmd *cmd)
 		    cmd->led.temporary.off_count == 0) {
 			result = false;
 		}
-		if (cmd->led.permanent.control_code == 0x01 &&  /* SET */
+		if (cmd->led.permanent.control_code == 0x01 && /* SET */
 		    cmd->led.permanent.on_count == 0 &&
 		    cmd->led.permanent.off_count == 0) {
 			result = false;
@@ -403,7 +404,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			ret = pd_translate_event(pd, event);
 			pd->reply_id = ret;
 			pd_event_free(pd, event);
-		} else {			
+		} else {
 #if defined(W2O)
 			uint8_t poll_len = 0;
 			pd->reply_id = REPLY_MFGREP;
@@ -415,8 +416,10 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			pCmd->mfgrep.data[0] = 0x6B;
 			poll_len++;
 			for (uint8_t j = 0; j < MAX_ADC_INPUT; j++) {
-				pCmd->mfgrep.data[(j * 2) + 1] = (ADCGetRaw(j)) >> 8;
-				pCmd->mfgrep.data[(j * 2 + 1) + 1] = (uint8_t)(ADCGetRaw(j));
+				pCmd->mfgrep.data[(j * 2) + 1] =
+					(ADCGetRaw(j)) >> 8;
+				pCmd->mfgrep.data[(j * 2 + 1) + 1] =
+					(uint8_t)(ADCGetRaw(j));
 				poll_len += 2;
 			}
 
@@ -424,10 +427,14 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			pCmd->mfgrep.data[poll_len++] = getConnectedPDStatus();
 			pCmd->mfgrep.data[poll_len] = getConnectedPDSecureChannelStatus();
 #else
-    	pd->reply_id = REPLY_ACK;
+			pd->reply_id = REPLY_ACK;
 #endif
 		}
-		ret = OSDP_PD_ERR_NONE;
+		cmd.id = OSDP_CMD_POLL;
+		if (!do_command_callback(pd, &cmd))
+			ret = OSDP_PD_ERR_REPLY;
+		else
+			ret = OSDP_PD_ERR_NONE;
 		break;
 	case CMD_LSTAT:
 		if (len != CMD_LSTAT_DATA_LEN) {
@@ -610,7 +617,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		pd->reply_id = REPLY_ACK;
 		ret = OSDP_PD_ERR_NONE;
-            break;
+		break;
 	case CMD_TEXT:
 		if (len < CMD_TEXT_DATA_LEN) {
 			break;
@@ -650,8 +657,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		cmd.comset.baud_rate |= (uint32_t)buf[pos++] << 24;
 		if (cmd.comset.address >= 0x7F) {
 			LOG_ERR("COMSET Failed! command discarded");
-			cmd.comset.address = pd->address;                        
-#ifndef __XC8__                        
+			cmd.comset.address = pd->address;
+#ifndef __XC8__
 			cmd.comset.baud_rate = pd->baud_rate;
 #endif
 			break;
@@ -669,8 +676,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			break;
 		}
 		cmd.id = OSDP_CMD_MFG;
-		cmd.mfg.vendor_code = (uint32_t) (buf[pos++]); /* vendor_code */
-		cmd.mfg.vendor_code |=  ((uint32_t)(buf[pos++])) << 8;
+		cmd.mfg.vendor_code = (uint32_t)(buf[pos++]); /* vendor_code */
+		cmd.mfg.vendor_code |= ((uint32_t)(buf[pos++])) << 8;
 		cmd.mfg.vendor_code |= ((uint32_t)(buf[pos++])) << 16;
 		cmd.mfg.length = len - CMD_MFG_DATA_LEN;
 		if (cmd.mfg.length > OSDP_CMD_MFG_MAX_DATALEN) {
@@ -683,7 +690,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 
 		ret = 0;
 		if (pd->command_callback) {
-			ret = pd->command_callback(pd->command_callback_arg, &cmd);
+			ret = pd->command_callback(pd->command_callback_arg,
+						   &cmd);
 		}
 		if (ret < 0) { /* Callback failed */
 			pd->ephemeral_data[0] = OSDP_PD_NAK_RECORD;
@@ -1014,7 +1022,8 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		break;
 	case REPLY_MFGREP:
 		event = (struct osdp_event *)pd->ephemeral_data;
-		assert_buf_len(REPLY_MFGREP_LEN + event->mfgrep.length, max_len);
+		assert_buf_len(REPLY_MFGREP_LEN + event->mfgrep.length,
+			       max_len);
 		buf[len++] = pd->reply_id;
 		buf[len++] = BYTE_0(event->mfgrep.vendor_code);
 		buf[len++] = BYTE_1(event->mfgrep.vendor_code);
@@ -1061,9 +1070,9 @@ static int pd_build_reply(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = pd->reply_id;
 		memcpy(buf + len, pd->sc.r_mac, 16);
 		len += 16;
-		smb[0] = 3;       /* length */
-		smb[1] = SCS_14;  /* type */
-		smb[2] = 1;       /* CP auth succeeded */
+		smb[0] = 3; /* length */
+		smb[1] = SCS_14; /* type */
+		smb[2] = 1; /* CP auth succeeded */
 		sc_activate(pd);
 		pd->sc_tstamp = osdp_millis_now();
 		if (ISSET_FLAG(pd, PD_FLAG_SC_USE_SCBKD)) {
@@ -1227,7 +1236,7 @@ static void osdp_pd_update(struct osdp_pd *pd)
 			cmd->id = OSDP_CMD_COMSET_DONE;
 			do_command_callback(pd, cmd);
 			pd->address = (int)cmd->comset.address;
-#ifndef __XC8__                        
+#ifndef __XC8__
 			pd->baud_rate = (int)cmd->comset.baud_rate;
 			LOG_INF("COMSET Succeeded! New PD-Addr: %d; Baud: %d",
 				pd->address, pd->baud_rate);
@@ -1310,9 +1319,9 @@ osdp_t *osdp_pd_setup(const osdp_pd_info_t *info)
 	} else {
 		snprintf(pd->name, OSDP_PD_NAME_MAXLEN, "PD-%d", info->address);
 	}
-	pd->baud_rate = info->baud_rate;	
+	pd->baud_rate = info->baud_rate;
 #endif
-        pd->address = info->address;
+	pd->address = info->address;
 	pd->flags = info->flags;
 	pd->seq_number = -1;
 	memcpy(&pd->channel, &info->channel, sizeof(struct osdp_channel));
@@ -1412,8 +1421,7 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 #endif
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 
-	if (event->type <= 0 ||
-	    event->type >= OSDP_EVENT_SENTINEL) {
+	if (event->type <= 0 || event->type >= OSDP_EVENT_SENTINEL) {
 		return -1;
 	}
 
