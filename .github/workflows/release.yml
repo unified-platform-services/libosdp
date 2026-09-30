@@ -114,31 +114,8 @@ jobs:
     uses: ./.github/workflows/reusable-ci.yml
 
   cross_platform_build:
-    name: Build on ${{ matrix.os }}
     needs: preflight
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-15-intel, macos-14, windows-latest]
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.ref }}
-          submodules: recursive
-      - name: Configure
-        run: cmake -B build -DCMAKE_BUILD_TYPE=Debug -DOPT_OSDP_LIB_ONLY=on .
-      - name: Build
-        run: cmake --build build --parallel 8
-      - name: Run unit-tests
-        run: cmake --build build --parallel 8 --target check
-      - name: Pack built binaries
-        run: cmake --build build --target package
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v7
-        with:
-          name: libosdp-${{ matrix.os }}-binaries
-          path: build/artifacts/
+    uses: ./.github/workflows/cross-plaform-build.yml
 
   build_pypi:
     name: Build PyPI distributions
@@ -484,19 +461,33 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          pattern: libosdp-*-binaries
-          path: release-assets
-          merge-multiple: false
+          pattern: native-*
+          path: native
       - uses: actions/download-artifact@v8
         with:
           name: release-notes
           path: release-notes
       - name: Collect release assets
         shell: bash
+        env:
+          VERSION: ${{ needs.preflight.outputs.version }}
         run: |
           set -euo pipefail
           mkdir -p release-files
-          find release-assets -type f -exec cp {} release-files/ \;
+          for dir in native/native-*; do
+            rid="${dir##*/native-}"
+            # The NuGet-bound artifact cannot carry symlinks, but the C
+            # tarball needs the SONAME link for the linker to resolve.
+            stage="stage/native-${rid}"
+            mkdir -p stage
+            cp -R "${dir}" "${stage}"
+            case "${rid}" in
+              linux-*) ln -s libosdp.so "${stage}/lib/libosdp.so.${VERSION%%.*}" ;;
+              osx-*) ln -s libosdp.dylib "${stage}/lib/libosdp.${VERSION%%.*}.dylib" ;;
+            esac
+            tar -czf "release-files/libosdp-${VERSION}-${rid}.tar.gz" -C "${stage}" .
+          done
+          ls -l release-files
       - name: Create GitHub release
         uses: softprops/action-gh-release@v3
         with:
