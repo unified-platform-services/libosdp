@@ -795,6 +795,10 @@ const char *osdp_reply_name(int reply_id);
  * at the call site. Each engine's abort is idempotent. */
 void osdp_engines_abort(struct osdp_pd *pd);
 
+/* Point this PD's feature engines back at it after the PD array has moved;
+ * they report progress and completion against the PD they were opened on. */
+void osdp_engines_rebind(struct osdp_pd *pd);
+
 /* Any multi-part engine mid-transfer on this PD? §5.10.2 forbids interleaving
  * multi-part transfers; every engine's submit path must check this. */
 bool osdp_mp_engine_busy(struct osdp_pd *pd);

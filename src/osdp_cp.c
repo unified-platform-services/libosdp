@@ -2647,6 +2647,9 @@ static int cp_add_pd(struct osdp *ctx, int num_pd, const osdp_pd_info_t *info_li
 		}
 	}
 	SET_CURRENT_PD(ctx, 0);
+	for (i = 0; i < old_num_pd; i++) {
+		osdp_engines_rebind(osdp_to_pd(ctx, i));
+	}
 
 #ifndef OPT_OSDP_STATIC
 	if (old_num_pd) {

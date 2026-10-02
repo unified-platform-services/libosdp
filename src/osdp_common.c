@@ -578,6 +578,22 @@ void osdp_engines_abort(struct osdp_pd *pd)
 	osdp_bio_abort(pd);
 }
 
+void osdp_engines_rebind(struct osdp_pd *pd)
+{
+	struct osdp_multipart *mp[] = {
+		TO_FILE(pd) ? &TO_FILE(pd)->mp : NULL,
+		TO_PIV(pd) ? &TO_PIV(pd)->mp : NULL,
+		TO_BIO(pd) ? &TO_BIO(pd)->mp : NULL,
+	};
+	size_t i;
+
+	for (i = 0; i < ARRAY_SIZEOF(mp); i++) {
+		if (mp[i] && mp[i]->event_cb == osdp_mp_pd_notify) {
+			osdp_mp_set_event_cb(mp[i], osdp_mp_pd_notify, pd);
+		}
+	}
+}
+
 bool osdp_mp_engine_busy(struct osdp_pd *pd)
 {
 	return osdp_file_tx_is_active(pd) || osdp_piv_is_active(pd) ||
