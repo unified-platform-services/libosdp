@@ -624,6 +624,8 @@ enum osdp_biometric_status_e {
  * first fragment arrives -- unless another feature engine (a file transfer,
  * say) is already running an operation on this PD, in which case the command
  * completes when the first fragment is accepted, as it does without the flag.
+ * Either way, the reassembled `OSDP_EVENT_BIOREADR` reaches the event
+ * callback before the command completes.
  */
 struct osdp_cmd_bioread {
 	/**

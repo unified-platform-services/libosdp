@@ -78,10 +78,10 @@ def drain_events(address):
 def run_bio_op(reply_event, inline, expect_multipart):
     """Round-trip one biometric read and verify the reassembled reply.
 
-    When the template spans multiple packets the engine finishes the transfer
-    (MultipartDone) before the reassembled reply event is dispatched, so the
-    notification is consumed first. A template that fits one packet stays
-    single-part and emits no such notification.
+    When the template spans multiple packets the reassembled reply event is
+    dispatched before the engine finishes the transfer (MultipartDone), so the
+    reply is consumed first. A template that fits one packet stays single-part
+    and emits no such notification.
     """
     drain_events(pd_addr)
     cmd = commands.BioRead(reader=reply_event.reader,
@@ -100,6 +100,7 @@ def run_bio_op(reply_event, inline, expect_multipart):
             time.sleep(0.2)  # app takes its time; CP must ride the ACKs
             assert pd.submit_event(reply_event)
 
+        wait_for_non_notification_event(cp, pd_addr, reply_event)
         if expect_multipart:
             done = events.Notification(
                 type=NotificationType.MultipartDone,
@@ -110,7 +111,6 @@ def run_bio_op(reply_event, inline, expect_multipart):
                 outcome=int(MpOutcome.Ok),
             )
             wait_for_notification_event(cp, pd_addr, done)
-        wait_for_non_notification_event(cp, pd_addr, reply_event)
     finally:
         pd.set_command_handler(None)
 

@@ -262,6 +262,7 @@ static bool test_bio_multipart_transfer(struct osdp_pd *pd_tx,
 		       label, rc);
 		return false;
 	}
+	osdp_bio_cp_reply_finish(pd_rx);
 	if (out.type != OSDP_EVENT_BIOREADR || out.bioreadr.reader != 3 ||
 	    out.bioreadr.status != OSDP_BIO_STATUS_SUCCESS ||
 	    out.bioreadr.type != OSDP_BIO_TYPE_RIGHT_THUMB_PRINT ||
@@ -463,6 +464,7 @@ struct test_bio_mp_ctx {
 	int pd_runner;
 	atomic_int mp_done;
 	atomic_int reply_len;
+	atomic_int reply_len_at_completion;
 	struct test_completion comp;
 };
 
@@ -506,10 +508,18 @@ static int bio_mp_cp_event_callback(void *arg, int pd, struct osdp_event *ev)
 	return 0;
 }
 
+static void bio_mp_cmd_completion_cb(void *arg, int pd, struct osdp_cmd *cmd,
+				     enum osdp_completion_status status)
+{
+	atomic_store(&g_bio_mp.reply_len_at_completion,
+		     atomic_load(&g_bio_mp.reply_len));
+	test_cmd_completion_cb(arg, pd, cmd, status);
+}
+
 /*
  * With multipart BIOREADR on, the command owns the whole reassembly: it must
  * not complete when the first fragment lands, but once -- with OK -- after the
- * template is whole.
+ * template is whole and its reply has been delivered.
  */
 static bool test_bioread_multipart_completes_at_reassembly(void)
 {
@@ -528,6 +538,7 @@ static bool test_bioread_multipart_completes_at_reassembly(void)
 	test_completion_reset(&g_bio_mp.comp);
 	g_bio_mp.mp_done = 0;
 	g_bio_mp.reply_len = 0;
+	g_bio_mp.reply_len_at_completion = 0;
 
 	if (!test_submit_command(g_bio_mp.cp_ctx, 0, &cmd)) {
 		printf(SUB_2 "bio: submit rejected\n");
@@ -549,6 +560,10 @@ static bool test_bioread_multipart_completes_at_reassembly(void)
 	if (g_bio_mp.reply_len != BIO_MP_TEMPLATE_LEN) {
 		printf(SUB_2 "bio: reassembled %d bytes, want %d\n",
 		       (int)g_bio_mp.reply_len, BIO_MP_TEMPLATE_LEN);
+		return false;
+	}
+	if (g_bio_mp.reply_len_at_completion != BIO_MP_TEMPLATE_LEN) {
+		printf(SUB_2 "bio: completed before its reply was delivered\n");
 		return false;
 	}
 	if (test_completion_count(&g_bio_mp.comp) != 1) {
@@ -585,9 +600,8 @@ static void run_bio_multipart_link_tests(struct test *t)
 				   &g_bio_mp);
 	osdp_pd_set_command_callback(g_bio_mp.pd_ctx,
 				     bio_mp_pd_command_callback, &g_bio_mp);
-	osdp_cp_set_command_completion_callback(g_bio_mp.cp_ctx,
-						test_cmd_completion_cb,
-						&g_bio_mp.comp);
+	osdp_cp_set_command_completion_callback(
+		g_bio_mp.cp_ctx, bio_mp_cmd_completion_cb, &g_bio_mp.comp);
 
 	g_bio_mp.cp_runner = async_runner_start(g_bio_mp.cp_ctx,
 						osdp_cp_refresh);

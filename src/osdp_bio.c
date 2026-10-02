@@ -244,6 +244,17 @@ static void bio_cp_fill_event(struct osdp_bio *b, struct osdp_event *event)
 	memcpy(event->bioreadr.data, b->data, b->mp.total);
 }
 
+void osdp_bio_cp_reply_finish(struct osdp_pd *pd)
+{
+	struct osdp_bio *b = TO_BIO(pd);
+
+	if (!b || b->phase != OSDP_BIO_REPLY) {
+		return; /* single-part: no operation was opened */
+	}
+	osdp_mp_finish(&b->mp, OSDP_MP_OUTCOME_OK);
+	bio_op_reset(b);
+}
+
 int osdp_bio_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 			      struct osdp_event *event)
 {
@@ -312,8 +323,6 @@ int osdp_bio_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 	case OSDP_MP_RC_DONE:
 		osdp_mp_rx_commit(&b->mp);
 		bio_cp_fill_event(b, event);
-		osdp_mp_finish(&b->mp, OSDP_MP_OUTCOME_OK);
-		bio_op_reset(b);
 		return 1;
 	case OSDP_MP_RC_EARLY_TERM:
 		LOG_ERR("BIO: PD terminated the reply early; aborting");

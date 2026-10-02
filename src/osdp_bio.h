@@ -63,5 +63,7 @@ int osdp_bio_cp_get_command(struct osdp_pd *pd);
  * on a malformed first fragment. */
 int osdp_bio_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 			      struct osdp_event *event);
+/* Finish the op whose reply _consume() returned 1 for; call after dispatch. */
+void osdp_bio_cp_reply_finish(struct osdp_pd *pd);
 
 #endif /* _OSDP_BIO_H_ */
