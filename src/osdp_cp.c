@@ -3122,8 +3122,15 @@ int osdp_cp_enable_pd(osdp_t *ctx, int pd_idx)
 
 bool osdp_cp_is_pd_enabled(const osdp_t *ctx, int pd_idx)
 {
-	input_check(ctx, pd_idx);
-	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+	input_check(ctx);
+	struct osdp_pd *pd;
+
+	/* input_check()'s -1 for a bad index would read back as true. */
+	if (pd_idx < 0 || pd_idx >= NUM_PD(ctx)) {
+		LOG_PRINT("Invalid PD number %d", pd_idx);
+		return false;
+	}
+	pd = osdp_to_pd(ctx, pd_idx);
 
 	return pd->state != OSDP_CP_STATE_DISABLED;
 }

@@ -342,10 +342,9 @@ static bool test_pd_edge_cases()
 		return false;
 	}
 
-	bool enabled = osdp_cp_is_pd_enabled(g_test_ctx.cp_ctx, 99);
-	/* Note: invalid PD returns -1 which converts to true in bool context */
-	if (enabled != true) {
-		printf(SUB_2 "Invalid PD index returns -1 (converted to true), got %s\n", enabled ? "true" : "false");
+	if (osdp_cp_is_pd_enabled(g_test_ctx.cp_ctx, 99) ||
+	    osdp_cp_is_pd_enabled(g_test_ctx.cp_ctx, -1)) {
+		printf(SUB_2 "Invalid PD index reported as enabled\n");
 		return false;
 	}
 
