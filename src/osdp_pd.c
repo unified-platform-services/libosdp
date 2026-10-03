@@ -129,6 +129,18 @@ static bool event_is_reply_to(int cmd_id, const struct osdp_event *event)
 		 * instead of an ACK. See OSDP v2.2 subclause 6.9. */
 		return event->type == OSDP_EVENT_STATUS &&
 		       event->status.type == OSDP_STATUS_REPORT_OUTPUT;
+	case CMD_LSTAT:
+		return event->type == OSDP_EVENT_STATUS &&
+		       event->status.type == OSDP_STATUS_REPORT_LOCAL;
+	case CMD_ISTAT:
+		return event->type == OSDP_EVENT_STATUS &&
+		       event->status.type == OSDP_STATUS_REPORT_INPUT;
+	case CMD_OSTAT:
+		return event->type == OSDP_EVENT_STATUS &&
+		       event->status.type == OSDP_STATUS_REPORT_OUTPUT;
+	case CMD_RSTAT:
+		return event->type == OSDP_EVENT_STATUS &&
+		       event->status.type == OSDP_STATUS_REPORT_READER;
 	default:
 		return false;
 	}
@@ -689,6 +701,10 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			ret = OSDP_PD_ERR_REPLY;
 			break;
 		}
+		if (pd_take_inline_reply(pd)) {
+			ret = OSDP_PD_ERR_NONE;
+			break;
+		}
 		if (pd_prebuild_status_reply(pd, REPLY_LSTATR, &cmd.status)) {
 			break;
 		}
@@ -707,6 +723,10 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		cmd.status.type = OSDP_STATUS_REPORT_INPUT;
 		if (!do_command_callback(pd, &cmd)) {
 			ret = OSDP_PD_ERR_REPLY;
+			break;
+		}
+		if (pd_take_inline_reply(pd)) {
+			ret = OSDP_PD_ERR_NONE;
 			break;
 		}
 		if (pd_prebuild_status_reply(pd, REPLY_ISTATR, &cmd.status)) {
@@ -729,6 +749,10 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			ret = OSDP_PD_ERR_REPLY;
 			break;
 		}
+		if (pd_take_inline_reply(pd)) {
+			ret = OSDP_PD_ERR_NONE;
+			break;
+		}
 		if (pd_prebuild_status_reply(pd, REPLY_OSTATR, &cmd.status)) {
 			break;
 		}
@@ -743,6 +767,10 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		cmd.status.type = OSDP_STATUS_REPORT_READER;
 		if (!do_command_callback(pd, &cmd)) {
 			ret = OSDP_PD_ERR_REPLY;
+			break;
+		}
+		if (pd_take_inline_reply(pd)) {
+			ret = OSDP_PD_ERR_NONE;
 			break;
 		}
 		if (pd_prebuild_status_reply(pd, REPLY_RSTATR, &cmd.status)) {

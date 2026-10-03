@@ -1882,6 +1882,12 @@ struct osdp_event {
  * event via `osdp_pd_submit_event()`. Submitting it from within this callback
  * sends it as the reply to the command itself; submitting it later sends it as
  * a poll response and this command is `osdp_ACK`-ed.
+ *
+ * @note `OSDP_CMD_STATUS` is answered the same way: submit an
+ * `OSDP_EVENT_STATUS` of the queried type from within this callback, which
+ * also lets `osdp_pd_submit_event()` refuse a report whose entry count does not
+ * match the PD's capability. An app may instead fill in `cmd->status` before
+ * returning; that report is sent when no status event was submitted.
  */
 typedef int (*pd_command_callback_t)(void *arg, struct osdp_cmd *cmd);
 

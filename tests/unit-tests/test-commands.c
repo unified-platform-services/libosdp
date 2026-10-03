@@ -711,6 +711,103 @@ static bool test_output_reply_selection(struct test *t)
 	return result;
 }
 
+enum stat_answer {
+	STAT_ANSWER_EVENT, /* submit an LSTAT reply event */
+	STAT_ANSWER_IN_PLACE, /* fill in cmd->status */
+	STAT_ANSWER_UNRELATED, /* submit an input status, fill in cmd->status */
+};
+
+static enum stat_answer g_stat_answer;
+static struct osdp_event g_local_status;
+
+static int test_stat_command_callback(void *arg, struct osdp_cmd *cmd)
+{
+	ARG_UNUSED(arg);
+
+	if (cmd->id != OSDP_CMD_STATUS) {
+		return 0;
+	}
+	switch (g_stat_answer) {
+	case STAT_ANSWER_EVENT:
+		g_out_submitted =
+			test_submit_event(g_out_pd_ctx, &g_local_status);
+		break;
+	case STAT_ANSWER_UNRELATED:
+		g_out_submitted =
+			test_submit_event(g_out_pd_ctx, &g_input_status);
+		/* fall through */
+	case STAT_ANSWER_IN_PLACE:
+		cmd->status = g_local_status.status;
+		break;
+	}
+	return 0;
+}
+
+/*
+ * A status query is answered with a status event submitted from inside the
+ * command callback, like the other commands whose reply carries data, or --
+ * the older way -- by filling in the command's status report.
+ */
+static bool test_status_reply_selection(struct test *t)
+{
+	uint8_t lstat_cmd[] = { 0x64 };
+	uint8_t poll_cmd[] = { 0x60 };
+	osdp_t *cp = NULL, *pd_ctx = NULL;
+	struct osdp_pd *pd;
+	bool result = true;
+
+	printf(SUB_2 "testing reply selection for osdp_LSTAT\n");
+
+	if (test_setup_devices(t, &cp, &pd_ctx)) {
+		printf(SUB_2 "Failed to setup devices for osdp_LSTAT tests\n");
+		return false;
+	}
+	out_init_events();
+	memset(&g_local_status, 0, sizeof(g_local_status));
+	g_local_status.type = OSDP_EVENT_STATUS;
+	g_local_status.status.type = OSDP_STATUS_REPORT_LOCAL;
+	g_local_status.status.nr_entries = 2;
+	g_local_status.status.report[0] = 1;
+	g_out_pd_ctx = pd_ctx;
+	pd = osdp_to_pd(pd_ctx, 0);
+	osdp_pd_set_command_callback(pd_ctx, test_stat_command_callback, NULL);
+
+	g_stat_answer = STAT_ANSWER_EVENT;
+	test_pd_decode_command(pd, lstat_cmd, sizeof(lstat_cmd));
+	result &= out_check_reply(pd, REPLY_LSTATR,
+				  "status event: osdp_LSTAT is answered with"
+				  " it");
+	if (pd->active_event != g_out_submitted) {
+		printf(SUB_2 "the reported status is not the active event\n");
+		result = false;
+	}
+	test_event_free((struct osdp_event *)pd->active_event);
+	pd->active_event = NULL;
+
+	g_stat_answer = STAT_ANSWER_IN_PLACE;
+	test_pd_decode_command(pd, lstat_cmd, sizeof(lstat_cmd));
+	result &= out_check_reply(pd, REPLY_LSTATR,
+				  "status filled in: osdp_LSTAT is answered"
+				  " with it");
+	pd->reply_prebuilt = false;
+
+	g_stat_answer = STAT_ANSWER_UNRELATED;
+	test_pd_decode_command(pd, lstat_cmd, sizeof(lstat_cmd));
+	result &= out_check_reply(pd, REPLY_LSTATR,
+				  "an unrelated event is not consumed by"
+				  " osdp_LSTAT");
+	pd->reply_prebuilt = false;
+	test_pd_decode_command(pd, poll_cmd, sizeof(poll_cmd));
+	result &= out_check_reply(pd, REPLY_ISTATR,
+				  "it rides out on the following poll instead");
+	test_event_free((struct osdp_event *)pd->active_event);
+	pd->active_event = NULL;
+
+	osdp_cp_teardown(cp);
+	osdp_pd_teardown(pd_ctx);
+	return result;
+}
+
 static bool test_text_command()
 {
 	printf(SUB_2 "testing text command\n");
@@ -1239,6 +1336,7 @@ void run_command_tests(struct test *t)
 	/* Owns its devices and drives the PD codec directly; must run before
 	 * the shared environment brings up the async runners. */
 	TEST_CASE(t, "output_reply_selection", test_output_reply_selection(t));
+	TEST_CASE(t, "status_reply_selection", test_status_reply_selection(t));
 
 	/* Setup test environment once */
 	if (setup_test_environment(t) != 0) {
