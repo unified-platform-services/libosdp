@@ -2281,7 +2281,7 @@ int osdp_cp_trs_scan_enable(osdp_t *ctx, int pd,
 
 /**
  * @brief Disable the background card presence scan on a PD. If a probe is
- * in flight, the reader is restored to its default mode first.
+ * in flight, the reader returns to its default mode on the next refresh.
  *
  * @param ctx OSDP context
  * @param pd PD offset (0-indexed) of this PD in `osdp_pd_info_t *` passed to
