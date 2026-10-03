@@ -307,6 +307,106 @@ static bool test_submit_during_teardown_is_refused(struct test *t)
 	return true;
 }
 
+#ifndef OPT_OSDP_RX_ZERO_COPY
+struct nested_ctx {
+	osdp_t *cp;
+	int depth;
+	int max_depth;
+	int register_rc;
+	int add_pd_rc;
+};
+
+static struct nested_ctx g_nested;
+
+static const struct osdp_file_ops g_nested_ops;
+
+/* Channel that, the first time the CP reads it, calls back into the CP. */
+static int nested_recv(void *data, uint8_t *buf, int maxlen)
+{
+	struct nested_ctx *c = data;
+	osdp_pd_info_t extra = {
+		.baud_rate = 9600,
+		.address = 102,
+	};
+
+	ARG_UNUSED(buf);
+	ARG_UNUSED(maxlen);
+	c->depth++;
+	if (c->depth > c->max_depth) {
+		c->max_depth = c->depth;
+	}
+	if (c->depth == 1 && c->register_rc == 1) {
+		osdp_cp_refresh(c->cp);
+		c->register_rc =
+			osdp_file_register_ops(c->cp, 0, &g_nested_ops);
+		c->add_pd_rc = osdp_cp_add_pd(c->cp, 1, &extra);
+	}
+	c->depth--;
+	return 0;
+}
+
+static int nested_send(void *data, uint8_t *buf, int len)
+{
+	ARG_UNUSED(data);
+	ARG_UNUSED(buf);
+	return len;
+}
+
+/*
+ * From inside a callback, a refresh must not recurse and the calls that would
+ * reshape the context must fail; outside one, the same calls work.
+ */
+static bool test_nested_calls_from_a_callback_are_refused(void)
+{
+	struct osdp_channel channel = {
+		.data = &g_nested,
+		.recv = nested_recv,
+		.send = nested_send,
+	};
+	osdp_pd_info_t info = {
+		.baud_rate = 9600,
+		.address = 101,
+	};
+	osdp_pd_info_t extra = {
+		.baud_rate = 9600,
+		.address = 103,
+	};
+	bool result = false;
+	int i;
+
+	memset(&g_nested, 0, sizeof(g_nested));
+	g_nested.register_rc = 1;
+	g_nested.cp = osdp_cp_setup(&channel, 1, &info);
+	if (g_nested.cp == NULL) {
+		printf(SUB_2 "nested: setup failed\n");
+		return false;
+	}
+	for (i = 0; i < 1000 && g_nested.register_rc == 1; i++) {
+		osdp_cp_refresh(g_nested.cp);
+		usleep(1000);
+	}
+	if (g_nested.max_depth != 1) {
+		printf(SUB_2 "nested: refresh recursed to depth %d\n",
+		       g_nested.max_depth);
+		goto out;
+	}
+	if (g_nested.register_rc != -1 || g_nested.add_pd_rc != -1) {
+		printf(SUB_2 "nested: register %d, add_pd %d, want -1\n",
+		       g_nested.register_rc, g_nested.add_pd_rc);
+		goto out;
+	}
+	if (osdp_file_register_ops(g_nested.cp, 0, &g_nested_ops) != 0 ||
+	    osdp_cp_add_pd(g_nested.cp, 1, &extra) != 0) {
+		printf(SUB_2 "nested: refused outside a callback too\n");
+		goto out;
+	}
+	result = true;
+out:
+	osdp_cp_teardown(g_nested.cp);
+	return result;
+}
+#endif /* OPT_OSDP_RX_ZERO_COPY */
+
 /* Every submitted object must have come back by the time teardown returns. */
 static bool test_no_objects_outstanding_after_teardown(void)
 {
@@ -359,6 +459,10 @@ void run_completion_tests(struct test *t)
 	 */
 	TEST_CASE(t, "submit_during_teardown_is_refused",
 		  test_submit_during_teardown_is_refused(t));
+#ifndef OPT_OSDP_RX_ZERO_COPY
+	TEST_CASE(t, "nested_calls_from_a_callback_are_refused",
+		  test_nested_calls_from_a_callback_are_refused());
+#endif
 	goto teardown;
 
 stop_runners:

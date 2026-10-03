@@ -2715,6 +2715,7 @@ error:
 int osdp_cp_add_pd(osdp_t *ctx, int num_pd, const osdp_pd_info_t *info)
 {
 	input_check(ctx);
+	input_check_not_running(ctx);
 	struct osdp *cp_ctx = TO_OSDP(ctx);
 
 	if (!num_pd || !info) {
@@ -2790,6 +2791,7 @@ void osdp_cp_refresh(osdp_t *ctx)
 {
 	input_check(ctx);
 	input_check_not_tearing_down_noret(ctx);
+	input_check_not_running_noret(ctx);
 	int next_pd_idx, refresh_count = 0;
 	struct osdp_pd *pd;
 	struct osdp *cp_ctx = TO_OSDP(ctx);
@@ -2800,6 +2802,7 @@ void osdp_cp_refresh(osdp_t *ctx)
 	if (cp_ctx->_current_pd == NULL) {
 		SET_CURRENT_PD(cp_ctx, 0);
 	}
+	cp_ctx->running = true;
 	while (refresh_count < cp_ctx->_num_pd) {
 		pd = cp_ctx->_current_pd;
 
@@ -2821,6 +2824,7 @@ void osdp_cp_refresh(osdp_t *ctx)
 		SET_CURRENT_PD(cp_ctx, next_pd_idx);
 		refresh_count++;
 	}
+	cp_ctx->running = false;
 }
 
 void osdp_cp_set_event_callback(osdp_t *ctx, cp_event_callback_t cb, void *arg)
@@ -2843,9 +2847,16 @@ int osdp_cp_submit_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 {
 	input_check(ctx, pd_idx);
 	input_check_not_tearing_down(ctx);
+	struct osdp *cp_ctx = TO_OSDP(ctx);
 	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+	bool was_running = cp_ctx->running;
+	int ret;
 
-	return cp_submit_command(pd, cmd);
+	/* Starting a file transfer opens the file from in here. */
+	cp_ctx->running = true;
+	ret = cp_submit_command(pd, cmd);
+	cp_ctx->running = was_running;
+	return ret;
 }
 
 /*

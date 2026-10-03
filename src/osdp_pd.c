@@ -2090,9 +2090,13 @@ void osdp_pd_refresh(osdp_t *ctx)
 {
 	input_check(ctx);
 	input_check_not_tearing_down_noret(ctx);
+	input_check_not_running_noret(ctx);
+	struct osdp *pd_ctx = TO_OSDP(ctx);
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
 
+	pd_ctx->running = true;
 	osdp_pd_update(pd);
+	pd_ctx->running = false;
 }
 
 void osdp_pd_set_capabilities(osdp_t *ctx, const struct osdp_pd_cap *cap)
