@@ -1985,8 +1985,11 @@ osdp_t *osdp_pd_setup(struct osdp_channel *channel, const osdp_pd_info_t *info);
  * callback belongs to. LibOSDP refuses the calls that would pull the context
  * out from under the code that ran the callback: a nested refresh returns
  * without doing anything, and osdp_file_register_ops() and osdp_cp_add_pd()
- * fail. osdp_cp_teardown() and osdp_pd_teardown() must not be called from
- * inside a callback of the context they tear down.
+ * fail. While teardown runs, the submit, flush and cancel calls and those two
+ * fail too, and a refresh does nothing. osdp_cp_teardown() and
+ * osdp_pd_teardown() must not be called from inside a callback of the context
+ * they tear down -- they free it under the code that ran the callback -- except
+ * from a completion that teardown itself fired, where the call does nothing.
  */
 OSDP_EXPORT
 void osdp_pd_refresh(osdp_t *ctx);
@@ -2109,7 +2112,7 @@ osdp_t *osdp_cp_setup(const struct osdp_channel *channel, int num_pd,
  *
  * @retval 0 on success
  * @retval -1 on failure, including when called from inside one of this
- * context's callbacks (see osdp_cp_refresh())
+ * context's callbacks or during its teardown (see osdp_cp_refresh())
  */
 OSDP_EXPORT
 int osdp_cp_add_pd(osdp_t *ctx, int num_pd, const osdp_pd_info_t *info);
@@ -2138,8 +2141,11 @@ int osdp_cp_add_pd(osdp_t *ctx, int num_pd, const osdp_pd_info_t *info);
  * callback belongs to. LibOSDP refuses the calls that would pull the context
  * out from under the code that ran the callback: a nested refresh returns
  * without doing anything, and osdp_file_register_ops() and osdp_cp_add_pd()
- * fail. osdp_cp_teardown() and osdp_pd_teardown() must not be called from
- * inside a callback of the context they tear down.
+ * fail. While teardown runs, the submit, flush and cancel calls and those two
+ * fail too, and a refresh does nothing. osdp_cp_teardown() and
+ * osdp_pd_teardown() must not be called from inside a callback of the context
+ * they tear down -- they free it under the code that ran the callback -- except
+ * from a completion that teardown itself fired, where the call does nothing.
  */
 OSDP_EXPORT
 void osdp_cp_refresh(osdp_t *ctx);
@@ -2772,7 +2778,7 @@ struct osdp_file_ops {
  * @param ops Populated file operations struct
  *
  * @retval 0 on success. -1 on errors, including when called from inside one of
- * this context's callbacks (see osdp_cp_refresh()).
+ * this context's callbacks or during its teardown (see osdp_cp_refresh()).
  */
 OSDP_EXPORT
 int osdp_file_register_ops(osdp_t *ctx, int pd,

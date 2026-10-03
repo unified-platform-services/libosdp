@@ -2071,7 +2071,7 @@ void osdp_pd_teardown(osdp_t *ctx)
 	struct osdp *pd_ctx = TO_OSDP(ctx);
 
 	if (pd_ctx->tearing_down) {
-		return; /* re-entrant teardown from a completion */
+		return; /* again, from a completion this teardown fired */
 	}
 	pd_ctx->tearing_down = true;
 

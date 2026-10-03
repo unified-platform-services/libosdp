@@ -619,6 +619,7 @@ int osdp_file_register_ops(osdp_t *ctx, int pd_idx,
 			   const struct osdp_file_ops *ops)
 {
 	input_check(ctx, pd_idx);
+	input_check_not_tearing_down(ctx);
 	input_check_not_running(ctx);
 	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
 

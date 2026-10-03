@@ -19,6 +19,8 @@ struct completion_ctx {
 	/* Set by a callback that re-enters libosdp; read by the test. */
 	atomic_int resubmit_rc;
 	atomic_bool resubmit_armed;
+	int add_pd_rc;
+	int register_rc;
 };
 
 static struct completion_ctx g_comp;
@@ -343,6 +345,10 @@ static void reenter_on_abort_cb(void *arg, int pd, struct osdp_cmd *cmd,
 				enum osdp_completion_status status)
 {
 	struct completion_ctx *c = arg;
+	osdp_pd_info_t extra = {
+		.baud_rate = 9600,
+		.address = 106,
+	};
 
 	ARG_UNUSED(pd);
 	test_completion_record(&c->comp, cmd->id, (int)status);
@@ -358,6 +364,11 @@ static void reenter_on_abort_cb(void *arg, int pd, struct osdp_cmd *cmd,
 		 * machine over a context teardown is dismantling.
 		 */
 		osdp_cp_refresh(c->cp);
+		c->add_pd_rc = osdp_cp_add_pd(c->cp, 1, &extra);
+		c->register_rc =
+			osdp_file_register_ops(c->cp, 0, &g_flush_reshape_ops);
+		/* Teardown is already running; this one must be a no-op. */
+		osdp_cp_teardown(c->cp);
 	}
 	test_cmd_free(cmd);
 }
@@ -368,7 +379,7 @@ static struct completion_ctx g_teardown_comp;
 
 /*
  * An osdp_* call from inside an ABORTED completion must fail cleanly rather
- * than enqueue into a context that is being torn down.
+ * than enqueue into, or reshape, a context that is being torn down.
  */
 static bool test_submit_during_teardown_is_refused(struct test *t)
 {
@@ -384,6 +395,8 @@ static bool test_submit_during_teardown_is_refused(struct test *t)
 	test_completion_reset(&g_teardown_comp.comp);
 	atomic_store(&g_teardown_comp.resubmit_rc, 0);
 	atomic_store(&g_teardown_comp.resubmit_armed, true);
+	g_teardown_comp.add_pd_rc = 1;
+	g_teardown_comp.register_rc = 1;
 	osdp_cp_set_command_completion_callback(cp, reenter_on_abort_cb,
 						&g_teardown_comp);
 
@@ -423,6 +436,12 @@ static bool test_submit_during_teardown_is_refused(struct test *t)
 	if (atomic_load(&g_teardown_comp.resubmit_rc) != -1) {
 		printf(SUB_2 "teardown: submit returned %d, want -1\n",
 		       atomic_load(&g_teardown_comp.resubmit_rc));
+		return false;
+	}
+	if (g_teardown_comp.add_pd_rc != -1 ||
+	    g_teardown_comp.register_rc != -1) {
+		printf(SUB_2 "teardown: add_pd %d, register %d, want -1\n",
+		       g_teardown_comp.add_pd_rc, g_teardown_comp.register_rc);
 		return false;
 	}
 	return true;

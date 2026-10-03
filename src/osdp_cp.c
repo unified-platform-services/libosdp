@@ -2715,6 +2715,7 @@ error:
 int osdp_cp_add_pd(osdp_t *ctx, int num_pd, const osdp_pd_info_t *info)
 {
 	input_check(ctx);
+	input_check_not_tearing_down(ctx);
 	input_check_not_running(ctx);
 	struct osdp *cp_ctx = TO_OSDP(ctx);
 
@@ -2740,7 +2741,7 @@ void osdp_cp_teardown(osdp_t *ctx)
 	struct osdp *cp_ctx = TO_OSDP(ctx);
 
 	if (cp_ctx->tearing_down) {
-		return; /* re-entrant teardown from a completion */
+		return; /* again, from a completion this teardown fired */
 	}
 	cp_ctx->tearing_down = true;
 
@@ -2860,8 +2861,8 @@ int osdp_cp_submit_command(osdp_t *ctx, int pd_idx, const struct osdp_cmd *cmd)
 }
 
 /*
- * Detach the queue, then drain the detached copy. A completion may submit,
- * flush or tear down, and must not mutate the list this loop is walking.
+ * Detach the queue, then drain the detached copy. A completion may submit or
+ * flush, and must not mutate the list this loop is walking.
  * list_t holds only head/tail and node_t has no back-pointer to its list, so
  * taking the struct by value and re-initialising the live one is a safe O(1)
  * splice that needs no new c-utils API.
