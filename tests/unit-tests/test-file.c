@@ -794,6 +794,67 @@ done:
 	TEST_CASE(t, "file_tx_pd_keep_alive", result);
 }
 
+static int g_empty_open_calls;
+static int g_empty_close_calls;
+
+static int empty_fops_open(void *arg, int file_id, uint32_t *size)
+{
+	ARG_UNUSED(arg);
+	ARG_UNUSED(file_id);
+	g_empty_open_calls++;
+	*size = 0;
+	return 0;
+}
+
+static int empty_fops_close(void *arg)
+{
+	ARG_UNUSED(arg);
+	g_empty_close_calls++;
+	return 0;
+}
+
+/* A file that opens but is empty is refused, and must be closed again. */
+void run_file_tx_empty_file_tests(struct test *t)
+{
+	bool result = false;
+	osdp_t *cp_ctx = NULL, *pd_ctx = NULL;
+	struct osdp_pd *pd;
+	struct osdp_file_ops empty_ops = {
+		.open = empty_fops_open,
+		.read = test_fops_read,
+		.write = test_fops_write,
+		.close = empty_fops_close,
+	};
+
+	printf("\nBegin file transfer test: empty file\n");
+
+	g_empty_open_calls = 0;
+	g_empty_close_calls = 0;
+	if (test_setup_devices(t, &cp_ctx, &pd_ctx)) {
+		printf(SUB_1 "Failed to setup devices!\n");
+		goto done;
+	}
+	osdp_file_register_ops(cp_ctx, 0, &empty_ops);
+	pd = osdp_to_pd((struct osdp *)cp_ctx, 0);
+
+	if (osdp_file_tx_command(pd, 1, 0) != -1) {
+		printf(SUB_1 "empty file: transfer started\n");
+		goto teardown;
+	}
+	if (g_empty_open_calls != 1 || g_empty_close_calls != 1) {
+		printf(SUB_1 "empty file: open %d, close %d, want 1 each\n",
+		       g_empty_open_calls, g_empty_close_calls);
+		goto teardown;
+	}
+	result = true;
+
+teardown:
+	osdp_cp_teardown(cp_ctx);
+	osdp_pd_teardown(pd_ctx);
+done:
+	TEST_CASE(t, "file_tx_empty_file", result);
+}
+
 static int16_t stat_reply_status(const uint8_t *stat)
 {
 	return (int16_t)(stat[3] | ((uint16_t)stat[4] << 8));

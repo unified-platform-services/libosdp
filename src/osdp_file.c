@@ -582,6 +582,9 @@ int osdp_file_tx_command(struct osdp_pd *pd, int file_id, uint32_t flags)
 
 	if (size == 0) {
 		LOG_ERR("TX_init: Invalid file size %" PRIu32, size);
+		if (f->ops.close(f->ops.arg) < 0) {
+			LOG_ERR("TX_init: File close failed; continuing");
+		}
 		return -1;
 	}
 
