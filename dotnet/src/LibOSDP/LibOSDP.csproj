@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <RootNamespace>LibOSDP</RootNamespace>
+    <IsAotCompatible>true</IsAotCompatible>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <PackageId>LibOSDP</PackageId>
+    <Description>Open Supervised Device Protocol (OSDP, IEC 60839-11-5) control panel and peripheral device library for .NET, built on LibOSDP.</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <PackageProjectUrl>https://doc.osdp.dev/dotnet/</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/osdp-dev/libosdp</RepositoryUrl>
+    <PackageTags>osdp;access-control;rs485;security;iec-60839</PackageTags>
+  </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="LibOSDP.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="../../runtimes/*/native/*" Pack="true" PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.3" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net8.0;net10.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <!-- Local builds reference the project and copy the staged host library;
+       CI sets LibOsdpPackageVersion to test the packed .nupkg instead. -->
+  <ItemGroup Condition="'$(LibOsdpPackageVersion)' == ''">
+    <ProjectReference Include="../../src/LibOSDP/LibOSDP.csproj" />
+    <None Include="../../runtimes/*/native/*" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(LibOsdpPackageVersion)' != ''">
+    <PackageReference Include="LibOSDP" Version="$(LibOsdpPackageVersion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" Version="4.0.1" />
+  </ItemGroup>
+</Project>

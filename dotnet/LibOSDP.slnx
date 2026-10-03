@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/LibOSDP/LibOSDP.csproj" />
+  <Project Path="tests/LibOSDP.Tests/LibOSDP.Tests.csproj" />
+</Solution>
