@@ -1,0 +1,38 @@
+// Copyright (c) 2026 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
+//
+// SPDX-License-Identifier: Apache-2.0
+
+namespace LibOSDP;
+
+/// <summary>
+/// Something LibOSDP itself reports about a link. A CP receives these as
+/// <c>NotificationEvent</c>s and a PD as <see cref="NotificationCommand"/>s,
+/// only when <see cref="OsdpFlags.EnableNotification"/> is set.
+/// </summary>
+public abstract record OsdpNotification
+{
+    private protected OsdpNotification() { }
+}
+
+/// <summary>The secure channel went up or down.</summary>
+/// <param name="Active">Whether the secure channel is now active.</param>
+/// <param name="UsingDefaultKey">Whether it runs on the install-mode default key (SCBK-D).</param>
+public sealed record SecureChannelStatusNotification(bool Active, bool UsingDefaultKey) : OsdpNotification;
+
+/// <summary>The PD went online or offline.</summary>
+/// <param name="Online">Whether the PD is now online.</param>
+public sealed record PdStatusNotification(bool Online) : OsdpNotification;
+
+/// <summary>A multipart operation (file transfer, PIV, biometrics) changed state.</summary>
+/// <param name="Stage">Start, progress, or done.</param>
+/// <param name="MessageType">Which kind of operation.</param>
+/// <param name="ObjectId">Operation-specific identifier, e.g. the file ID.</param>
+/// <param name="Total">Total bytes.</param>
+/// <param name="Offset">Bytes done so far.</param>
+/// <param name="Outcome">How it ended; meaningful when <paramref name="Stage"/> is <see cref="NotificationType.MultipartDone"/>.</param>
+public sealed record MultipartNotification(NotificationType Stage, MpMsgType MessageType, int ObjectId,
+                                           uint Total, uint Offset, MpOutcome Outcome) : OsdpNotification;
+
+/// <summary>The PD reported its identity.</summary>
+/// <param name="Id">The reported identity.</param>
+public sealed record PdIdNotification(PdId Id) : OsdpNotification;
