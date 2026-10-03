@@ -217,6 +217,127 @@ static bool test_pd_submit_from_flush_completion(void)
 	return true;
 }
 
+static const struct osdp_file_ops g_flush_reshape_ops;
+
+struct flush_reshape_ctx {
+	osdp_t *ctx;
+	int add_pd_rc;
+	int register_rc;
+};
+
+static struct flush_reshape_ctx g_flush_reshape;
+
+/* Completion that tries to reshape the CP whose flush fired it. */
+static void reshape_from_flush_cb(void *arg, int pd, struct osdp_cmd *cmd,
+				  enum osdp_completion_status status)
+{
+	struct flush_reshape_ctx *c = arg;
+	osdp_pd_info_t extra = {
+		.baud_rate = 9600,
+		.address = 104,
+	};
+
+	ARG_UNUSED(pd);
+	ARG_UNUSED(status);
+	c->add_pd_rc = osdp_cp_add_pd(c->ctx, 1, &extra);
+	c->register_rc =
+		osdp_file_register_ops(c->ctx, 0, &g_flush_reshape_ops);
+	test_cmd_free(cmd);
+}
+
+/*
+ * A flush runs completions while it walks the PD; growing the PD array or
+ * swapping the file ops from one of them would pull the PD out from under it.
+ * Expects g_comp.cp online with its refresh runner stopped.
+ */
+static bool test_reshape_from_flush_completion_is_refused(void)
+{
+	struct osdp_cmd cmd = make_led_cmd();
+	osdp_pd_info_t extra = {
+		.baud_rate = 9600,
+		.address = 105,
+	};
+	bool result = false;
+
+	g_flush_reshape.ctx = g_comp.cp;
+	g_flush_reshape.add_pd_rc = 1;
+	g_flush_reshape.register_rc = 1;
+	osdp_cp_set_command_completion_callback(
+		g_comp.cp, reshape_from_flush_cb, &g_flush_reshape);
+	if (!test_submit_command(g_comp.cp, 0, &cmd) ||
+	    !test_submit_command(g_comp.cp, 0, &cmd)) {
+		printf(SUB_2 "reshape: submit rejected\n");
+		goto out;
+	}
+	if (osdp_cp_flush_commands(g_comp.cp, 0) != 2) {
+		printf(SUB_2 "reshape: flush miscounted\n");
+		goto out;
+	}
+	if (g_flush_reshape.add_pd_rc != -1 ||
+	    g_flush_reshape.register_rc != -1) {
+		printf(SUB_2 "reshape: add_pd %d, register %d, want -1\n",
+		       g_flush_reshape.add_pd_rc, g_flush_reshape.register_rc);
+		goto out;
+	}
+	if (osdp_cp_add_pd(g_comp.cp, 1, &extra) != 0) {
+		printf(SUB_2 "reshape: add_pd refused after the flush\n");
+		goto out;
+	}
+	result = true;
+out:
+	osdp_cp_set_command_completion_callback(
+		g_comp.cp, resubmit_completion_cb, &g_comp);
+	return result;
+}
+
+static void pd_reshape_from_flush_cb(void *arg, struct osdp_event *ev,
+				     enum osdp_completion_status status)
+{
+	struct flush_reshape_ctx *c = arg;
+
+	ARG_UNUSED(status);
+	c->register_rc =
+		osdp_file_register_ops(c->ctx, 0, &g_flush_reshape_ops);
+	test_event_free(ev);
+}
+
+/* Same for a PD: its flush runs completions too. */
+static bool test_pd_reshape_from_flush_completion_is_refused(void)
+{
+	struct osdp_event ev;
+	bool result = false;
+
+	memset(&ev, 0, sizeof(ev));
+	ev.type = OSDP_EVENT_CARDREAD;
+	ev.cardread.reader_no = 0;
+	ev.cardread.format = OSDP_CARD_FMT_RAW_WIEGAND;
+	ev.cardread.length = 16;
+
+	g_flush_reshape.ctx = g_comp.pd;
+	g_flush_reshape.register_rc = 1;
+	osdp_pd_set_event_completion_callback(
+		g_comp.pd, pd_reshape_from_flush_cb, &g_flush_reshape);
+	if (!test_submit_event(g_comp.pd, &ev)) {
+		printf(SUB_2 "pd reshape: submit rejected\n");
+		goto out;
+	}
+	osdp_pd_flush_events(g_comp.pd);
+	if (g_flush_reshape.register_rc != -1) {
+		printf(SUB_2 "pd reshape: register %d, want -1\n",
+		       g_flush_reshape.register_rc);
+		goto out;
+	}
+	if (osdp_file_register_ops(g_comp.pd, 0, &g_flush_reshape_ops) != 0) {
+		printf(SUB_2 "pd reshape: register refused after the flush\n");
+		goto out;
+	}
+	result = true;
+out:
+	osdp_pd_set_event_completion_callback(
+		g_comp.pd, pd_resubmit_completion_cb, &g_comp);
+	return result;
+}
+
 /* Completion that calls back into libosdp; records what it got back. */
 static void reenter_on_abort_cb(void *arg, int pd, struct osdp_cmd *cmd,
 				enum osdp_completion_status status)
@@ -449,6 +570,11 @@ void run_completion_tests(struct test *t)
 
 	async_runner_stop(g_comp.cp_runner);
 	async_runner_stop(g_comp.pd_runner);
+
+	TEST_CASE(t, "reshape_from_flush_completion_is_refused",
+		  test_reshape_from_flush_completion_is_refused());
+	TEST_CASE(t, "pd_reshape_from_flush_completion_is_refused",
+		  test_pd_reshape_from_flush_completion_is_refused());
 
 	/*
 	 * The mock channel is a single shared pair of buffers, not one per

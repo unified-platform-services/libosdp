@@ -2255,10 +2255,14 @@ int osdp_pd_flush_events(osdp_t *ctx)
 {
 	input_check(ctx);
 	input_check_not_tearing_down(ctx);
-	int count;
+	struct osdp *pd_ctx = TO_OSDP(ctx);
 	struct osdp_pd *pd = GET_CURRENT_PD(ctx);
+	bool was_running = pd_ctx->running;
+	int count;
 
+	pd_ctx->running = true;
 	count = pd_drain_queue(pd, OSDP_COMPLETION_FLUSHED);
+	pd_ctx->running = was_running;
 
 	return count;
 }

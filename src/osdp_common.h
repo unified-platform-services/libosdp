@@ -263,11 +263,12 @@ static inline __noreturn void die()
 	} while (0)
 
 /*
- * Refresh and submit run application callbacks -- the channel, file ops,
- * command and event callbacks -- which may call back into libosdp. A refresh
- * from in there would recurse through the channel without bound, and swapping
- * the file ops or growing the PD array would pull state out from under the
- * code that called the callback, so refuse those three while either runs.
+ * Refresh, submit and flush run application callbacks -- the channel, file
+ * ops, command, event and completion callbacks -- which may call back into
+ * libosdp. A refresh from in there would recurse through the channel without
+ * bound, and swapping the file ops or growing the PD array would pull state
+ * out from under the code that called the callback, so refuse those three
+ * while any of them runs.
  */
 #define input_check_not_running(_ctx)                                          \
 	do {                                                                   \
@@ -748,7 +749,7 @@ struct osdp {
 	uint32_t _magic; /* Canary to be used in input_check() */
 	int _num_pd; /* Number of PDs attached to this context */
 	bool tearing_down; /* set by teardown; public API refuses while set */
-	bool running; /* inside refresh or submit, which run app callbacks */
+	bool running; /* inside refresh, submit or flush: app callbacks run */
 	struct osdp_pd *_current_pd; /* current operational pd's pointer */
 	struct osdp_pd *pd; /* base of PD list (must be at lest one) */
 	struct osdp_channel channel; /* OSDP channel */

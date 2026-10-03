@@ -2915,10 +2915,14 @@ int osdp_cp_flush_commands(osdp_t *ctx, int pd_idx)
 {
 	input_check(ctx, pd_idx);
 	input_check_not_tearing_down(ctx);
+	struct osdp *cp_ctx = TO_OSDP(ctx);
 	struct osdp_pd *pd = osdp_to_pd(ctx, pd_idx);
+	bool was_running = cp_ctx->running;
 	int count;
 
+	cp_ctx->running = true;
 	count = cp_drain_queue(pd, OSDP_COMPLETION_FLUSHED);
+	cp_ctx->running = was_running;
 #ifdef OPT_BUILD_OSDP_TRS
 	/*
 	 * The band markers went out with the queue, so the tail is now wherever
