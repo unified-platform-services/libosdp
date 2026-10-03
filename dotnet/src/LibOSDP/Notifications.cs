@@ -6,7 +6,7 @@ namespace LibOSDP;
 
 /// <summary>
 /// Something LibOSDP itself reports about a link. A CP receives these as
-/// <c>NotificationEvent</c>s and a PD as <see cref="NotificationCommand"/>s,
+/// <see cref="NotificationEvent"/>s and a PD as <see cref="NotificationCommand"/>s,
 /// only when <see cref="OsdpFlags.EnableNotification"/> is set.
 /// </summary>
 public abstract record OsdpNotification
