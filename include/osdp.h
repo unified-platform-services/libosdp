@@ -349,7 +349,8 @@ typedef void (*osdp_flush_fn_t)(void *data);
 
 /**
  * @brief pointer to function that closes the underlying channel. This call is
- * made when LibOSDP is terminating, once per PD.
+ * made once per context, from osdp_cp_teardown() or osdp_pd_teardown(); a CP
+ * shares one channel among all its PDs.
  *
  * @param data for use by underlying layers. osdp_channel::data is passed
  */
