@@ -489,7 +489,9 @@ int async_runner(void *data)
 		return WORK_DONE; /* Stop if marked as not running */
 	}
 
+	test_api_lock();
 	td->refresh(td->ctx);
+	test_api_unlock();
 	usleep(10 * 1000);
 
 	return WORK_YIELD; /* Continue running */

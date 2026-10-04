@@ -4,6 +4,7 @@
 #   - tests/unit-tests/CMakeLists.txt reads it into OSDP_UNIT_TEST_SRC
 # One .c filename per line, relative to tests/unit-tests/.
 test.c
+test-api.c
 test-cp-phy.c
 test-pd-phy.c
 test-cp-fsm.c

@@ -299,6 +299,90 @@ typedef enum test_channel_hook_verdict (*test_channel_hook_fn)(
 	uint8_t *out, int *out_len, int out_max);
 
 void test_set_channel_hook(test_channel_hook_fn fn, void *arg);
+
+/*
+ * Serialization of API calls with the refresh runners.
+ *
+ * LibOSDP requires every call on a context to be serialized by the caller
+ * (see osdp_cp_refresh()). The async runners refresh on workqueue threads
+ * while a test submits, flushes and reshapes from its own thread, so each
+ * such call takes one harness-wide lock that the runners also hold across
+ * refresh. It is recursive because callbacks run inside refresh, submit
+ * and flush, and may call back into the API.
+ *
+ * The macros below route every mutating call a suite makes through a
+ * locked wrapper, so a suite cannot make an unserialized call by accident.
+ * The getters the library documents as exempt stay unwrapped. Inside the
+ * harness, a wrapper reaches the real function by parenthesizing its name,
+ * which suppresses the macro.
+ */
+void test_api_lock(void);
+void test_api_unlock(void);
+
+void test_api_cp_refresh(osdp_t *ctx);
+void test_api_pd_refresh(osdp_t *ctx);
+void test_api_cp_teardown(osdp_t *ctx);
+void test_api_pd_teardown(osdp_t *ctx);
+int test_api_cp_submit_command(osdp_t *ctx, int pd, const struct osdp_cmd *cmd);
+int test_api_pd_submit_event(osdp_t *ctx, const struct osdp_event *event);
+int test_api_cp_flush_commands(osdp_t *ctx, int pd);
+int test_api_pd_flush_events(osdp_t *ctx);
+int test_api_cp_cancel(osdp_t *ctx, int pd, enum osdp_mp_msg_type what);
+int test_api_cp_add_pd(osdp_t *ctx, int num_pd, const osdp_pd_info_t *info);
+int test_api_cp_enable_pd(osdp_t *ctx, int pd);
+int test_api_cp_disable_pd(osdp_t *ctx, int pd);
+bool test_api_cp_is_pd_enabled(const osdp_t *ctx, int pd);
+int test_api_cp_modify_flag(osdp_t *ctx, int pd, uint32_t flags, bool do_set);
+int test_api_cp_get_capability(const osdp_t *ctx, int pd,
+			       struct osdp_pd_cap *cap);
+void test_api_pd_set_capabilities(osdp_t *ctx, const struct osdp_pd_cap *cap);
+void test_api_cp_set_command_completion_callback(
+	osdp_t *ctx, cp_command_completion_callback_t cb, void *arg);
+void test_api_cp_set_event_callback(osdp_t *ctx, cp_event_callback_t cb,
+				    void *arg);
+void test_api_pd_set_command_callback(osdp_t *ctx, pd_command_callback_t cb,
+				      void *arg);
+void test_api_pd_set_event_completion_callback(
+	osdp_t *ctx, pd_event_completion_callback_t cb, void *arg);
+int test_api_file_register_ops(osdp_t *ctx, int pd,
+			       const struct osdp_file_ops *ops);
+int test_api_get_metrics(osdp_t *ctx, int pd_idx, struct osdp_metrics *out);
+int test_api_cp_trs_scan_enable(osdp_t *ctx, int pd,
+				const struct osdp_trs_scan_params *params);
+int test_api_cp_trs_scan_disable(osdp_t *ctx, int pd);
+int test_api_cp_trs_get_max_apdu_len(const osdp_t *ctx, int pd);
+
+#define osdp_cp_refresh(...)	      test_api_cp_refresh(__VA_ARGS__)
+#define osdp_pd_refresh(...)	      test_api_pd_refresh(__VA_ARGS__)
+#define osdp_cp_teardown(...)	      test_api_cp_teardown(__VA_ARGS__)
+#define osdp_pd_teardown(...)	      test_api_pd_teardown(__VA_ARGS__)
+#define osdp_cp_submit_command(...)   test_api_cp_submit_command(__VA_ARGS__)
+#define osdp_pd_submit_event(...)     test_api_pd_submit_event(__VA_ARGS__)
+#define osdp_cp_flush_commands(...)   test_api_cp_flush_commands(__VA_ARGS__)
+#define osdp_pd_flush_events(...)     test_api_pd_flush_events(__VA_ARGS__)
+#define osdp_cp_cancel(...)	      test_api_cp_cancel(__VA_ARGS__)
+#define osdp_cp_add_pd(...)	      test_api_cp_add_pd(__VA_ARGS__)
+#define osdp_cp_enable_pd(...)	      test_api_cp_enable_pd(__VA_ARGS__)
+#define osdp_cp_disable_pd(...)	      test_api_cp_disable_pd(__VA_ARGS__)
+#define osdp_cp_is_pd_enabled(...)    test_api_cp_is_pd_enabled(__VA_ARGS__)
+#define osdp_cp_modify_flag(...)      test_api_cp_modify_flag(__VA_ARGS__)
+#define osdp_cp_get_capability(...)   test_api_cp_get_capability(__VA_ARGS__)
+#define osdp_pd_set_capabilities(...) test_api_pd_set_capabilities(__VA_ARGS__)
+#define osdp_cp_set_command_completion_callback(...)                           \
+	test_api_cp_set_command_completion_callback(__VA_ARGS__)
+#define osdp_cp_set_event_callback(...)                                        \
+	test_api_cp_set_event_callback(__VA_ARGS__)
+#define osdp_pd_set_command_callback(...)                                      \
+	test_api_pd_set_command_callback(__VA_ARGS__)
+#define osdp_pd_set_event_completion_callback(...)                             \
+	test_api_pd_set_event_completion_callback(__VA_ARGS__)
+#define osdp_file_register_ops(...)   test_api_file_register_ops(__VA_ARGS__)
+#define osdp_get_metrics(...)	      test_api_get_metrics(__VA_ARGS__)
+#define osdp_cp_trs_scan_enable(...)  test_api_cp_trs_scan_enable(__VA_ARGS__)
+#define osdp_cp_trs_scan_disable(...) test_api_cp_trs_scan_disable(__VA_ARGS__)
+#define osdp_cp_trs_get_max_apdu_len(...)                                      \
+	test_api_cp_trs_get_max_apdu_len(__VA_ARGS__)
+
 int async_runner_start(osdp_t *ctx, void (*fn)(osdp_t *));
 int async_runner_stop(int runner);
 int async_cp_runner_start(osdp_t *cp_ctx);
