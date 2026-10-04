@@ -2526,7 +2526,10 @@ static int cp_expand_pd_array(struct osdp *ctx, int num_pd,
 	ctx->pd = *new_pd_array;
 	ctx->_num_pd = *old_num_pd + num_pd;
 #ifndef OPT_OSDP_STATIC
-	memcpy(*new_pd_array, *old_pd_array, sizeof(struct osdp_pd) * *old_num_pd);
+	if (*old_num_pd > 0) {
+		memcpy(*new_pd_array, *old_pd_array,
+		       sizeof(struct osdp_pd) * *old_num_pd);
+	}
 #endif /* OPT_OSDP_STATIC */
 	return 0;
 }
