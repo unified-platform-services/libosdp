@@ -2557,6 +2557,48 @@ const char *osdp_get_version();
 OSDP_EXPORT
 const char *osdp_get_source_info();
 
+/** @brief osdp_abi_info::options bit: built with OPT_OSDP_RX_ZERO_COPY */
+#define OSDP_ABI_OPT_RX_ZERO_COPY 0x00000001
+/** @brief osdp_abi_info::options bit: built with OPT_OSDP_LOG_MINIMAL */
+#define OSDP_ABI_OPT_LOG_MINIMAL 0x00000002
+/** @brief osdp_abi_info::options bit: built with OPT_BUILD_OSDP_TRS */
+#define OSDP_ABI_OPT_TRS 0x00000004
+
+/**
+ * @brief Binary interface of a LibOSDP build.
+ *
+ * Build options change the size of public structures (the `*_MAX_LEN`
+ * defaults) and their members (OPT_OSDP_RX_ZERO_COPY). Bindings that mirror
+ * these structures in another language compare this against their own layout
+ * before calling into the library.
+ *
+ * Fields are only ever appended. The caller sets @ref osdp_abi_info::size to
+ * the size it was compiled against; LibOSDP fills in at most that many bytes
+ * and writes back how many it filled, so an older caller is never overrun.
+ * Callers must set `size` to at least `sizeof(uint32_t)`; smaller values
+ * leave the struct partly or wholly unwritten.
+ *
+ * The sizes are a layout fingerprint for the shipped option set, not a proof
+ * that every `*_MAX_LEN` matches.
+ */
+struct osdp_abi_info {
+	uint32_t size; /**< In: caller's sizeof(struct osdp_abi_info); out: bytes filled */
+	uint32_t options; /**< OR of the OSDP_ABI_OPT_* bits */
+	uint32_t sizeof_cmd; /**< sizeof(struct osdp_cmd) */
+	uint32_t sizeof_event; /**< sizeof(struct osdp_event) */
+	uint32_t sizeof_channel; /**< sizeof(struct osdp_channel) */
+	uint32_t sizeof_pd_info; /**< sizeof(osdp_pd_info_t) */
+};
+
+/**
+ * @brief Describe the binary interface of this LibOSDP build.
+ *
+ * @param info caller sets info->size first; filled with this build's
+ *             structure sizes and options, up to info->size bytes
+ */
+OSDP_EXPORT
+void osdp_get_abi_info(struct osdp_abi_info *info);
+
 /**
  * @brief Get a bit mask of number of PD that are online currently.
  *

@@ -411,6 +411,34 @@ const char *osdp_get_source_info()
 	}
 }
 
+void osdp_get_abi_info(struct osdp_abi_info *info)
+{
+	struct osdp_abi_info full;
+	uint32_t size;
+
+	if (info == NULL) {
+		return;
+	}
+	full.options = 0;
+#ifdef OPT_OSDP_RX_ZERO_COPY
+	full.options |= OSDP_ABI_OPT_RX_ZERO_COPY;
+#endif
+#ifdef OPT_OSDP_LOG_MINIMAL
+	full.options |= OSDP_ABI_OPT_LOG_MINIMAL;
+#endif
+#ifdef OPT_BUILD_OSDP_TRS
+	full.options |= OSDP_ABI_OPT_TRS;
+#endif
+	full.sizeof_cmd = sizeof(struct osdp_cmd);
+	full.sizeof_event = sizeof(struct osdp_event);
+	full.sizeof_channel = sizeof(struct osdp_channel);
+	full.sizeof_pd_info = sizeof(osdp_pd_info_t);
+
+	size = info->size < sizeof(full) ? info->size : (uint32_t)sizeof(full);
+	full.size = size;
+	memcpy(info, &full, size);
+}
+
 void osdp_get_sc_status_mask(const osdp_t *ctx, uint8_t *bitmask)
 {
 	input_check(ctx);

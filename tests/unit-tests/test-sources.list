@@ -28,3 +28,4 @@ test-trs.c
 test-trs-emu.c
 emu-card.c
 test-pd-zc.c
+test-abi.c

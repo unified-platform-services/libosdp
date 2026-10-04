@@ -417,6 +417,7 @@ void run_hotplug_tests(struct test *t);
 void run_notification_tests(struct test *t);
 void run_completion_tests(struct test *t);
 void run_metrics_tests(struct test *t);
+void run_abi_tests(struct test *t);
 void run_async_fuzz_tests(struct test *t);
 void run_codec_fuzz_tests(struct test *t);
 void run_sc_tests(struct test *t);
