@@ -4,7 +4,7 @@
 
 namespace LibOSDP;
 
-/// <summary>Per-PD behaviour flags, set on <c>PdInfo.Flags</c>.</summary>
+/// <summary>Per-PD behaviour flags, set on <see cref="PdInfo.Flags"/>.</summary>
 [Flags]
 public enum OsdpFlags : uint
 {
@@ -246,7 +246,7 @@ public enum BioStatus
     UnknownError = 0xFF,
 }
 
-/// <summary>NAK reasons a PD application may give through <c>CommandReply.Reject</c>.</summary>
+/// <summary>NAK reasons a PD application may give through <see cref="CommandReply.Reject"/>.</summary>
 public enum NakCode
 {
     /// <summary>The requested biometric type is not supported.</summary>

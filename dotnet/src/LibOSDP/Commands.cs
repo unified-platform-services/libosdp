@@ -95,7 +95,7 @@ public sealed record FileTransferCommand(int FileId, uint Flags = 0) : OsdpComma
 
 /// <summary>
 /// Ask the PD for a status report (osdp_ISTAT, OSTAT, LSTAT, RSTAT). A PD answers
-/// with <c>CommandReply.WithAnswer</c> carrying the filled report.
+/// with <see cref="CommandReply.WithAnswer"/> carrying the filled report.
 /// </summary>
 /// <param name="Type">Which report.</param>
 /// <param name="Report">Empty in a query; one byte per entry in an answer, at most 64.</param>

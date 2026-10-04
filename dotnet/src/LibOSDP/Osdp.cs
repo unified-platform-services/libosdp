@@ -14,8 +14,8 @@ public static unsafe class Osdp
     private static volatile bool s_initialized;
 
     /// <summary>
-    /// How often <c>ControlPanel.RunAsync</c> and
-    /// <c>PeripheralDevice.RunAsync</c> service the bus. OSDP requires
+    /// How often <see cref="ControlPanel.RunAsync"/> and
+    /// <see cref="PeripheralDevice.RunAsync"/> service the bus. OSDP requires
     /// at least once every 50 ms.
     /// </summary>
     public static TimeSpan RefreshInterval { get; } = TimeSpan.FromMilliseconds(20);
