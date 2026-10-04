@@ -2155,6 +2155,12 @@ void osdp_cp_teardown(osdp_t *ctx);
  * ends, not when it is accepted, so @a cmd must stay alive for the whole
  * operation. Progress is reported meanwhile by the OSDP_NOTIFICATION_MP_*
  * notifications, and osdp_cp_cancel() asks such an operation to stop early.
+ * For OSDP_CMD_PIVDATA, OSDP_CMD_GENAUTH and OSDP_CMD_CRAUTH the reply event
+ * (OSDP_EVENT_PIVDATAR, OSDP_EVENT_GENAUTHR, OSDP_EVENT_CRAUTHR) reaches the
+ * event callback before the command completes with OSDP_COMPLETION_OK, and
+ * only one such operation runs per PD at a time (OSDP v2.2 §5.10.2): a second
+ * submission while one is running fails, including from within the reply event
+ * callback.
  *
  * @note Submission fails unless a completion callback is registered (see
  * osdp_cp_set_command_completion_callback()) -- the completion callback is

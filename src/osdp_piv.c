@@ -376,8 +376,6 @@ int osdp_piv_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 		event->type = p->event_type;
 		event->piv_reply.length = (uint16_t)p->mp.total;
 		memcpy(event->piv_reply.data, p->data, p->mp.total);
-		osdp_mp_finish(&p->mp, OSDP_MP_OUTCOME_OK);
-		piv_op_reset(p);
 		return 1;
 	case OSDP_MP_RC_EARLY_TERM:
 		/* §5.10.2: the sender terminated the transfer early. */
@@ -390,6 +388,14 @@ int osdp_piv_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 		osdp_piv_abort(pd);
 		return 0;
 	}
+}
+
+void osdp_piv_cp_reply_finish(struct osdp_pd *pd)
+{
+	struct osdp_piv *p = TO_PIV(pd);
+
+	osdp_mp_finish(&p->mp, OSDP_MP_OUTCOME_OK);
+	piv_op_reset(p);
 }
 
 /* --- PD role --- */

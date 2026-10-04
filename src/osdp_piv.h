@@ -58,6 +58,8 @@ void osdp_piv_cp_cmd_acked(struct osdp_pd *pd);
  * -1 when no op expects this reply. */
 int osdp_piv_cp_reply_consume(struct osdp_pd *pd, const uint8_t *buf, int len,
 			      struct osdp_event *event);
+/* Finish the op whose reply _consume() returned 1 for; call after dispatch. */
+void osdp_piv_cp_reply_finish(struct osdp_pd *pd);
 
 /* --- PD role --- */
 /* Prepare the per-PD context for an incoming command of `wire_cmd`'s family

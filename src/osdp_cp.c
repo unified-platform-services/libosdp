@@ -760,6 +760,7 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		if (t > 0) {
 			cp_dispatch_event(pd, &event);
+			osdp_piv_cp_reply_finish(pd);
 		}
 		ret = OSDP_CP_ERR_NONE;
 		break;

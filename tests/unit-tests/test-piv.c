@@ -34,6 +34,7 @@ struct test_piv_ctx {
 	atomic_int mp_progress;
 	atomic_int mp_done;
 	atomic_int mp_done_outcome;
+	atomic_int replies_at_completion;
 };
 
 static struct test_piv_ctx g_piv;
@@ -284,6 +285,14 @@ static int piv_stub_fclose(void *arg)
 	return 0;
 }
 
+static void piv_cmd_completion_cb(void *arg, int pd, struct osdp_cmd *cmd,
+				  enum osdp_completion_status status)
+{
+	atomic_store(&g_piv.replies_at_completion,
+		     atomic_load(&g_piv.reply_count));
+	test_cmd_completion_cb(arg, pd, cmd, status);
+}
+
 /*
  * A PIVDATA completes when the operation ends, not when it is accepted: one
  * completion, carrying OK, arriving no earlier than MP_DONE.
@@ -300,6 +309,7 @@ static bool test_pivdata_completes_at_mp_done(void)
 	g_piv.cmd_count = 0;
 	g_piv.reply_count = 0;
 	g_piv.mp_done = 0;
+	g_piv.replies_at_completion = 0;
 	g_piv.inline_reply = true;
 	g_piv.reply_event_type = OSDP_EVENT_PIVDATAR;
 	test_completion_reset(&g_piv_compl);
@@ -335,6 +345,10 @@ static bool test_pivdata_completes_at_mp_done(void)
 	if (test_completion_status(&g_piv_compl) != OSDP_COMPLETION_OK) {
 		printf(SUB_2 "piv: status %d, want OK\n",
 		       test_completion_status(&g_piv_compl));
+		return false;
+	}
+	if (g_piv.replies_at_completion != 1) {
+		printf(SUB_2 "piv: completed before its reply was delivered\n");
 		return false;
 	}
 	return true;
@@ -438,7 +452,7 @@ void run_piv_tests(struct test *t)
 	osdp_pd_set_command_callback(g_piv.pd_ctx, piv_pd_command_callback,
 				     &g_piv);
 	osdp_cp_set_command_completion_callback(g_piv.cp_ctx,
-						 test_cmd_completion_cb,
+						 piv_cmd_completion_cb,
 						 &g_piv_compl);
 
 	g_piv.cp_runner = async_runner_start(g_piv.cp_ctx, osdp_cp_refresh);
