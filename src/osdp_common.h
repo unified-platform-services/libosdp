@@ -1029,20 +1029,8 @@ static inline bool sc_is_active(struct osdp_pd *pd)
 	return ISSET_FLAG(pd, PD_FLAG_SC_ACTIVE);
 }
 
-static inline void sc_activate(struct osdp_pd *pd)
-{
-	SET_FLAG(pd, PD_FLAG_SC_ACTIVE);
-}
-
-static inline void sc_deactivate(struct osdp_pd *pd)
-{
-	if (sc_is_active(pd)) {
-		osdp_sc_teardown(pd);
-	}
-	CLEAR_FLAG(pd, PD_FLAG_SC_ACTIVE);
-	/* Cached retransmit reply is no longer meaningful without SC. */
-	pd->last_tx_len = 0;
-}
+void sc_activate(struct osdp_pd *pd);
+void sc_deactivate(struct osdp_pd *pd);
 
 static inline bool is_pd_online(struct osdp_pd *pd)
 {

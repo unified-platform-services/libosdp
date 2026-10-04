@@ -1220,7 +1220,6 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		pd_sc_deactivate(pd);
 		osdp_sc_setup(pd);
-		osdp_metrics_report(pd, OSDP_METRIC_SC_HANDSHAKE);
 		memcpy(pd->sc.cp_random, buf + pos, 8);
 		pd->reply_id = REPLY_CCRYPT;
 		ret = OSDP_PD_ERR_NONE;
@@ -1245,7 +1244,6 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			 * verify the CP_crypt.
 			 */
 			pd->nak_code = OSDP_PD_NAK_SC_UNSUP;
-			osdp_metrics_report(pd, OSDP_METRIC_SC_FAILURE);
 			LOG_WRN("failed to verify CP_crypt");
 			break;
 		}

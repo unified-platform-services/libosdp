@@ -236,10 +236,10 @@ class Metrics:
     """Commands the peer rejected."""
 
     sc_handshake_count: int = 0
-    """Secure channel handshakes attempted."""
+    """Secure channel sessions that became active."""
 
     sc_failure_count: int = 0
-    """Secure channel handshakes that did not complete."""
+    """Active secure channel sessions that were torn down."""
 
     command_count: int = 0
     """Commands sent (CP) or received (PD)."""

@@ -2620,9 +2620,18 @@ struct osdp_metrics {
 	 * these are NAKs received. Direction is implicit from the role.
 	 */
 	uint32_t nak_count;
-	/** Successful secure-channel activations (post-SCRYPT). */
+	/**
+	 * Successful secure-channel activations: counted when the session
+	 * becomes active (post-SCRYPT, on the RMAC_I a PD sends and a CP
+	 * accepts), not when a handshake starts.
+	 */
 	uint32_t sc_handshake_count;
-	/** Secure-channel tear-downs of a previously active session. */
+	/**
+	 * Secure-channel tear-downs of a previously active session, for any
+	 * reason: a bad MAC, a session timeout, a key change, a link reset,
+	 * or, on a CP, the PD going offline or being disabled. A handshake
+	 * that never completes counts in neither field.
+	 */
 	uint32_t sc_failure_count;
 	/** Commands processed at the application callback boundary. */
 	uint32_t command_count;

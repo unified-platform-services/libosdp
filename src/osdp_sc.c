@@ -5,6 +5,7 @@
  */
 
 #include "osdp_common.h"
+#include "osdp_metrics.h"
 
 #define OSDP_SC_EOM_MARKER 0x80 /* End of Message Marker */
 
@@ -267,6 +268,23 @@ void osdp_sc_teardown(struct osdp_pd *pd)
 {
 	ARG_UNUSED(pd);
 	osdp_crypt_teardown();
+}
+
+void sc_activate(struct osdp_pd *pd)
+{
+	SET_FLAG(pd, PD_FLAG_SC_ACTIVE);
+	osdp_metrics_report(pd, OSDP_METRIC_SC_HANDSHAKE);
+}
+
+void sc_deactivate(struct osdp_pd *pd)
+{
+	if (sc_is_active(pd)) {
+		osdp_sc_teardown(pd);
+		osdp_metrics_report(pd, OSDP_METRIC_SC_FAILURE);
+	}
+	CLEAR_FLAG(pd, PD_FLAG_SC_ACTIVE);
+	/* Cached retransmit reply is no longer meaningful without SC. */
+	pd->last_tx_len = 0;
 }
 
 /* Export the secure-channel crypto primitives to the unit tests. */

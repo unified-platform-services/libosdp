@@ -890,7 +890,6 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		osdp_compute_session_keys(pd);
 		if (osdp_verify_pd_cryptogram(pd) != 0) {
 			LOG_ERR("Failed to verify PD cryptogram");
-			osdp_metrics_report(pd, OSDP_METRIC_SC_FAILURE);
 			return OSDP_CP_ERR_APP;
 		}
 		ret = OSDP_CP_ERR_NONE;
@@ -1869,9 +1868,6 @@ static void cp_transition_effects(struct osdp_pd *pd, enum osdp_cp_state_e cur,
 				LOG_INF("SC disabled/incapable; Set PD offline "
 					"due to ENFORCE_SECURE");
 			}
-			break;
-		case OSDP_CP_STATE_SC_CHLNG:
-			osdp_metrics_report(pd, OSDP_METRIC_SC_HANDSHAKE);
 			break;
 		case OSDP_CP_STATE_SC_SCRYPT:
 			sc_activate(pd);
