@@ -2357,9 +2357,10 @@ static int cp_band_admit(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 		return -1;
 	}
 	/*
-	 * Both carriers of a C-APDU are checked here so an oversized one is
-	 * turned away while the app can still act on it; the frame builder
-	 * would otherwise catch it only once the band is already running.
+	 * Both carriers of a C-APDU are checked here so an oversized one, or a
+	 * PIN layout the wire cannot carry, is turned away while the app can
+	 * still act on it; the frame builder would otherwise catch it only
+	 * once the band is already running.
 	 */
 	if (cp_cmd_is_trs(cmd, OSDP_TRS_CMD_SEND_APDU) ||
 	    cp_cmd_is_trs(cmd, OSDP_TRS_CMD_ENTER_PIN)) {
@@ -2372,6 +2373,10 @@ static int cp_band_admit(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 			LOG_ERR("C-APDU of %d bytes cannot fit the %d-byte "
 				"packet (max %d for this command)",
 				apdu_len, get_tx_buf_size(pd), capacity);
+			return -1;
+		}
+		if (is_pin &&
+		    osdp_trs_pin_entry_check(pd, &cmd->trs.pin_entry)) {
 			return -1;
 		}
 	}

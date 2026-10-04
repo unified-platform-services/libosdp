@@ -1358,8 +1358,9 @@ enum osdp_trs_pin_complete_e {
  *
  * APDU positions are expressed in bits from the start of the APDU payload.
  * Not every position is expressible on the wire: it must be byte-aligned (up
- * to 120 bits) or fall within the first 15 bits; anything else fails the
- * command submission.
+ * to 120 bits) or fall within the first 15 bits. A position outside that, a
+ * PIN-length field over 15 bits or a PIN block over 15 bytes fails the command
+ * submission.
  */
 struct osdp_trs_pin_entry {
 	uint8_t timeout_initial; /**< First-digit timeout in seconds (0 = reader default) */

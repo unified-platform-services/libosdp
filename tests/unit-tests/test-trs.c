@@ -392,6 +392,7 @@ static bool test_trs_pin_entry_too_big_for_packet(void)
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.id = OSDP_CMD_XWR;
 	cmd.trs.command = OSDP_TRS_CMD_ENTER_PIN;
+	cmd.trs.pin_entry.pin_block.format = OSDP_TRS_PIN_FORMAT_BINARY;
 	/* Fits a send-APDU exactly, so only the PIN block's own overhead can
 	 * be what rejects it. */
 	cmd.trs.pin_entry.apdu.length = (uint16_t)max_len;
@@ -400,6 +401,51 @@ static bool test_trs_pin_entry_too_big_for_packet(void)
 		printf(SUB_2 "PIN APDU with no room for its block must be "
 		       "rejected at submit\n");
 		return false;
+	}
+	return true;
+}
+
+/*
+ * A PIN-entry layout the wire cannot carry must be turned away at submit too;
+ * the frame builder would otherwise refuse it only once the band is running.
+ */
+static bool test_trs_pin_entry_layout_unrepresentable(void)
+{
+	static struct osdp_cmd cmd;
+	struct osdp_trs_pin_entry *pe = &cmd.trs.pin_entry;
+	int i;
+
+	printf(SUB_2 "testing TRS PIN-entry layout the wire cannot carry\n");
+
+	for (i = 0; i < 5; i++) {
+		memset(&cmd, 0, sizeof(cmd));
+		cmd.id = OSDP_CMD_XWR;
+		cmd.trs.command = OSDP_TRS_CMD_ENTER_PIN;
+		pe->pin_block.format = OSDP_TRS_PIN_FORMAT_BINARY;
+		pe->pin_block.size_bytes = 8;
+		pe->apdu.length = 16;
+		switch (i) {
+		case 0:
+			pe->pin_block.offset_bits = 17;
+			break;
+		case 1:
+			pe->pin_length_field.offset_bits = 128;
+			break;
+		case 2:
+			pe->pin_length_field.size_bits = 16;
+			break;
+		case 3:
+			pe->pin_block.size_bytes = 16;
+			break;
+		case 4:
+			pe->pin_block.format = 0;
+			break;
+		}
+		if (test_submit_command(g_trs.cp_ctx, 0, &cmd)) {
+			printf(SUB_2 "layout %d must be rejected at submit\n",
+			       i);
+			return false;
+		}
 	}
 	return true;
 }
@@ -2339,6 +2385,7 @@ void run_trs_tests(struct test *t)
 	result &= test_trs_apdu_too_big_for_packet();
 	result &= test_trs_max_apdu_len_accessor();
 	result &= test_trs_pin_entry_too_big_for_packet();
+	result &= test_trs_pin_entry_layout_unrepresentable();
 	result &= test_trs_apdu_exchange();
 	result &= test_trs_deferred_apdu();
 	result &= test_trs_apdu_nak_keeps_session();
