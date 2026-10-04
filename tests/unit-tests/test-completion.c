@@ -53,10 +53,9 @@ static void resubmit_completion_cb(void *arg, int pd, struct osdp_cmd *cmd,
 	test_completion_record(&c->comp, cmd->id, (int)status);
 	if (atomic_exchange(&c->resubmit_armed, false)) {
 		struct osdp_cmd next = make_led_cmd();
+		bool queued = test_submit_command(c->cp, 0, &next) != NULL;
 
-		atomic_store(&c->resubmit_rc,
-			     osdp_cp_submit_command(c->cp, 0, &next) == 0 ?
-				     1 : 0);
+		atomic_store(&c->resubmit_rc, queued ? 1 : 0);
 	}
 	test_cmd_free(cmd);
 }
@@ -167,14 +166,15 @@ static void pd_resubmit_completion_cb(void *arg, struct osdp_event *ev,
 	test_completion_record(&g_pd_comp, ev->type, (int)status);
 	if (atomic_exchange(&c->resubmit_armed, false)) {
 		struct osdp_event next;
+		bool queued;
 
 		memset(&next, 0, sizeof(next));
 		next.type = OSDP_EVENT_CARDREAD;
 		next.cardread.reader_no = 0;
 		next.cardread.format = OSDP_CARD_FMT_RAW_WIEGAND;
 		next.cardread.length = 16;
-		atomic_store(&c->resubmit_rc,
-			     osdp_pd_submit_event(c->pd, &next) == 0 ? 1 : 0);
+		queued = test_submit_event(c->pd, &next) != NULL;
+		atomic_store(&c->resubmit_rc, queued ? 1 : 0);
 	}
 	test_event_free(ev);
 }
