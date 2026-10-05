@@ -411,8 +411,8 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 			struct osdp_event *pCmd =
 				(struct osdp_event *)pd->ephemeral_data;
 			pCmd->mfgrep.vendor_code = EP_VENDOR_CODE;
-			// 10 x ADC input ports + 1 command + 1 PD Status + 1 SC Status
-			pCmd->mfgrep.length = (MAX_ADC_INPUT * 2) + 3;
+			// 10 x ADC input ports + 1 command + 1 PD Status + 1 SC Status + 8 configurable IO
+			pCmd->mfgrep.length = (MAX_ADC_INPUT * 2) + 3 + (MAX_ONBOARD_DIGITAL_IO / 2);
 			pCmd->mfgrep.data[0] = 0x6B;
 			poll_len++;
 			for (uint8_t j = 0; j < MAX_ADC_INPUT; j++) {
@@ -425,7 +425,10 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 
 			// PD Status
 			pCmd->mfgrep.data[poll_len++] = getConnectedPDStatus();
-			pCmd->mfgrep.data[poll_len] = getConnectedPDSecureChannelStatus();
+			pCmd->mfgrep.data[poll_len++] = getConnectedPDSecureChannelStatus();
+
+			// To get the state of the configurable IO
+			poll_len += construct_conf_io_poll_packet_resp(&pCmd->mfgrep.data[poll_len]);
 #else
 			pd->reply_id = REPLY_ACK;
 #endif
