@@ -89,8 +89,8 @@ def drain_events(address):
 def run_smartcard_op(cmd, reply_event, mp_msg, object_id, inline):
     """Round-trip one smartcard op and pin its terminal notification.
 
-    The engine finishes the op (MultipartDone) before the reassembled reply
-    event is dispatched, so consume the notification first, then the reply.
+    The reassembled reply event is dispatched before the engine finishes the
+    op (MultipartDone), so consume the reply first, then the notification.
     """
     drain_events(pd_addr)
 
@@ -115,8 +115,8 @@ def run_smartcard_op(cmd, reply_event, mp_msg, object_id, inline):
             offset=len(reply_event.data),
             outcome=int(MpOutcome.Ok),
         )
-        wait_for_notification_event(cp, pd_addr, done)
         wait_for_non_notification_event(cp, pd_addr, reply_event)
+        wait_for_notification_event(cp, pd_addr, done)
     finally:
         pd.set_command_handler(None)
 
