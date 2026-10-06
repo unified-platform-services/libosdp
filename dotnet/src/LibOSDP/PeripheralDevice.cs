@@ -20,7 +20,7 @@ public sealed unsafe class PeripheralDevice : IDisposable
     private readonly LinkState _link = new(1);
     private readonly HandlerErrors _errors = new();
     private readonly PendingSubmissions _pending = new();
-    private readonly List<GCHandle> _fileOps = [];
+    private GCHandle _fileOps;
     private GCHandle _self;
     private GCHandle _channel;
     private nint _ctx;
@@ -144,6 +144,80 @@ public sealed unsafe class PeripheralDevice : IDisposable
     public Task<bool> WaitSecureChannelAsync(TimeSpan timeout, CancellationToken cancellationToken = default) =>
         _link.WaitAsync(() => _link.IsSecure(0), timeout, cancellationToken);
 
+    /// <summary>Drop queued events; each completes as <see cref="CompletionStatus.Flushed"/>.</summary>
+    /// <returns>How many were dropped.</returns>
+    public int FlushEvents()
+    {
+        int n;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_ctx == 0, this);
+            n = Native.PdFlushEvents(_ctx);
+        }
+        return Math.Max(n, 0);
+    }
+
+    /// <summary>Provide storage for files the CP sends.</summary>
+    /// <param name="operations">The file sink.</param>
+    public void RegisterFileOperations(IFileOperations operations)
+    {
+        ArgumentNullException.ThrowIfNull(operations);
+        GCHandle host = GCHandle.Alloc(new FileOpsHost(operations, _errors));
+        NativeFileOps ops = FileOpsBridge.Describe(host);
+        int rc;
+        lock (_gate)
+        {
+            if (_ctx == 0)
+            {
+                host.Free();
+                throw new ObjectDisposedException(nameof(PeripheralDevice));
+            }
+            rc = Native.FileRegisterOps(_ctx, 0, &ops);
+            if (rc == 0)
+            {
+                // LibOSDP copied the ops and dropped the old arg.
+                if (_fileOps.IsAllocated)
+                    _fileOps.Free();
+                _fileOps = host;
+            }
+        }
+        if (rc != 0)
+        {
+            host.Free();
+            throw new OsdpException("LibOSDP refused the file operations.");
+        }
+    }
+
+    /// <summary>Progress of a running file transfer, or null when none is running.</summary>
+    /// <returns>The progress.</returns>
+    public FileTransferStatus? GetFileTransferStatus()
+    {
+        uint size, offset;
+        int rc;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_ctx == 0, this);
+            rc = Native.GetFileTxStatus(_ctx, 0, &size, &offset);
+        }
+        return rc == 0 ? new FileTransferStatus(size, offset) : null;
+    }
+
+    /// <summary>Take the link counters; this resets them.</summary>
+    /// <returns>The counters.</returns>
+    public Metrics GetMetrics()
+    {
+        NativeMetrics m;
+        int rc;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_ctx == 0, this);
+            rc = Native.GetMetrics(_ctx, 0, &m);
+        }
+        if (rc != 0)
+            throw new OsdpException("No metrics available.");
+        return Metrics.FromNative(m);
+    }
+
     /// <summary>Tear down the link. Queued events complete as <see cref="CompletionStatus.Aborted"/>.</summary>
     /// <exception cref="InvalidOperationException">Called from inside <see cref="CommandHandler"/>.</exception>
     public void Dispose()
@@ -160,8 +234,8 @@ public sealed unsafe class PeripheralDevice : IDisposable
         _link.Close(nameof(PeripheralDevice));
         _self.Free();
         _channel.Free();
-        foreach (GCHandle handle in _fileOps)
-            handle.Free();
+        if (_fileOps.IsAllocated)
+            _fileOps.Free();
     }
 
     // Only the refresh thread holds _gate while user code runs, so holding it
@@ -171,7 +245,7 @@ public sealed unsafe class PeripheralDevice : IDisposable
     {
         if (Monitor.IsEntered(_gate))
             throw new InvalidOperationException(
-                $"{member} cannot be called from inside a LibOSDP callback (EventReceived, CommandHandler, or a channel operation).");
+                $"{member} cannot be called from inside a LibOSDP callback (EventReceived, CommandHandler, a channel or file operation).");
     }
 
     private static PeripheralDevice? From(nint arg)

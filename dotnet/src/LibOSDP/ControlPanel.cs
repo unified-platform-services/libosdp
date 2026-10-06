@@ -21,7 +21,7 @@ public sealed unsafe class ControlPanel : IDisposable
     private readonly LinkState _link;
     private readonly HandlerErrors _errors = new();
     private readonly PendingSubmissions _pending = new();
-    private readonly List<GCHandle> _fileOps = [];
+    private readonly GCHandle[] _fileOps;
     private GCHandle _self;
     private GCHandle _channel;
     private nint _ctx;
@@ -52,6 +52,7 @@ public sealed unsafe class ControlPanel : IDisposable
             throw new ArgumentException("PD addresses must be unique.", nameof(pds));
         Osdp.EnsureInitialized();
 
+        _fileOps = new GCHandle[pds.Count];
         _forwardNotifications = pds.Select(p => p.Flags.HasFlag(OsdpFlags.EnableNotification)).ToArray();
         _link = new LinkState(pds.Count);
         _self = GCHandle.Alloc(this);
@@ -165,6 +166,165 @@ public sealed unsafe class ControlPanel : IDisposable
         return _link.WaitAsync(() => _link.IsSecure(pd), timeout, cancellationToken);
     }
 
+    /// <summary>Drop the PD's queued commands; each completes as <see cref="CompletionStatus.Flushed"/>.</summary>
+    /// <param name="address">PD address.</param>
+    /// <returns>How many were dropped.</returns>
+    public int FlushCommands(int address) => Math.Max(Call(address, Native.CpFlushCommands), 0);
+
+    /// <summary>
+    /// Ask a running multipart operation (file transfer, PIV, biometric read) to stop.
+    /// Cooperative: the operation ends on a later refresh.
+    /// </summary>
+    /// <param name="address">PD address.</param>
+    /// <param name="what">Which operation.</param>
+    /// <returns>False when none was running.</returns>
+    public bool Cancel(int address, MpMsgType what) =>
+        Call(address, (ctx, pd) => Native.CpCancel(ctx, pd, (int)what)) == 0;
+
+    /// <summary>Set flags on a PD at run time.</summary>
+    /// <param name="address">PD address.</param>
+    /// <param name="flags">Flags to set.</param>
+    /// <returns>False if LibOSDP does not allow changing them at run time.</returns>
+    public bool SetFlag(int address, OsdpFlags flags) =>
+        Call(address, (ctx, pd) => Native.CpModifyFlag(ctx, pd, (uint)flags, 1)) == 0;
+
+    /// <summary>Clear flags on a PD at run time.</summary>
+    /// <param name="address">PD address.</param>
+    /// <param name="flags">Flags to clear.</param>
+    /// <returns>False if LibOSDP does not allow changing them at run time.</returns>
+    public bool ClearFlag(int address, OsdpFlags flags) =>
+        Call(address, (ctx, pd) => Native.CpModifyFlag(ctx, pd, (uint)flags, 0)) == 0;
+
+    /// <summary>Resume talking to a disabled PD. Takes effect on the next refresh.</summary>
+    /// <param name="address">PD address.</param>
+    public void EnablePd(int address) => _ = Call(address, Native.CpEnablePd);
+
+    /// <summary>Stop polling a PD, e.g. while it is serviced. Takes effect on the next refresh.</summary>
+    /// <param name="address">PD address.</param>
+    public void DisablePd(int address) => _ = Call(address, Native.CpDisablePd);
+
+    /// <summary>Whether the PD is enabled; reflects <see cref="DisablePd"/> and <see cref="EnablePd"/> once refreshed.</summary>
+    /// <param name="address">PD address.</param>
+    /// <returns>True when enabled.</returns>
+    public bool IsPdEnabled(int address) => Call(address, (ctx, pd) => Native.CpIsPdEnabled(ctx, pd)) != 0;
+
+    /// <summary>The identity the PD reported; all zero until it has identified itself.</summary>
+    /// <param name="address">PD address.</param>
+    /// <returns>The identity.</returns>
+    /// <exception cref="OsdpException">LibOSDP refused to report it.</exception>
+    public PdId GetPdId(int address)
+    {
+        int pd = IndexOf(address);
+        NativePdId id;
+        int rc;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_ctx == 0, this);
+            rc = Native.CpGetPdId(_ctx, pd, &id);
+        }
+        if (rc != 0)
+            throw new OsdpException($"No identity available for PD {address}.");
+        return PdId.FromNative(id);
+    }
+
+    /// <summary>A capability the PD advertised, or null if it did not (LibOSDP reports an unadvertised one as all zero).</summary>
+    /// <param name="address">PD address.</param>
+    /// <param name="capability">Which capability.</param>
+    /// <returns>The capability entry.</returns>
+    public PdCapability? GetCapability(int address, Capability capability)
+    {
+        int pd = IndexOf(address);
+        NativePdCap cap = new() { FunctionCode = (int)capability };
+        int rc;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_ctx == 0, this);
+            rc = Native.CpGetCapability(_ctx, pd, &cap);
+        }
+        return rc == 0 && (cap.ComplianceLevel != 0 || cap.NumItems != 0)
+            ? new PdCapability(capability, cap.ComplianceLevel, cap.NumItems)
+            : null;
+    }
+
+    /// <summary>Provide the file a <see cref="FileTransferCommand"/> sends to this PD.</summary>
+    /// <param name="address">PD address.</param>
+    /// <param name="operations">The file source.</param>
+    public void RegisterFileOperations(int address, IFileOperations operations)
+    {
+        ArgumentNullException.ThrowIfNull(operations);
+        int pd = IndexOf(address);
+        GCHandle host = GCHandle.Alloc(new FileOpsHost(operations, _errors));
+        NativeFileOps ops = FileOpsBridge.Describe(host);
+        int rc;
+        lock (_gate)
+        {
+            if (_ctx == 0)
+            {
+                host.Free();
+                throw new ObjectDisposedException(nameof(ControlPanel));
+            }
+            rc = Native.FileRegisterOps(_ctx, pd, &ops);
+            if (rc == 0)
+            {
+                // LibOSDP copied the ops and dropped the old arg.
+                if (_fileOps[pd].IsAllocated)
+                    _fileOps[pd].Free();
+                _fileOps[pd] = host;
+            }
+        }
+        if (rc != 0)
+        {
+            host.Free();
+            throw new OsdpException($"LibOSDP refused file operations for PD {address}.");
+        }
+    }
+
+    /// <summary>Progress of a running file transfer, or null when none is running.</summary>
+    /// <param name="address">PD address.</param>
+    /// <returns>The progress.</returns>
+    public FileTransferStatus? GetFileTransferStatus(int address)
+    {
+        int pd = IndexOf(address);
+        uint size, offset;
+        int rc;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_ctx == 0, this);
+            rc = Native.GetFileTxStatus(_ctx, pd, &size, &offset);
+        }
+        return rc == 0 ? new FileTransferStatus(size, offset) : null;
+    }
+
+    /// <summary>Take the PD's link counters; this resets them.</summary>
+    /// <param name="address">PD address.</param>
+    /// <returns>The counters.</returns>
+    public Metrics GetMetrics(int address)
+    {
+        int pd = IndexOf(address);
+        NativeMetrics m;
+        int rc;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_ctx == 0, this);
+            rc = Native.GetMetrics(_ctx, pd, &m);
+        }
+        if (rc != 0)
+            throw new OsdpException($"No metrics for PD {address}.");
+        return Metrics.FromNative(m);
+    }
+
+    private int Call(int address, Func<nint, int, int> call)
+    {
+        int pd = IndexOf(address);
+        int rc;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_ctx == 0, this);
+            rc = call(_ctx, pd);
+        }
+        return rc;
+    }
+
     /// <summary>Tear down the bus. Queued commands complete as <see cref="CompletionStatus.Aborted"/>.</summary>
     /// <exception cref="InvalidOperationException">Called from inside <see cref="EventReceived"/>.</exception>
     public void Dispose()
@@ -182,7 +342,10 @@ public sealed unsafe class ControlPanel : IDisposable
         _self.Free();
         _channel.Free();
         foreach (GCHandle handle in _fileOps)
-            handle.Free();
+        {
+            if (handle.IsAllocated)
+                handle.Free();
+        }
     }
 
     internal int IndexOf(int address)
@@ -200,7 +363,7 @@ public sealed unsafe class ControlPanel : IDisposable
     {
         if (Monitor.IsEntered(_gate))
             throw new InvalidOperationException(
-                $"{member} cannot be called from inside a LibOSDP callback (EventReceived, CommandHandler, or a channel operation).");
+                $"{member} cannot be called from inside a LibOSDP callback (EventReceived, CommandHandler, a channel or file operation).");
     }
 
     private static ControlPanel? From(nint arg)
