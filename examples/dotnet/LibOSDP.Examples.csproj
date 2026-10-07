@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(LibOsdpPackageVersion)' == ''">
+    <ProjectReference Include="../../dotnet/src/LibOSDP/LibOSDP.csproj" />
+    <None Include="../../dotnet/runtimes/*/native/*" CopyToOutputDirectory="PreserveNewest" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(LibOsdpPackageVersion)' != ''">
+    <PackageReference Include="LibOSDP" Version="$(LibOsdpPackageVersion)" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="System.IO.Ports" Version="10.0.12" />
+  </ItemGroup>
+</Project>

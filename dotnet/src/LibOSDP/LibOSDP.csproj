@@ -10,11 +10,13 @@
     <PackageProjectUrl>https://doc.osdp.dev/dotnet/</PackageProjectUrl>
     <RepositoryUrl>https://github.com/osdp-dev/libosdp</RepositoryUrl>
     <PackageTags>osdp;access-control;rs485;security;iec-60839</PackageTags>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="LibOSDP.Tests" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
     <None Include="../../runtimes/*/native/*" Pack="true" PackagePath="runtimes/%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
   <ItemGroup>

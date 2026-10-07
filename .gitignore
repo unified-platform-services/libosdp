@@ -101,3 +101,5 @@ coverage/
 
 /dotnet/artifacts/
 /dotnet/runtimes/
+/examples/dotnet/bin/
+/examples/dotnet/obj/
