@@ -10,7 +10,7 @@ LibOSDP release helper — a human-in-the-loop release flow in two shapes.
 QUICK (the default) — one commit, for patch releases and anything else that
 does not need a long cycle:
 
-    1) prepare  — bump the version in all four files to their final released
+    1) prepare  — bump the version in all five files to their final released
                   state and scaffold CHANGELOG/RELEASE-v<next>.md with commit
                   hints. Staged, NOT committed. No pre-release marker.
 
@@ -42,9 +42,10 @@ Re-releasing a failed publish:
     publish --re-release            re-cut the SAME version onto fix commits
                                     (force-moves the signed tag). CI idempotency
                                     absorbs already-published artifacts.
-    publish --re-release --post N   also emit X.Y.Z.postN to PyPI, because PyPI
-                                    version numbers are immutable and a broken
-                                    wheel can never reuse X.Y.Z.
+    publish --re-release --post N   also emit X.Y.Z.postN to PyPI and X.Y.Z.N to
+                                    NuGet, because their version numbers are
+                                    immutable and a broken package can never
+                                    reuse X.Y.Z.
 
 Examples:
     scripts/make_release.py prepare                 # patch bump, single commit
@@ -79,6 +80,7 @@ VERSION_FILES = [
     "python/pyproject.toml",
     "library.json",
     "platformio/osdp_config.h",
+    "dotnet/Directory.Build.props",
 ]
 
 
@@ -169,6 +171,14 @@ def _semver_string(state: State) -> str:
     return f"{state.version}-{MARKER}" if state.prerelease else f"{state.version}"
 
 
+def _nuget_version_string(state: State) -> str:
+    if state.prerelease:
+        return f"{state.version}-{MARKER}"
+    if state.post is not None:
+        return f"{state.version}.{state.post}"
+    return f"{state.version}"
+
+
 def read_state(root: Path) -> State:
     """CMakeLists.txt is the source of truth for the state."""
     text = (root / "CMakeLists.txt").read_text()
@@ -217,6 +227,11 @@ def parse_version_file(name: str, text: str) -> tuple[Version, bool]:
         if not v:
             die("platformio/osdp_config.h: could not parse LIBOSDP_VERSION_STR")
         return parse_version(v.group(1)), bool(v.group(2))
+    if name == "dotnet/Directory.Build.props":
+        v = re.search(r"^    <Version>(\d+\.\d+\.\d+)(-dev|\.\d+)?</Version>$", text, re.M)
+        if not v:
+            die("dotnet/Directory.Build.props: could not parse <Version>")
+        return parse_version(v.group(1)), v.group(2) == "-dev"
     die(f"unknown version file {name}")
 
 
@@ -238,7 +253,7 @@ def check_agreement(root: Path) -> None:
 
 
 def write_state(root: Path, state: State) -> None:
-    """Write the numeric version + marker into all four version files."""
+    """Write the numeric version + marker into all five version files."""
     v = state.version
 
     cmake = root / "CMakeLists.txt"
@@ -268,6 +283,12 @@ def write_state(root: Path, state: State) -> None:
     text = _sub_once(pio, r'^#define LIBOSDP_VERSION_STR(\s+)"[^"]+"$',
                      rf'#define LIBOSDP_VERSION_STR\g<1>"{_semver_string(state)}"', text)
     pio.write_text(text)
+
+    props = root / "dotnet/Directory.Build.props"
+    text = props.read_text()
+    text = _sub_once(props, r"^    <Version>[^<]+</Version>$",
+                     f"    <Version>{_nuget_version_string(state)}</Version>", text)
+    props.write_text(text)
 
 
 # ---------------------------------------------------------------------------
@@ -451,7 +472,7 @@ def require_release_only_dirt(root: Path, path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-STAGE_FILES = VERSION_FILES  # the four version files; changelog added per-command
+STAGE_FILES = VERSION_FILES  # the five version files; changelog added per-command
 
 
 def cmd_prepare(root: Path, args: argparse.Namespace) -> None:
@@ -580,8 +601,8 @@ def cmd_republish(root: Path, args: argparse.Namespace) -> None:
     saved = git(["rev-parse", "HEAD"], root)
     if args.post is not None:
         write_state(root, State(version, prerelease=False, post=args.post))
-        git(["add", "python/pyproject.toml"], root)
-        git(["commit", "-s", "-m", f"Re-release {tag} (PyPI post{args.post})"], root)
+        git(["add", "python/pyproject.toml", "dotnet/Directory.Build.props"], root)
+        git(["commit", "-s", "-m", f"Re-release {tag} (post{args.post})"], root)
 
     git(["tag", "-f", "-s", "-a", tag, "-m", f"Release {tag}"], root)
     try:
@@ -592,7 +613,8 @@ def cmd_republish(root: Path, args: argparse.Namespace) -> None:
             "(if any) was undone. The tag was force-moved; fix your signing key "
             "and re-run 'publish --re-release' to move it onto a good signature.")
 
-    what = f"{version}.post{args.post} to PyPI" if args.post is not None else version
+    what = (f"{version}.post{args.post} to PyPI, "
+            f"{version}.{args.post} to NuGet") if args.post is not None else version
     print(f"Re-cut {tag} onto HEAD ({what}). Force-push with:")
     print(f"  git push --force origin {tag}")
     if args.post is not None:
@@ -701,7 +723,8 @@ def parse_args() -> argparse.Namespace:
     publish.add_argument("--re-release", action="store_true",
                          help="re-cut an already-published version onto fix commits")
     publish.add_argument("--post", type=int,
-                         help="with --re-release: also emit X.Y.Z.postN to PyPI")
+                         help="with --re-release: also emit X.Y.Z.postN to PyPI and "
+                              "X.Y.Z.N to NuGet")
     publish.add_argument("--key-url", default=DEFAULT_KEY_URL,
                          help=f"public key the tag signature must match "
                               f"(default {DEFAULT_KEY_URL})")
@@ -717,6 +740,9 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if getattr(args, "post", None) is not None and not args.re_release:
         parser.error("--post requires --re-release")
+    if getattr(args, "post", None) is not None and args.post < 1:
+        parser.error("--post must be 1 or more: NuGet normalises X.Y.Z.0 to X.Y.Z, "
+                     "which is already published")
     if getattr(args, "set", None) and args.bump != "patch":
         parser.error("--set cannot be combined with --major/--minor/--patch")
     return args

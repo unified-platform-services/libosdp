@@ -75,16 +75,18 @@ jobs:
           lib_dev="$(perl -ne 'print "dev" if (/^  "version": "\d+\.\d+\.\d+-dev",$/)' library.json)"
           config_version="$(perl -ne 'print $1 if (/^#define PROJECT_VERSION\s+"(\d+\.\d+\.\d+)"/)' platformio/osdp_config.h)"
           verstr_dev="$(perl -ne 'print "dev" if (/^#define LIBOSDP_VERSION_STR\s+"\d+\.\d+\.\d+-dev"/)' platformio/osdp_config.h)"
+          nuget_version="$(perl -ne 'print $1 if (/^    <Version>(\d+\.\d+\.\d+)(?:\.\d+)?<\/Version>$/)' dotnet/Directory.Build.props)"
+          nuget_dev="$(perl -ne 'print "dev" if (/^    <Version>\d+\.\d+\.\d+-dev<\/Version>$/)' dotnet/Directory.Build.props)"
           release_file="CHANGELOG/RELEASE-${tag}.md"
 
           # A release tag must point at a published (marker-cleared) commit; a
           # tag on a prepared -dev commit is a mistake and must fail fast.
-          if [[ -n "${cmake_marker}" || -n "${py_dev}" || -n "${lib_dev}" || -n "${verstr_dev}" ]]; then
+          if [[ -n "${cmake_marker}" || -n "${py_dev}" || -n "${lib_dev}" || -n "${verstr_dev}" || -n "${nuget_dev}" ]]; then
             echo "Tag ${tag} points at a prepared (pre-release) commit: the release marker is not cleared" >&2
             exit 1
           fi
 
-          for declared in "${cmake_version}" "${py_version}" "${lib_version}" "${config_version}"; do
+          for declared in "${cmake_version}" "${py_version}" "${lib_version}" "${config_version}" "${nuget_version}"; do
             if [[ "${declared}" != "${version}" ]]; then
               echo "Version mismatch for tag ${tag}: expected ${version}, found ${declared}" >&2
               exit 1
@@ -386,7 +388,7 @@ jobs:
           # idf_component.yml deliberately carries no `version`: this input
           # only fills in a version the manifest does not state, it cannot
           # override one. Take it from preflight, which has already checked the
-          # tag against all four in-tree version files.
+          # tag against all five in-tree version files.
           version: ${{ needs.preflight.outputs.version }}
           api_token: ${{ secrets.IDF_COMPONENT_API_TOKEN }}
 
@@ -452,9 +454,64 @@ jobs:
           packages-dir: python/dist/
           skip-existing: true
 
+  dotnet:
+    needs: [preflight, cross_platform_build]
+    uses: ./.github/workflows/dotnet.yml
+
+  publish_nuget:
+    name: Publish NuGet
+    needs: [preflight, ci, dotnet]
+    runs-on: ubuntu-latest
+    environment: nuget
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuget-package
+          path: nupkg
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - name: Check whether this version is already published
+        id: registry
+        shell: bash
+        run: |
+          set -euo pipefail
+          # nuget.org rejects re-pushing a version, so a rerun after a later
+          # job failed must skip rather than fail here.
+          version="$(basename nupkg/LibOSDP.*.nupkg .nupkg)"; version="${version#LibOSDP.}"
+          url="https://api.nuget.org/v3-flatcontainer/libosdp/index.json"
+          code="$(curl -sS -o index.json -w '%{http_code}' --retry 5 --retry-all-errors --retry-delay 2 "$url")"
+          case "$code" in
+          200)
+            if jq -e --arg v "${version,,}" 'any(.versions[]; . == $v)' index.json >/dev/null; then
+              published=true
+            else
+              published=false
+            fi
+            ;;
+          404) published=false ;;
+          *) echo "::error::nuget.org returned HTTP $code for $url"; exit 1 ;;
+          esac
+          echo "published=$published" >> "$GITHUB_OUTPUT"
+          echo "Version $version already published: $published"
+      - name: Log in with Trusted Publishing
+        id: login
+        if: steps.registry.outputs.published == 'false'
+        uses: NuGet/login@v1
+        with:
+          user: ${{ vars.NUGET_USER }}
+      - name: Push
+        if: steps.registry.outputs.published == 'false'
+        run: >
+          dotnet nuget push nupkg/*.nupkg
+          --api-key "${{ steps.login.outputs.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+
   create_release:
     name: Create GitHub release
-    needs: [preflight, cross_platform_build, publish_pypi, publish_idf_component]
+    needs: [preflight, cross_platform_build, publish_pypi, publish_idf_component, publish_nuget]
     runs-on: ubuntu-latest
     permissions:
       contents: write
