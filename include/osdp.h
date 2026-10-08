@@ -1636,7 +1636,11 @@ struct osdp_cmd {
 enum osdp_event_cardread_format_e {
 	OSDP_CARD_FMT_RAW_UNSPECIFIED, /**< Unspecified card format */
 	OSDP_CARD_FMT_RAW_WIEGAND, /**< Wiegand card format */
-	OSDP_CARD_FMT_ASCII, /**< ASCII card format (deprecated; don't use) */
+	/**
+	 * ASCII card format (osdp_FMT). Not supported: osdp_pd_submit_event()
+	 * rejects it and a CP ignores osdp_FMT replies.
+	 */
+	OSDP_CARD_FMT_ASCII,
 	OSDP_CARD_FMT_SENTINEL /**< Max card format value */
 };
 
@@ -1654,9 +1658,9 @@ struct osdp_event_cardread {
 	 */
 	enum osdp_event_cardread_format_e format;
 	/**
-	 * Direction of data in @a data array.
-	 * - 0 - Forward
-	 * - 1 - Backward
+	 * Read direction (0 forward, 1 reverse). Only osdp_FMT carries it
+	 * (OSDP v2.2 §7.11), which LibOSDP does not support; osdp_RAW has no
+	 * direction. Always 0 on events LibOSDP reports; ignored on submit.
 	 */
 	int direction;
 	/**
@@ -2069,6 +2073,10 @@ void osdp_pd_set_event_completion_callback(osdp_t *ctx,
  * @note Submission fails unless a completion callback is registered (see
  * osdp_pd_set_event_completion_callback()) -- the completion callback is how
  * ownership of the submitted event returns to the application.
+ *
+ * @note A card read in any format other than @c OSDP_CARD_FMT_RAW_UNSPECIFIED
+ * or @c OSDP_CARD_FMT_RAW_WIEGAND is rejected; LibOSDP does not support
+ * osdp_FMT.
  */
 OSDP_EXPORT
 int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event);

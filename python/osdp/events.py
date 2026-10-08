@@ -80,7 +80,8 @@ class CardRead:
     For the raw formats the card is a bit string whose length is not
     necessarily a multiple of eight, so `bits` carries the real length and
     `data` is that many bits padded out to whole bytes. For the ASCII format
-    the card is bytes and `bits` does not apply.
+    the card is bytes and `bits` does not apply; LibOSDP does not support
+    osdp_FMT, so a PD refuses to submit an ASCII card read.
 
     @see osdp_event_cardread
 
@@ -108,7 +109,9 @@ class CardRead:
     """How to read `data`."""
 
     direction: int = 0
-    """Which way the card was swiped: 0 is forward, 1 is backward."""
+    """Read direction: 0 forward, 1 reverse. Only osdp_FMT carries it, which
+    LibOSDP does not support, so it is always 0 on received events and
+    ignored on submit."""
 
     data: bytes = b""
     """The card data, at most 64 bytes."""

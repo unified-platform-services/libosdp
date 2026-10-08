@@ -416,7 +416,8 @@ class CardFormat(_WireEnum):
     """Raw Wiegand bits; `bits` is meaningful."""
 
     ASCII = _sys.CARD_FMT_ASCII
-    """Deprecated. Card data as ASCII bytes."""
+    """Card data as ASCII bytes (osdp_FMT). Not supported: a PD refuses to
+    submit it and a CP ignores osdp_FMT replies."""
 
 
 class Capability(IntEnum):

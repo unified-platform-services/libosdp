@@ -156,18 +156,11 @@ static int pd_translate_event(struct osdp_pd *pd,
 		if (event->cardread.format == OSDP_CARD_FMT_RAW_UNSPECIFIED ||
 		    event->cardread.format == OSDP_CARD_FMT_RAW_WIEGAND) {
 			reply_code = REPLY_RAW;
-		} else if (event->cardread.format == OSDP_CARD_FMT_ASCII) {
-			/**
-			 * osdp_FMT was underspecified by SIA from get-go. It
-			 * was marked for deprecation in v2.2.2.
-			 *
-			 * See: https://github.com/osdp-dev/libosdp/issues/206
-			 */
-			LOG_WRN("Event CardRead::format::OSDP_CARD_FMT_ASCII"
-				" is deprecated. Ignoring");
 		} else {
-			LOG_ERR("Event: cardread; Error: unknown format");
-			break;
+			/* osdp_pd_submit_event() refuses every other format */
+			LOG_ERR("Event: cardread; unsupported format %d",
+				event->cardread.format);
+			BUG();
 		}
 		break;
 	case OSDP_EVENT_KEYPRESS:
@@ -2197,6 +2190,24 @@ int osdp_pd_submit_event(osdp_t *ctx, const struct osdp_event *event)
 	}
 
 	if (event->type <= 0 || event->type >= OSDP_EVENT_SENTINEL) {
+		return -1;
+	}
+
+	if (event->type == OSDP_EVENT_CARDREAD &&
+	    event->cardread.format != OSDP_CARD_FMT_RAW_UNSPECIFIED &&
+	    event->cardread.format != OSDP_CARD_FMT_RAW_WIEGAND) {
+		/*
+		 * osdp_FMT's Character Count is underspecified (see
+		 * https://github.com/osdp-dev/libosdp/issues/206), so LibOSDP
+		 * does not support it; refuse it here, as pd_translate_event()
+		 * has no reply to carry it.
+		 */
+		if (event->cardread.format == OSDP_CARD_FMT_ASCII) {
+			LOG_ERR("Event: cardread; osdp_FMT is not supported");
+		} else {
+			LOG_ERR("Event: cardread; unsupported format %d",
+				event->cardread.format);
+		}
 		return -1;
 	}
 

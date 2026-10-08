@@ -430,6 +430,72 @@ static bool test_submit_requires_completion_callback()
 }
 
 /*
+ * LibOSDP does not support osdp_FMT, so an ASCII card read must be refused
+ * at submit -- never queued, never completed -- instead of being answered
+ * with a bare ACK while the app believes the read went out. Both raw
+ * formats must still be accepted and delivered.
+ */
+static bool test_cardread_formats()
+{
+	static const enum osdp_event_cardread_format_e raw_formats[] = {
+		OSDP_CARD_FMT_RAW_UNSPECIFIED,
+		OSDP_CARD_FMT_RAW_WIEGAND,
+	};
+	struct osdp_event event = {
+		.type = OSDP_EVENT_CARDREAD,
+		.cardread = {
+			.format = OSDP_CARD_FMT_ASCII,
+			.length = 8,
+			.data = {0x5a},
+		},
+	};
+	size_t i;
+
+	printf(SUB_2 "testing cardread format acceptance\n");
+	reset_test_state();
+	test_completion_reset(&g_ev_compl);
+	osdp_pd_set_event_completion_callback(
+		g_test_ctx.pd_ctx, test_event_completion_cb, &g_ev_compl);
+
+	if (test_submit_event(g_test_ctx.pd_ctx, &event)) {
+		printf(SUB_2 "ASCII cardread accepted\n");
+		return false;
+	}
+
+	for (i = 0; i < ARRAY_SIZEOF(raw_formats); i++) {
+		reset_test_state();
+		event.cardread.format = raw_formats[i];
+		if (!test_submit_event(g_test_ctx.pd_ctx, &event)) {
+			printf(SUB_2 "format %d cardread refused\n",
+			       raw_formats[i]);
+			return false;
+		}
+		if (!wait_for_event(OSDP_EVENT_CARDREAD, 5) ||
+		    ((struct osdp_event *)g_test_ctx.last_event_data)
+				    ->cardread.format != raw_formats[i]) {
+			printf(SUB_2 "format %d cardread not delivered\n",
+			       raw_formats[i]);
+			return false;
+		}
+		if (!test_completion_wait(&g_ev_compl, i + 1, 5)) {
+			printf(SUB_2 "format %d cardread not completed\n",
+			       raw_formats[i]);
+			return false;
+		}
+	}
+
+	/* One completion per accepted read; none for the refused one. */
+	usleep(200 * 1000);
+	if (test_completion_count(&g_ev_compl) != ARRAY_SIZEOF(raw_formats)) {
+		printf(SUB_2 "expected %zu completions, got %d\n",
+		       ARRAY_SIZEOF(raw_formats),
+		       test_completion_count(&g_ev_compl));
+		return false;
+	}
+	return true;
+}
+
+/*
  * A reply whose *content* overflows the TX buffer is degraded to a NAK by
  * pd_build_reply()'s catch-all and the exchange itself succeeds -- but the
  * event's data never reached the CP, so its completion must be FAILED, not
@@ -583,6 +649,7 @@ void run_event_tests(struct test *t)
 	TEST_CASE(t, "output_status_event", test_output_status_event());
 	TEST_CASE(t, "mfgrep_event", test_mfgrep_event());
 	TEST_CASE(t, "mfgstat_events", test_mfgstat_events());
+	TEST_CASE(t, "cardread_formats", test_cardread_formats());
 	TEST_CASE(t, "submit_requires_completion_callback",
 		  test_submit_requires_completion_callback());
 	TEST_CASE(t, "reply_degraded_to_nak_completion",

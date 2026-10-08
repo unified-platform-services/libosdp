@@ -734,14 +734,13 @@ static int cp_decode_response(struct osdp_pd *pd, uint8_t *buf, int len)
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_FMT:
-		/**
-		 * osdp_FMT was underspecified by SIA from get-go. It was marked
-		 * for deprecation in v2.2.2. To avoid confusions, we will just
-		 * ignore it here.
-		 *
-		 * See: https://github.com/osdp-dev/libosdp/issues/206
+		/*
+		 * LibOSDP does not support osdp_FMT: its Character Count is
+		 * underspecified (see
+		 * https://github.com/osdp-dev/libosdp/issues/206), so the reply
+		 * is dropped and no event is raised.
 		 */
-		LOG_WRN("Ignoring deprecated response osdp_FMT");
+		LOG_WRN("Ignoring unsupported reply osdp_FMT");
 		ret = OSDP_CP_ERR_NONE;
 		break;
 	case REPLY_BUSY:

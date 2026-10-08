@@ -192,3 +192,11 @@ def test_event_rejects_reader_no_beyond_capability():
         data=bytes([1, 2, 3]),
     )
     assert secure_pd.submit_event(event) is False
+
+def test_event_cardread_ascii_is_refused():
+    # LibOSDP does not support osdp_FMT, so an ASCII card read never queues.
+    event = events.CardRead(
+        format=CardFormat.ASCII,
+        data=b"1234567890",
+    )
+    assert secure_pd.submit_event(event) is False
