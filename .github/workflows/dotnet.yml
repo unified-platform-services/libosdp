@@ -1,0 +1,171 @@
+#
+# Copyright (c) 2026 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+name: .NET
+
+# Needs the native-<rid> artifacts of cross-plaform-build.yml from the same run.
+on:
+  workflow_call:
+
+jobs:
+  pack:
+    name: Pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: native-*
+          path: native
+      - name: Check every native build has the ABI the binding expects
+        shell: bash
+        run: |
+          set -euo pipefail
+          sizes() { grep '^sizeof_' "$1" | sort; }
+          ref=native/native-linux-x64/abi.txt
+          for rid in linux-x64 linux-arm linux-arm64 linux-musl-x64 linux-musl-arm64 win-x64 win-arm64 osx-arm64 osx-x64; do
+            test -f "native/native-$rid/abi.txt" || { echo "::error::missing native-$rid"; exit 1; }
+          done
+          for f in native/native-*/abi.txt; do
+            grep -qx 'options=0x00000000' "$f" || { echo "::error::$f has unexpected options"; cat "$f"; exit 1; }
+          done
+          # Pointer size is the only thing allowed to differ, so every 64-bit
+          # build must match linux-x64 exactly. linux-arm is checked by its
+          # own test run under QEMU.
+          for rid in linux-arm64 linux-musl-x64 linux-musl-arm64 win-x64 win-arm64 osx-arm64 osx-x64; do
+            diff <(sizes "$ref") <(sizes "native/native-$rid/abi.txt") ||
+              { echo "::error::$rid ABI differs from linux-x64"; exit 1; }
+          done
+      - name: Stage native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for dir in native/native-*; do
+            rid="${dir##*/native-}"
+            mkdir -p "dotnet/runtimes/$rid/native"
+            for f in "$dir"/lib/libosdp.so "$dir"/lib/libosdp.dylib "$dir"/lib/osdp.dll; do
+              if [ -f "$f" ]; then cp "$f" "dotnet/runtimes/$rid/native/"; fi
+            done
+          done
+          find dotnet/runtimes -type f | sort
+          test "$(find dotnet/runtimes -type f | wc -l)" -eq 9
+      - run: dotnet pack dotnet/src/LibOSDP -c Release -o nupkg
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nuget-package
+          path: nupkg/*.nupkg
+          if-no-files-found: error
+
+  test:
+    name: Test ${{ matrix.rid }}
+    needs: pack
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: linux-x64,      runner: ubuntu-latest }
+          - { rid: linux-arm64,    runner: ubuntu-24.04-arm }
+          - { rid: win-x64,        runner: windows-latest }
+          - { rid: win-arm64,      runner: windows-11-arm }
+          - { rid: osx-arm64,      runner: macos-14 }
+          - { rid: osx-x64,        runner: macos-15-intel }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuget-package
+          path: nupkg
+      # The test runner is picked by dotnet/global.json, which the SDK only
+      # finds when run from inside dotnet/.
+      - name: Test against the packed package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(basename nupkg/LibOSDP.*.nupkg .nupkg)"; version="${version#LibOSDP.}"
+          cd dotnet
+          dotnet test --project tests/LibOSDP.Tests -c Release \
+            -p:LibOsdpPackageVersion="$version" \
+            -p:RestoreAdditionalProjectSources="${{ github.workspace }}/nupkg"
+
+  # Run in docker rather than as a job container so the JS actions stay on
+  # the glibc host, as cross-plaform-build.yml does for its musl builds.
+  test-linux-musl:
+    name: Test linux-musl-x64
+    needs: pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuget-package
+          path: nupkg
+      - name: Test on Alpine
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(basename nupkg/LibOSDP.*.nupkg .nupkg)"; version="${version#LibOSDP.}"
+          docker run --rm -v "$PWD:/src" -w /src/dotnet \
+            mcr.microsoft.com/dotnet/sdk:10.0-alpine \
+            dotnet test --project tests/LibOSDP.Tests -c Release -f net10.0 \
+              -p:LibOsdpPackageVersion="$version" \
+              -p:RestoreAdditionalProjectSources=/src/nupkg
+
+  test-linux-arm:
+    name: Test linux-arm (QEMU)
+    needs: pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuget-package
+          path: nupkg
+      - name: Test under emulation
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(basename nupkg/LibOSDP.*.nupkg .nupkg)"; version="${version#LibOSDP.}"
+          docker run --rm --platform linux/arm/v7 -v "$PWD:/src" -w /src/dotnet \
+            -e LIBOSDP_TEST_TIMEOUT_S=60 \
+            mcr.microsoft.com/dotnet/sdk:10.0 \
+            dotnet test --project tests/LibOSDP.Tests -c Release -f net10.0 \
+              -p:LibOsdpPackageVersion="$version" \
+              -p:RestoreAdditionalProjectSources=/src/nupkg
+
+  aot-smoke:
+    name: NativeAOT smoke test
+    needs: pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          name: nuget-package
+          path: nupkg
+      - name: Publish the example with NativeAOT and run it
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(basename nupkg/LibOSDP.*.nupkg .nupkg)"; version="${version#LibOSDP.}"
+          dotnet publish examples/dotnet -c Release -r linux-x64 -p:PublishAot=true \
+            -p:LibOsdpPackageVersion="$version" \
+            -p:RestoreAdditionalProjectSources="${{ github.workspace }}/nupkg" -o aot
+          ./aot/LibOSDP.Examples loopback

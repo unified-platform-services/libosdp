@@ -18,3 +18,7 @@ jobs:
 
   native:
     uses: ./.github/workflows/cross-plaform-build.yml
+
+  dotnet:
+    needs: native
+    uses: ./.github/workflows/dotnet.yml
