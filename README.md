@@ -7,6 +7,7 @@
 [![Vcpkg Version][32]][33]
 [![Crates.io LibOSDP version][34]][35]
 [![Crates.io osdpctl version][36]][37]
+[![NuGet Version][42]][43]
 
 This is a cross-platform open source implementation of IEC 60839-11-5 Open
 Supervised Device Protocol (OSDP). The protocol is intended to improve
@@ -77,6 +78,11 @@ info and usage examples.
 ### Python API
 
 LibOSDP is available as a [python package][12]. See [python/README.md][13] for
+more info and usage examples.
+
+### .NET API
+
+LibOSDP is available as a [NuGet package][43]. See [dotnet/README.md][44] for
 more info and usage examples.
 
 ## Supported Commands and Replies
@@ -170,3 +176,6 @@ Your support will ensure sustained development of LibOSDP.
 [39]: https://github.com/osdp-dev/libosdp/tree/master/examples
 [40]: https://doc.osdp.dev/libosdp/compatibility
 [41]: https://doc.osdp.dev/libosdp/secure-channel
+[42]: https://img.shields.io/nuget/v/LibOSDP?logo=nuget
+[43]: https://www.nuget.org/packages/LibOSDP
+[44]: https://github.com/osdp-dev/libosdp/tree/master/dotnet
