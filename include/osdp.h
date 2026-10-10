@@ -622,11 +622,13 @@ enum osdp_biometric_status_e {
  *
  * @note When the reply is multi-part (see @ref OSDP_FLAG_BIOREADR_MULTIPART),
  * this command completes once the template has been reassembled, not when its
- * first fragment arrives -- unless another feature engine (a file transfer,
- * say) is already running an operation on this PD, in which case the command
- * completes when the first fragment is accepted, as it does without the flag.
- * Either way, the reassembled `OSDP_EVENT_BIOREADR` reaches the event
- * callback before the command completes.
+ * first fragment arrives, and the reassembled `OSDP_EVENT_BIOREADR` reaches
+ * the event callback before the command completes. The exception is when
+ * another feature engine (a file transfer, say) is already running an
+ * operation on this PD: the command then completes when the first fragment is
+ * accepted, as it does without the flag, and the reassembled event arrives on
+ * a later poll, after the completion. If that reassembly fails, no event
+ * follows; its @c OSDP_NOTIFICATION_MP_DONE reports how it ended.
  */
 struct osdp_cmd_bioread {
 	/**
