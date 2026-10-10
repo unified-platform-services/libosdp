@@ -98,6 +98,7 @@ coverage/
 ## Native artifact staging
 /build-native-*/
 /native-*/
+/build-logs/
 
 /dotnet/artifacts/
 /dotnet/runtimes/
