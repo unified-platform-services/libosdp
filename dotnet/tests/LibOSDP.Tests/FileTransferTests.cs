@@ -6,7 +6,7 @@ namespace LibOSDP.Tests;
 
 public sealed class FileTransferTests
 {
-    private sealed class SendFile(byte[] content) : IFileOperations
+    internal sealed class SendFile(byte[] content) : IFileOperations
     {
         public bool Open(int fileId, ref uint size)
         {
@@ -26,7 +26,7 @@ public sealed class FileTransferTests
         public void Close() { }
     }
 
-    private sealed class ReceiveFile : IFileOperations
+    internal sealed class ReceiveFile : IFileOperations
     {
         private readonly MemoryStream _data = new();
 

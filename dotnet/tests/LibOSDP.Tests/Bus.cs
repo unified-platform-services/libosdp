@@ -2,10 +2,20 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Threading.Channels;
 
 namespace LibOSDP.Tests;
+
+/// How the CP and the PD of a <see cref="Bus"/> reach each other.
+public enum Transport
+{
+    Loopback,
+    /// Two StreamChannels over the ends of a localhost TCP connection.
+    Tcp,
+}
 
 internal sealed record BusOptions
 {
@@ -15,6 +25,7 @@ internal sealed record BusOptions
     public OsdpFlags PdFlags { get; init; }
     public PdId PdId { get; init; } = new();
     public IReadOnlyList<PdCapability> Capabilities { get; init; } = Bus.DefaultCapabilities;
+    public Transport Transport { get; init; }
 
     public static BusOptions Secure()
     {
@@ -45,6 +56,8 @@ internal sealed class Bus : IAsyncDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly Channel<OsdpCommand> _commands = Channel.CreateUnbounded<OsdpCommand>();
     private readonly Channel<OsdpEvent> _events = Channel.CreateUnbounded<OsdpEvent>();
+    private readonly OsdpChannel _cpSide;
+    private readonly OsdpChannel _pdSide;
 
     public ControlPanel Cp { get; }
     public PeripheralDevice Pd { get; }
@@ -55,19 +68,19 @@ internal sealed class Bus : IAsyncDisposable
 
     private Bus(BusOptions o)
     {
-        var (cpSide, pdSide) = LoopbackChannel.CreatePair();
+        (_cpSide, _pdSide) = CreateLink(o.Transport);
         ControlPanel? cp = null;
         try
         {
-            cp = new ControlPanel(cpSide, [new PdInfo(Address) { Scbk = o.CpKey, Flags = o.CpFlags }]);
-            Pd = new PeripheralDevice(pdSide, new PdInfo(Address) { Scbk = o.PdKey, Flags = o.PdFlags, Id = o.PdId },
+            cp = new ControlPanel(_cpSide, [new PdInfo(Address) { Scbk = o.CpKey, Flags = o.CpFlags }]);
+            Pd = new PeripheralDevice(_pdSide, new PdInfo(Address) { Scbk = o.PdKey, Flags = o.PdFlags, Id = o.PdId },
                                       o.Capabilities);
         }
         catch
         {
             cp?.Dispose();
-            cpSide.Dispose();
-            pdSide.Dispose();
+            _cpSide.Dispose();
+            _pdSide.Dispose();
             throw;
         }
         Cp = cp;
@@ -79,6 +92,36 @@ internal sealed class Bus : IAsyncDisposable
         Cp.EventReceived += (_, e) => _events.Writer.TryWrite(e.Event);
         CpLoop = Task.Run(() => Cp.RunAsync(_stop.Token));
         PdLoop = Task.Run(() => Pd.RunAsync(_stop.Token));
+    }
+
+    private static (OsdpChannel Cp, OsdpChannel Pd) CreateLink(Transport transport)
+    {
+        if (transport == Transport.Loopback)
+            return LoopbackChannel.CreatePair();
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var client = new TcpClient { NoDelay = true };
+        Socket? server = null;
+        StreamChannel? cpSide = null;
+        try
+        {
+            client.Connect((IPEndPoint)listener.LocalEndpoint);
+            server = listener.AcceptSocket();
+            server.NoDelay = true;
+            cpSide = new StreamChannel(client.GetStream());
+            return (cpSide, new StreamChannel(new NetworkStream(server, ownsSocket: true)));
+        }
+        catch
+        {
+            cpSide?.Dispose();
+            client.Dispose();
+            server?.Dispose();
+            throw;
+        }
+        finally
+        {
+            listener.Stop();
+        }
     }
 
     public static async Task<Bus> StartAsync(BusOptions? options = null)
@@ -96,12 +139,12 @@ internal sealed class Bus : IAsyncDisposable
         return bus;
     }
 
-    public async Task<T> NextCommandAsync<T>() where T : OsdpCommand
+    public async Task<T> NextCommandAsync<T>(Func<T, bool>? wanted = null) where T : OsdpCommand
     {
         using var timeout = new CancellationTokenSource(Timeout);
         while (true)
         {
-            if (await _commands.Reader.ReadAsync(timeout.Token) is T match)
+            if (await _commands.Reader.ReadAsync(timeout.Token) is T match && (wanted is null || wanted(match)))
                 return match;
         }
     }
@@ -135,6 +178,8 @@ internal sealed class Bus : IAsyncDisposable
         }
         Cp.Dispose();
         Pd.Dispose();
+        _cpSide.Dispose();
+        _pdSide.Dispose();
         _stop.Dispose();
     }
 }
