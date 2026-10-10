@@ -54,3 +54,8 @@ files = ["osdp"]
 [tool.pyright]
 include = ["osdp"]
 typeCheckingMode = "strict"
+
+[tool.cibuildwheel]
+# Every wheel is installed into a clean environment and exercised: the native
+# extension must load and a CP/PD pair must talk over a secure channel.
+test-command = "python {package}/smoke_test.py"
