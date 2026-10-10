@@ -359,13 +359,17 @@ int osdp_trs_cmd_build(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 		if (max_len - len < 17 || osdp_trs_pin_entry_check(pd, pe)) {
 			return -1;
 		}
-		trs_pin_format_to_wire(pe->pin_block.format, &byte);
+		if (trs_pin_format_to_wire(pe->pin_block.format, &byte)) {
+			return -1;
+		}
 		buf[len++] = pe->timeout_initial;
 		buf[len++] = pe->timeout_digit;
 		/* bmFormatString: [7]=offset unit is bytes, [6:3]=PIN offset,
 		 * [2]=right justify, [1:0]=PIN format */
-		trs_pin_pos_to_wire(pe->pin_block.offset_bits, &offset,
-				    &unit_bytes);
+		if (trs_pin_pos_to_wire(pe->pin_block.offset_bits, &offset,
+					&unit_bytes)) {
+			return -1;
+		}
 		byte |= pe->pin_block.right_justify ? BIT(2) : 0;
 		byte |= (uint8_t)(offset << 3);
 		byte |= unit_bytes ? BIT(7) : 0;
@@ -376,8 +380,10 @@ int osdp_trs_cmd_build(struct osdp_pd *pd, const struct osdp_cmd *cmd,
 				       pe->pin_block.size_bytes);
 		/* bmPINLengthFormat: [4]=offset unit is bytes,
 		 * [3:0]=PIN-length field offset */
-		trs_pin_pos_to_wire(pe->pin_length_field.offset_bits, &offset,
-				    &unit_bytes);
+		if (trs_pin_pos_to_wire(pe->pin_length_field.offset_bits,
+					&offset, &unit_bytes)) {
+			return -1;
+		}
 		byte = offset;
 		byte |= unit_bytes ? BIT(4) : 0;
 		buf[len++] = byte;
