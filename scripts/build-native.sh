@@ -77,10 +77,12 @@ win-x64 | win-arm64)
 osx-arm64)
 	CMAKE_ARGS+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
 		     -DCMAKE_OSX_ARCHITECTURES=arm64)
+	PROBE_ARGS+=(-DCMAKE_OSX_ARCHITECTURES=arm64)
 	;;
 osx-x64)
 	CMAKE_ARGS+=(-DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
 		     -DCMAKE_OSX_ARCHITECTURES=x86_64)
+	PROBE_ARGS+=(-DCMAKE_OSX_ARCHITECTURES=x86_64)
 	;;
 linux-arm)
 	# Cross-compiled; the toolchain comes from the environment (dockcross

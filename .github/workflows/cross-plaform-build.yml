@@ -11,53 +11,50 @@ on:
   workflow_call:
 
 jobs:
-  native:
-    name: Native ${{ matrix.rid }}
+  build:
+    name: Build on ${{ matrix.job }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { rid: linux-x64,        runner: ubuntu-latest,    image: quay.io/pypa/manylinux_2_28_x86_64,  max_glibc: "2.28" }
-          - { rid: linux-arm64,      runner: ubuntu-24.04-arm, image: quay.io/pypa/manylinux_2_28_aarch64, max_glibc: "2.28" }
-          - { rid: linux-musl-x64,   runner: ubuntu-latest,    image: quay.io/pypa/musllinux_1_2_x86_64 }
-          - { rid: linux-musl-arm64, runner: ubuntu-24.04-arm, image: quay.io/pypa/musllinux_1_2_aarch64 }
-          # The dockcross image ships qemu-arm and sets QEMU_LD_PREFIX, so the
-          # cross-built ABI probe runs without any host emulator setup.
-          - { rid: linux-arm,        runner: ubuntu-latest,    image: dockcross/linux-armv7-lts,           max_glibc: "2.31", probe_runner: qemu-arm }
-          - { rid: win-x64,          runner: windows-latest }
-          - { rid: win-arm64,        runner: windows-11-arm }
-          - { rid: osx-arm64,        runner: macos-14 }
-          - { rid: osx-x64,          runner: macos-15-intel }
+          - { job: ubuntu-x64,    runner: ubuntu-latest,    rids: "linux-x64 linux-musl-x64 linux-arm", wheel_archs: "x86_64" }
+          - { job: ubuntu-arm64,  runner: ubuntu-24.04-arm, rids: "linux-arm64 linux-musl-arm64",       wheel_archs: "aarch64" }
+          - { job: windows-x64,   runner: windows-latest,   rids: "win-x64",                            wheel_archs: "AMD64" }
+          - { job: windows-arm64, runner: windows-11-arm,   rids: "win-arm64",                          wheel_archs: "ARM64" }
+          # Apple Silicon cross-builds the x86_64 assets and tests them under
+          # Rosetta; GitHub is retiring its Intel macOS images.
+          - { job: macos-arm64,   runner: macos-14,         rids: "osx-arm64 osx-x64",                  wheel_archs: "arm64 x86_64 universal2" }
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: recursive
           fetch-depth: 0
-      # Containers are driven with `docker run` rather than `container:` so the
-      # same command reproduces locally, and so JavaScript actions never have to
-      # run inside a musl image. Running as the runner user keeps the files
-      # written into the bind mount uploadable.
-      - name: Build in ${{ matrix.image }}
-        if: matrix.image
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      # cibuildwheel uses the runner's Python to drive builds on macOS and
+      # Windows; Linux builds happen inside the manylinux/musllinux images.
+      - uses: actions/setup-python@v7
+        if: runner.os != 'Linux'
+        with:
+          python-version: "3.12"
+      # linux-arm's .NET tests run in an armv7 container under emulation.
+      - uses: docker/setup-qemu-action@v4
+        if: matrix.job == 'ubuntu-x64'
+        with:
+          platforms: arm
+      # osx-x64 unit tests and ABI probe run during the native build.
+      - name: Install Rosetta
+        if: runner.os == 'macOS'
+        run: sudo softwareupdate --install-rosetta --agree-to-license
+      - name: Build native libraries
         shell: bash
-        run: |
-          set -euo pipefail
-          rev="$(git describe --tags --long --always --abbrev=7)"
-          tag="$(git describe --exact-match --tags HEAD 2>/dev/null || true)"
-          docker run --rm --user "$(id -u):$(id -g)" -e HOME=/tmp \
-            -v "$PWD:/src" -w /src \
-            -e LIBOSDP_GIT_REV="$rev" -e LIBOSDP_GIT_TAG="$tag" \
-            -e MAX_GLIBC="${{ matrix.max_glibc }}" -e BUILD_DIR=/tmp/build \
-            -e ABI_PROBE_RUNNER="${{ matrix.probe_runner }}" \
-            "${{ matrix.image }}" \
-            scripts/build-native.sh "${{ matrix.rid }}" "/src/native-${{ matrix.rid }}"
-      - name: Build on runner
-        if: ${{ !matrix.image }}
-        shell: bash
-        run: scripts/build-native.sh "${{ matrix.rid }}" "native-${{ matrix.rid }}"
-      - name: Check the Windows DLL needs no VC++ redistributable
-        if: startsWith(matrix.rid, 'win-')
+        run: scripts/build-natives.sh ${{ matrix.rids }}
+      - name: Check the Windows DLLs need no VC++ redistributable
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.* -property installationPath
@@ -65,19 +62,81 @@ jobs:
           $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC" -Recurse -Filter dumpbin.exe |
             Where-Object { $_.FullName -match "\\$hostDir\\" } | Select-Object -First 1
           if (-not $dumpbin) { throw "dumpbin.exe not found" }
-          $machine = if ("${{ matrix.rid }}" -eq 'win-arm64') { 'AA64 machine \(ARM64\)' } else { '8664 machine \(x64\)' }
-          $headers = & $dumpbin.FullName /headers "native-${{ matrix.rid }}\lib\osdp.dll"
-          if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed with exit code $LASTEXITCODE" }
-          if (-not ($headers -match $machine)) { throw "osdp.dll is not built for ${{ matrix.rid }}" }
-          $deps = & $dumpbin.FullName /dependents "native-${{ matrix.rid }}\lib\osdp.dll"
-          $deps
-          if ($LASTEXITCODE -ne 0) { throw "dumpbin failed with exit code $LASTEXITCODE" }
-          if (-not ($deps -match '^\s+\S+\.dll\s*$')) { throw "dumpbin listed no dependencies" }
-          if ($deps -match 'VCRUNTIME|MSVCP|api-ms-win-crt') { throw "osdp.dll links the dynamic CRT" }
+          foreach ($rid in "${{ matrix.rids }}".Split(' ', [StringSplitOptions]::RemoveEmptyEntries)) {
+            $dll = "native-$rid\lib\osdp.dll"
+            $machine = if ($rid -eq 'win-arm64') { 'AA64 machine \(ARM64\)' } else { '8664 machine \(x64\)' }
+            $headers = & $dumpbin.FullName /headers $dll
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin /headers failed with exit code $LASTEXITCODE" }
+            if (-not ($headers -match $machine)) { throw "osdp.dll is not built for $rid" }
+            $deps = & $dumpbin.FullName /dependents $dll
+            $deps
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin failed with exit code $LASTEXITCODE" }
+            if (-not ($deps -match '^\s+\S+\.dll\s*$')) { throw "dumpbin listed no dependencies" }
+            if ($deps -match 'VCRUNTIME|MSVCP|api-ms-win-crt') { throw "osdp.dll for $rid links the dynamic CRT" }
+          }
+      # The .NET suite shares nothing with the wheel build, so it runs in the
+      # background while cibuildwheel works; the collect step below waits.
+      - name: Start the .NET tests
+        id: dotnet_start
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dotnet-test-logs
+          # The subshell inherits errexit, so the exit code is captured with
+          # `||` or a failing run would never write its status. Detaching its
+          # stdio lets the step finish on Windows, where the runner otherwise
+          # waits for every process holding the step's output handles.
+          for rid in ${{ matrix.rids }}; do
+            ( rc=0
+              scripts/test-dotnet-native.sh "$rid" >"dotnet-test-logs/$rid.log" 2>&1 || rc=$?
+              echo "$rc" >"dotnet-test-logs/$rid.status.tmp"
+              mv "dotnet-test-logs/$rid.status.tmp" "dotnet-test-logs/$rid.status"
+            ) </dev/null >/dev/null 2>&1 &
+          done
+      - name: Build and smoke-test wheels
+        uses: pypa/cibuildwheel@v4.2.0
+        with:
+          package-dir: python/
+          output-dir: wheelhouse
+        env:
+          CIBW_ARCHS: ${{ matrix.wheel_archs }}
+          # Build for Python >= 3.10 only: setuptools >= 83 (needed for the
+          # PEP 639 license expression in setup.py) dropped Python 3.9.
+          CIBW_SKIP: "cp39-*"
+      - name: Collect the .NET tests
+        if: ${{ !cancelled() && steps.dotnet_start.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=0
+          # Background runs are only reaped at job end, so a hung one would
+          # hold the job until GitHub's 6 h limit; give them an hour in all.
+          deadline=$(( $(date +%s) + 3600 ))
+          for rid in ${{ matrix.rids }}; do
+            while [ ! -f "dotnet-test-logs/$rid.status" ] && [ "$(date +%s)" -lt "$deadline" ]; do
+              sleep 5
+            done
+            if [ -f "dotnet-test-logs/$rid.status" ]; then
+              rc="$(cat "dotnet-test-logs/$rid.status")"
+            else
+              echo "still running after 60 min; gave up" >>"dotnet-test-logs/$rid.log"
+              rc=timeout
+            fi
+            echo "::group::.NET tests $rid (exit $rc)"
+            cat "dotnet-test-logs/$rid.log"
+            echo "::endgroup::"
+            [ "$rc" = 0 ] || { echo "::error::.NET tests failed for $rid ($rc)"; status=1; }
+          done
+          exit "$status"
       - uses: actions/upload-artifact@v7
         with:
-          name: native-${{ matrix.rid }}
-          path: native-${{ matrix.rid }}/
+          name: natives-${{ matrix.job }}
+          path: native-*/
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheels-${{ matrix.job }}
+          path: wheelhouse/*.whl
           if-no-files-found: error
 
   # MSYS2 (MinGW/UCRT/Clang) exercises the libosdp core on non-MSVC Windows

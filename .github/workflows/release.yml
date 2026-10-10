@@ -518,8 +518,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v8
         with:
-          pattern: native-*
+          pattern: natives-*
           path: native
+          merge-multiple: true
       - uses: actions/download-artifact@v8
         with:
           name: release-notes

@@ -21,8 +21,9 @@ jobs:
           dotnet-version: 10.0.x
       - uses: actions/download-artifact@v8
         with:
-          pattern: native-*
+          pattern: natives-*
           path: native
+          merge-multiple: true
       - name: Check every native build has the ABI the binding expects
         shell: bash
         run: |
