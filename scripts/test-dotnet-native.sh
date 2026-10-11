@@ -38,7 +38,28 @@ in_docker() { # <platform> <image> <timeout>
 case "${rid}" in
 linux-musl-x64) in_docker linux/amd64 mcr.microsoft.com/dotnet/sdk:10.0-alpine 10 ;;
 linux-musl-arm64) in_docker linux/arm64 mcr.microsoft.com/dotnet/sdk:10.0-alpine 10 ;;
-linux-arm) in_docker linux/arm/v7 mcr.microsoft.com/dotnet/sdk:10.0 60 ;;
+linux-arm)
+	# The SDK itself crashes under QEMU's armv7 emulation, so build the
+	# CPU-independent test assembly here and emulate only the runtime.
+	# Precompiled framework code and tiered JIT trip QEMU's Thumb
+	# translator; that assertion is QEMU's, so only it earns a retry.
+	(cd "${work}/dotnet" && dotnet build tests/LibOSDP.Tests -c Release -f net10.0)
+	log="${work}/run.log"
+	for attempt in 1 2 3; do
+		rc=0
+		timeout -k 30s 30m docker run --rm --init --platform linux/arm/v7 \
+			--user "$(id -u):$(id -g)" -e HOME=/tmp -e DOTNET_CLI_HOME=/tmp \
+			-v "${work}:/src" -w /src/dotnet/artifacts/bin/LibOSDP.Tests/release_net10.0 \
+			-e DOTNET_EnableWriteXorExecute=0 -e DOTNET_TieredCompilation=0 \
+			-e DOTNET_ReadyToRun=0 \
+			-e LIBOSDP_TEST_TIMEOUT_S=60 mcr.microsoft.com/dotnet/runtime:10.0 \
+			dotnet LibOSDP.Tests.dll 2>&1 | tee "${log}" || rc=$?
+		[ "${rc}" = 0 ] && break
+		grep -qE 'qemu-arm[a-z-]*: .*Assertion' "${log}" || exit "${rc}"
+		echo "::warning::QEMU crashed on linux-arm (attempt ${attempt}/3)"
+	done
+	exit "${rc}"
+	;;
 osx-x64)
 	# Built on Apple Silicon; run it under Rosetta with an x64 runtime.
 	if ! arch -x86_64 /usr/bin/true 2>/dev/null; then
