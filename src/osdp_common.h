@@ -54,7 +54,20 @@
  * the alias binds to fn by name (no signature can drift), costs no .data slot,
  * and adds no indirection at the call site.
  */
-#if defined(UNIT_TESTING) || defined(OSDP_UNIT_TESTABLE)
+#if (defined(UNIT_TESTING) || defined(OSDP_UNIT_TESTABLE)) && defined(__APPLE__)
+/*
+ * Mach-O has no alias attribute; assign the symbol in assembly instead. The
+ * pointer keeps a static fn emitted, since the assembler reference does not.
+ */
+#define OSDP_TEST_ALIAS_STR_(x) #x
+#define OSDP_TEST_ALIAS_SYM_(p, n) OSDP_TEST_ALIAS_STR_(p) #n
+#define OSDP_TEST_ALIAS_SYM(n) OSDP_TEST_ALIAS_SYM_(__USER_LABEL_PREFIX__, n)
+#define OSDP_TEST_ALIAS(fn)                                                    \
+	static __typeof__(fn) *const osdp_test_keep_##fn                       \
+		__attribute__((used)) = fn;                                    \
+	__asm__(".globl " OSDP_TEST_ALIAS_SYM(test_##fn) "\n"                \
+		OSDP_TEST_ALIAS_SYM(test_##fn) " = " OSDP_TEST_ALIAS_SYM(fn))
+#elif defined(UNIT_TESTING) || defined(OSDP_UNIT_TESTABLE)
 #define OSDP_TEST_ALIAS(fn)                                                    \
 	extern __typeof__(fn) test_##fn __attribute__((alias(#fn)))
 #else
