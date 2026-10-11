@@ -1,0 +1,281 @@
+#
+# Copyright (c) 2026 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+name: Package
+
+# Picks the shippable packages off a cross-plaform-build.yml run in the same
+# workflow run; builds nothing native.
+on:
+  workflow_call:
+    inputs:
+      version:
+        type: string
+        default: ""
+      ref_name:
+        type: string
+        default: ""
+
+jobs:
+  meta:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      ref_name: ${{ steps.v.outputs.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ inputs.ref_name }}
+        run: |
+          set -euo pipefail
+          version="$VERSION"
+          if [ -z "$version" ]; then
+            version="$(perl -ne 'print $1 if (/project\(libosdp VERSION (\d+\.\d+\.\d+)\)/)' CMakeLists.txt)"
+          fi
+          if [ -z "$version" ]; then
+            echo "::error::could not resolve the version from CMakeLists.txt"
+            exit 1
+          fi
+          ref="${REF_NAME:-${GITHUB_REF_NAME}}"
+          # ref_name ends up in file names; a branch like feature/x must not
+          # turn into a directory.
+          ref="${ref//\//-}"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "ref_name=$ref" >>"$GITHUB_OUTPUT"
+
+  nuget:
+    name: NuGet package
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: natives-*
+          path: native
+          merge-multiple: true
+      - name: Check every native build has the ABI the binding expects
+        shell: bash
+        run: |
+          set -euo pipefail
+          sizes() { grep '^sizeof_' "$1" | sort; }
+          ref=native/native-linux-x64/abi.txt
+          rids="$(awk -F'\t' '!/^#/ && NF { print $1 }' scripts/native-targets.tsv)"
+          for rid in $rids; do
+            test -f "native/native-$rid/abi.txt" || { echo "::error::missing native-$rid"; exit 1; }
+          done
+          for f in native/native-*/abi.txt; do
+            grep -qx 'options=0x00000000' "$f" || { echo "::error::$f has unexpected options"; cat "$f"; exit 1; }
+          done
+          # Pointer size is the only thing allowed to differ, so every 64-bit
+          # build must match linux-x64 exactly. linux-arm is checked by its
+          # own test run under QEMU.
+          for rid in $rids; do
+            case "$rid" in linux-x64|linux-arm) continue ;; esac
+            diff <(sizes "$ref") <(sizes "native/native-$rid/abi.txt") ||
+              { echo "::error::$rid ABI differs from linux-x64"; exit 1; }
+          done
+      - name: Stage native libraries
+        shell: bash
+        run: |
+          set -euo pipefail
+          for dir in native/native-*; do
+            rid="${dir##*/native-}"
+            mkdir -p "dotnet/runtimes/$rid/native"
+            for f in "$dir"/lib/libosdp.so "$dir"/lib/libosdp.dylib "$dir"/lib/osdp.dll; do
+              if [ -f "$f" ]; then cp "$f" "dotnet/runtimes/$rid/native/"; fi
+            done
+          done
+          find dotnet/runtimes -type f | sort
+          test "$(find dotnet/runtimes -type f | wc -l)" -eq \
+            "$(awk -F'\t' '!/^#/ && NF' scripts/native-targets.tsv | wc -l)"
+      - run: dotnet pack dotnet/src/LibOSDP -c Release -o nupkg
+      # Each runtime ID's library was already tested natively by the build;
+      # this proves the package itself restores and loads, so once is enough.
+      # The test runner is picked by dotnet/global.json, which the SDK only
+      # finds when run from inside dotnet/.
+      - name: Test against the packed package
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(basename nupkg/LibOSDP.*.nupkg .nupkg)"; version="${version#LibOSDP.}"
+          cd dotnet
+          dotnet test --project tests/LibOSDP.Tests -c Release \
+            -p:LibOsdpPackageVersion="$version" \
+            -p:RestoreAdditionalProjectSources="${{ github.workspace }}/nupkg"
+      - name: Publish the example with NativeAOT and run it
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(basename nupkg/LibOSDP.*.nupkg .nupkg)"; version="${version#LibOSDP.}"
+          dotnet publish examples/dotnet -c Release -r linux-x64 -p:PublishAot=true \
+            -p:LibOsdpPackageVersion="$version" \
+            -p:RestoreAdditionalProjectSources="${{ github.workspace }}/nupkg" -o aot
+          ./aot/LibOSDP.Examples loopback
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nuget-package
+          path: nupkg/*.nupkg
+          if-no-files-found: error
+
+  release-tarballs:
+    name: Release tarballs
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: natives-*
+          path: native
+          merge-multiple: true
+      - name: Collect release assets
+        shell: bash
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-files
+          for dir in native/native-*; do
+            rid="${dir##*/native-}"
+            # The NuGet-bound artifact cannot carry symlinks, but the C
+            # tarball needs the SONAME link for the linker to resolve.
+            stage="stage/native-${rid}"
+            mkdir -p stage
+            cp -R "${dir}" "${stage}"
+            case "${rid}" in
+              linux-*) ln -s libosdp.so "${stage}/lib/libosdp.so.${VERSION%%.*}" ;;
+              osx-*) ln -s libosdp.dylib "${stage}/lib/libosdp.${VERSION%%.*}.dylib" ;;
+            esac
+            tar -czf "release-files/libosdp-${VERSION}-${rid}.tar.gz" -C "${stage}" .
+          done
+          ls -l release-files
+      - name: Check there is one tarball per runtime ID
+        shell: bash
+        env:
+          VERSION: ${{ needs.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          expected="$(awk -F'\t' -v v="$VERSION" '!/^#/ && NF { print "libosdp-" v "-" $1 ".tar.gz" }' \
+            scripts/native-targets.tsv | sort)"
+          diff <(echo "$expected") <(cd release-files && ls -1 | sort) ||
+            { echo "::error::release tarballs do not match scripts/native-targets.tsv"; exit 1; }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-tarballs
+          path: release-files/*.tar.gz
+          if-no-files-found: error
+
+  python:
+    name: Python distributions
+    needs: meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+      - name: Build sdist
+        run: |
+          python -m pip install --upgrade pip setuptools wheel build
+          pushd python
+          python -m build --sdist
+          popd
+          mv python/dist/*.tar.gz dist/
+      - name: Check the wheel set
+        run: python3 scripts/check-wheels.py dist scripts/wheel-targets.txt
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-dists
+          path: dist/*
+          if-no-files-found: error
+
+  esp-idf:
+    name: ESP-IDF component
+    needs: meta
+    runs-on: ubuntu-latest
+    container: espressif/idf:release-v5.5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Mark the checkout safe for git
+        shell: bash
+        run: git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+      - name: Pack the component
+        shell: bash
+        run: |
+          set -euo pipefail
+          . "${IDF_PATH}/export.sh"
+          # Proves the manifest packs before the pipeline reaches the
+          # irreversible upload, and leaves the exact tarball as an artifact so
+          # a rejected release can be diagnosed without reproducing the build.
+          compote component pack \
+            --name libosdp \
+            --version "${{ needs.meta.outputs.version }}"
+      - name: Verify the submodule made it into the archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          # utils/ is a git submodule and the packer globs the working tree, so
+          # a non-recursive checkout would publish a component that cannot
+          # compile -- with no error at pack time. Fail here instead.
+          archive="$(find dist -name 'libosdp_*.tgz' -print -quit)"
+          if [[ -z "${archive}" ]]; then
+            echo "::error::compote produced no archive" >&2
+            exit 1
+          fi
+          # List once into a file rather than piping tar into each grep: under
+          # pipefail, "grep -q" exits on its first match and the SIGPIPE that
+          # kills tar fails the pipeline, so a file that IS present reports as
+          # missing whenever it matches early in the listing.
+          tar -tzf "${archive}" > contents.txt
+          # compote writes entries with a leading "./", so match them exactly
+          # rather than anchoring on the bare path.
+          missing=()
+          for f in ./utils/src/utils.c ./esp-idf/component.cmake \
+                   ./esp-idf/src/osdp_esp.c ./src/osdp_cp.c ./include/osdp.h
+          do
+            grep -qxF "${f}" contents.txt || missing+=("${f}")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::${archive} is missing: ${missing[*]}" >&2
+            exit 1
+          fi
+          echo "Packed ${archive} ($(stat -c%s "${archive}") bytes), contents verified"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: idf-component-package
+          path: dist/*.tgz
+
+  platformio:
+    name: PlatformIO package
+    needs: meta
+    runs-on: ubuntu-latest
+    env:
+      REF_NAME: ${{ needs.meta.outputs.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Archive PlatformIO package source
+        run: git archive --format tar.gz --prefix "libosdp-${REF_NAME}/" -o "libosdp-platformio-${REF_NAME}.tar.gz" "${GITHUB_SHA}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: platformio-package
+          path: libosdp-platformio-${{ env.REF_NAME }}.tar.gz

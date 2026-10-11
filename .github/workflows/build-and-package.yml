@@ -1,0 +1,19 @@
+#
+# Copyright (c) 2026 Siddharth Chandrasekaran <sidcha.dev@gmail.com>
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+name: Build and Package
+
+# Manual trial of the release build: every native library, wheel and package,
+# without a tag and without publishing anything.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    uses: ./.github/workflows/cross-plaform-build.yml
+  package:
+    needs: build
+    uses: ./.github/workflows/package.yml

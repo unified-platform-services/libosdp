@@ -1,0 +1,83 @@
+# Every wheel the cross-platform build must produce, one cibuildwheel build
+# identifier per line. The package workflow fails if a wheel is missing or
+# an unlisted one appears (scripts/check-wheels.py). Regenerate after
+# changing the builder's wheel_archs or CIBW_SKIP, or bumping cibuildwheel:
+#
+#   for spec in "linux x86_64" "linux aarch64" "windows AMD64" \
+#               "windows ARM64" "macos arm64" "macos x86_64" "macos universal2"; do
+#     set -- $spec
+#     CIBW_SKIP="cp39-*" pipx run cibuildwheel==4.2.0 \
+#       --print-build-identifiers --platform "$1" --archs "$2" python
+#   done | LC_ALL=C sort -u
+cp310-macosx_arm64
+cp310-macosx_universal2
+cp310-macosx_x86_64
+cp310-manylinux_aarch64
+cp310-manylinux_x86_64
+cp310-musllinux_aarch64
+cp310-musllinux_x86_64
+cp310-win_amd64
+cp310-win_arm64
+cp311-macosx_arm64
+cp311-macosx_universal2
+cp311-macosx_x86_64
+cp311-manylinux_aarch64
+cp311-manylinux_x86_64
+cp311-musllinux_aarch64
+cp311-musllinux_x86_64
+cp311-win_amd64
+cp311-win_arm64
+cp312-macosx_arm64
+cp312-macosx_universal2
+cp312-macosx_x86_64
+cp312-manylinux_aarch64
+cp312-manylinux_x86_64
+cp312-musllinux_aarch64
+cp312-musllinux_x86_64
+cp312-win_amd64
+cp312-win_arm64
+cp313-macosx_arm64
+cp313-macosx_universal2
+cp313-macosx_x86_64
+cp313-manylinux_aarch64
+cp313-manylinux_x86_64
+cp313-musllinux_aarch64
+cp313-musllinux_x86_64
+cp313-win_amd64
+cp313-win_arm64
+cp314-macosx_arm64
+cp314-macosx_universal2
+cp314-macosx_x86_64
+cp314-manylinux_aarch64
+cp314-manylinux_x86_64
+cp314-musllinux_aarch64
+cp314-musllinux_x86_64
+cp314-win_amd64
+cp314-win_arm64
+cp314t-macosx_arm64
+cp314t-macosx_universal2
+cp314t-macosx_x86_64
+cp314t-manylinux_aarch64
+cp314t-manylinux_x86_64
+cp314t-musllinux_aarch64
+cp314t-musllinux_x86_64
+cp314t-win_amd64
+cp314t-win_arm64
+cp315-macosx_arm64
+cp315-macosx_universal2
+cp315-macosx_x86_64
+cp315-manylinux_aarch64
+cp315-manylinux_x86_64
+cp315-musllinux_aarch64
+cp315-musllinux_x86_64
+cp315-win_amd64
+cp315-win_arm64
+cp315t-macosx_arm64
+cp315t-macosx_universal2
+cp315t-macosx_x86_64
+cp315t-manylinux_aarch64
+cp315t-manylinux_x86_64
+cp315t-musllinux_aarch64
+cp315t-musllinux_x86_64
+cp315t-win_amd64
+cp315t-win_arm64
