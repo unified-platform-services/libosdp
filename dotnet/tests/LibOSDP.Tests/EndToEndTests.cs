@@ -146,9 +146,11 @@ public sealed class EndToEndCommandTests
     {
         byte[] content = E2E.Pattern(3001, 0x11);
         var receiver = new FileTransferTests.ReceiveFile();
-        await using var bus = await Bus.StartAsync(E2E.Options(transport, secure));
-        bus.Cp.RegisterFileOperations(Bus.Address, new FileTransferTests.SendFile(content));
-        bus.Pd.RegisterFileOperations(receiver);
+        await using var bus = await Bus.StartAsync(E2E.Options(transport, secure) with
+        {
+            CpFileOperations = new FileTransferTests.SendFile(content),
+            PdFileOperations = receiver,
+        });
 
         var sent = new FileTransferCommand(FileId: 7);
         Task<CompletionStatus> done = bus.Cp.SubmitCommandAsync(Bus.Address, sent);
@@ -410,7 +412,13 @@ public sealed class EndToEndNotificationTests
     {
         var id = new PdId(Version: 2, Model: 5, VendorCode: 0x0A0B0C, SerialNumber: 0x01020304, FirmwareVersion: 0x030201);
         BusOptions options = E2E.Options(transport, secure, OsdpFlags.EnableNotification) with { PdId = id };
-        await using var bus = await Bus.StartAsync(options);
+        byte[] content = E2E.Pattern(3001, 0x42);
+        var receiver = new FileTransferTests.ReceiveFile();
+        await using var bus = await Bus.StartAsync(options with
+        {
+            CpFileOperations = new FileTransferTests.SendFile(content),
+            PdFileOperations = receiver,
+        });
 
         List<Func<OsdpNotification, bool>> linkUp = [Is(new PdStatusNotification(true))];
         if (secure)
@@ -418,10 +426,6 @@ public sealed class EndToEndNotificationTests
         await WaitForAsync(() => NextCpNotificationAsync(bus), [.. linkUp, Is(new PdIdNotification(id))]);
         await WaitForAsync(() => NextPdNotificationAsync(bus), [.. linkUp]);
 
-        byte[] content = E2E.Pattern(3001, 0x42);
-        var receiver = new FileTransferTests.ReceiveFile();
-        bus.Cp.RegisterFileOperations(Bus.Address, new FileTransferTests.SendFile(content));
-        bus.Pd.RegisterFileOperations(receiver);
         Task<CompletionStatus> done = bus.Cp.SubmitCommandAsync(Bus.Address, new FileTransferCommand(FileId: 3));
 
         Func<OsdpNotification, bool>[] transfer =
@@ -474,11 +478,13 @@ public sealed class EndToEndNotificationTests
     [MemberData(nameof(AllLinks))]
     public async Task OutcomeThePdReportsReachesBothSides(Transport transport, bool secure)
     {
-        await using var bus = await Bus.StartAsync(E2E.Options(transport, secure, OsdpFlags.EnableNotification));
         byte[] content = E2E.Pattern(500, 0x24);
         var receiver = new FinishingReceiver(MpOutcome.Unrecognized);
-        bus.Cp.RegisterFileOperations(Bus.Address, new FileTransferTests.SendFile(content));
-        bus.Pd.RegisterFileOperations(receiver);
+        await using var bus = await Bus.StartAsync(E2E.Options(transport, secure, OsdpFlags.EnableNotification) with
+        {
+            CpFileOperations = new FileTransferTests.SendFile(content),
+            PdFileOperations = receiver,
+        });
 
         Task<CompletionStatus> done = bus.Cp.SubmitCommandAsync(Bus.Address, new FileTransferCommand(FileId: 5));
         var failed = FileDone(5, content.Length, MpOutcome.Unrecognized, content.Length);
@@ -492,11 +498,13 @@ public sealed class EndToEndNotificationTests
     [MemberData(nameof(AllLinks))]
     public async Task CancelledTransferEndsAborted(Transport transport, bool secure)
     {
-        await using var bus = await Bus.StartAsync(E2E.Options(transport, secure, OsdpFlags.EnableNotification));
         byte[] content = E2E.Pattern(500, 0x24);
         var receiver = new FinishingReceiver(outcome: null);
-        bus.Cp.RegisterFileOperations(Bus.Address, new FileTransferTests.SendFile(content));
-        bus.Pd.RegisterFileOperations(receiver);
+        await using var bus = await Bus.StartAsync(E2E.Options(transport, secure, OsdpFlags.EnableNotification) with
+        {
+            CpFileOperations = new FileTransferTests.SendFile(content),
+            PdFileOperations = receiver,
+        });
 
         Task<CompletionStatus> done = bus.Cp.SubmitCommandAsync(Bus.Address, new FileTransferCommand(FileId: 6));
         await receiver.Finishing.Task.WaitAsync(Bus.Timeout, TestContext.Current.CancellationToken);

@@ -66,8 +66,9 @@ public sealed unsafe class PeripheralDevice : IDisposable
             throw;
         }
         nint self = GCHandle.ToIntPtr(_self);
-        Native.PdSetCommandCallback(_ctx, &OnCommand, self);
-        Native.PdSetEventCompletionCallback(_ctx, &OnEventCompleted, self);
+        // Nothing has refreshed the new context yet, so neither is refused.
+        _ = Native.PdSetCommandCallback(_ctx, &OnCommand, self);
+        _ = Native.PdSetEventCompletionCallback(_ctx, &OnEventCompleted, self);
     }
 
     /// <summary>Whether a control panel is talking to this PD.</summary>
@@ -159,6 +160,8 @@ public sealed unsafe class PeripheralDevice : IDisposable
 
     /// <summary>Provide storage for files the CP sends.</summary>
     /// <param name="operations">The file sink.</param>
+    /// <exception cref="InvalidOperationException">The link has already been refreshed.</exception>
+    /// <remarks>Call before the first <see cref="Refresh"/> or <see cref="RunAsync"/>.</remarks>
     public void RegisterFileOperations(IFileOperations operations)
     {
         ArgumentNullException.ThrowIfNull(operations);
@@ -184,7 +187,7 @@ public sealed unsafe class PeripheralDevice : IDisposable
         if (rc != 0)
         {
             host.Free();
-            throw new OsdpException("LibOSDP refused the file operations.");
+            throw new InvalidOperationException("File operations must be registered before the first refresh.");
         }
     }
 

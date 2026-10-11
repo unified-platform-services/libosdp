@@ -68,13 +68,23 @@ public sealed class FileTransferTests
     }
 
     [Fact]
+    public async Task RegisteringFileOperationsOnARunningBusThrows()
+    {
+        await using var bus = await Bus.StartAsync();
+        Assert.Throws<InvalidOperationException>(() => bus.Cp.RegisterFileOperations(Bus.Address, new SendFile([])));
+        Assert.Throws<InvalidOperationException>(() => bus.Pd.RegisterFileOperations(new ReceiveFile()));
+    }
+
+    [Fact]
     public async Task ReadReportingMoreThanTheBufferFailsTheTransfer()
     {
         var receiver = new ReceiveFile();
-        await using var bus = await Bus.StartAsync(BusOptions.Secure());
+        await using var bus = await Bus.StartAsync(BusOptions.Secure() with
+        {
+            CpFileOperations = new OverReportingSender(),
+            PdFileOperations = receiver,
+        });
         bus.LoopFaultExpected = true;
-        bus.Cp.RegisterFileOperations(Bus.Address, new OverReportingSender());
-        bus.Pd.RegisterFileOperations(receiver);
 
         Task<CompletionStatus> command = bus.Cp.SubmitCommandAsync(Bus.Address, new FileTransferCommand(FileId: 1));
         var fault = await Assert.ThrowsAsync<AggregateException>(() => bus.CpLoop.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken));
@@ -89,9 +99,11 @@ public sealed class FileTransferTests
     {
         byte[] content = Enumerable.Range(0, 4000).Select(i => (byte)(i * 7)).ToArray();
         var receiver = new ReceiveFile();
-        await using var bus = await Bus.StartAsync(BusOptions.Secure());
-        bus.Cp.RegisterFileOperations(Bus.Address, new SendFile(content));
-        bus.Pd.RegisterFileOperations(receiver);
+        await using var bus = await Bus.StartAsync(BusOptions.Secure() with
+        {
+            CpFileOperations = new SendFile(content),
+            PdFileOperations = receiver,
+        });
 
         CompletionStatus status = await bus.Cp
             .SubmitCommandAsync(Bus.Address, new FileTransferCommand(FileId: 1))

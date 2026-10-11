@@ -62,10 +62,10 @@ internal static unsafe partial class Native
     internal static partial int CpGetCapability(nint ctx, int pd, NativePdCap* cap);
 
     [LibraryImport(Library, EntryPoint = "osdp_cp_set_event_callback")]
-    internal static partial void CpSetEventCallback(nint ctx, delegate* unmanaged<nint, int, NativeEvent*, int> callback, nint arg);
+    internal static partial int CpSetEventCallback(nint ctx, delegate* unmanaged<nint, int, NativeEvent*, int> callback, nint arg);
 
     [LibraryImport(Library, EntryPoint = "osdp_cp_set_command_completion_callback")]
-    internal static partial void CpSetCommandCompletionCallback(nint ctx, delegate* unmanaged<nint, int, NativeCmd*, int, void> callback, nint arg);
+    internal static partial int CpSetCommandCompletionCallback(nint ctx, delegate* unmanaged<nint, int, NativeCmd*, int, void> callback, nint arg);
 
     [LibraryImport(Library, EntryPoint = "osdp_cp_modify_flag")]
     internal static partial int CpModifyFlag(nint ctx, int pd, uint flags, byte doSet);
@@ -89,10 +89,10 @@ internal static unsafe partial class Native
     internal static partial void PdTeardown(nint ctx);
 
     [LibraryImport(Library, EntryPoint = "osdp_pd_set_command_callback")]
-    internal static partial void PdSetCommandCallback(nint ctx, delegate* unmanaged<nint, NativeCmd*, int> callback, nint arg);
+    internal static partial int PdSetCommandCallback(nint ctx, delegate* unmanaged<nint, NativeCmd*, int> callback, nint arg);
 
     [LibraryImport(Library, EntryPoint = "osdp_pd_set_event_completion_callback")]
-    internal static partial void PdSetEventCompletionCallback(nint ctx, delegate* unmanaged<nint, NativeEvent*, int, void> callback, nint arg);
+    internal static partial int PdSetEventCompletionCallback(nint ctx, delegate* unmanaged<nint, NativeEvent*, int, void> callback, nint arg);
 
     [LibraryImport(Library, EntryPoint = "osdp_pd_submit_event")]
     internal static partial int PdSubmitEvent(nint ctx, NativeEvent* ev);

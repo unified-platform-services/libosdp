@@ -74,8 +74,9 @@ public sealed unsafe class ControlPanel : IDisposable
             throw;
         }
         nint self = GCHandle.ToIntPtr(_self);
-        Native.CpSetEventCallback(_ctx, &OnEvent, self);
-        Native.CpSetCommandCompletionCallback(_ctx, &OnCommandCompleted, self);
+        // Nothing has refreshed the new context yet, so neither is refused.
+        _ = Native.CpSetEventCallback(_ctx, &OnEvent, self);
+        _ = Native.CpSetCommandCompletionCallback(_ctx, &OnCommandCompleted, self);
     }
 
     /// <summary>Service the bus once. Rethrows anything a handler or the channel threw.</summary>
@@ -249,6 +250,8 @@ public sealed unsafe class ControlPanel : IDisposable
     /// <summary>Provide the file a <see cref="FileTransferCommand"/> sends to this PD.</summary>
     /// <param name="address">PD address.</param>
     /// <param name="operations">The file source.</param>
+    /// <exception cref="InvalidOperationException">The bus has already been refreshed.</exception>
+    /// <remarks>Call before the first <see cref="Refresh"/> or <see cref="RunAsync"/>.</remarks>
     public void RegisterFileOperations(int address, IFileOperations operations)
     {
         ArgumentNullException.ThrowIfNull(operations);
@@ -275,7 +278,7 @@ public sealed unsafe class ControlPanel : IDisposable
         if (rc != 0)
         {
             host.Free();
-            throw new OsdpException($"LibOSDP refused file operations for PD {address}.");
+            throw new InvalidOperationException("File operations must be registered before the first refresh.");
         }
     }
 

@@ -26,6 +26,8 @@ internal sealed record BusOptions
     public PdId PdId { get; init; } = new();
     public IReadOnlyList<PdCapability> Capabilities { get; init; } = Bus.DefaultCapabilities;
     public Transport Transport { get; init; }
+    public IFileOperations? CpFileOperations { get; init; }
+    public IFileOperations? PdFileOperations { get; init; }
 
     public static BusOptions Secure()
     {
@@ -90,6 +92,11 @@ internal sealed class Bus : IAsyncDisposable
             return Reply(command);
         };
         Cp.EventReceived += (_, e) => _events.Writer.TryWrite(e.Event);
+        // LibOSDP takes file operations only before the first refresh.
+        if (o.CpFileOperations is not null)
+            Cp.RegisterFileOperations(Address, o.CpFileOperations);
+        if (o.PdFileOperations is not null)
+            Pd.RegisterFileOperations(o.PdFileOperations);
         CpLoop = Task.Run(() => Cp.RunAsync(_stop.Token));
         PdLoop = Task.Run(() => Pd.RunAsync(_stop.Token));
     }
