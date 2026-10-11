@@ -16,9 +16,3 @@ jobs:
   ci:
     uses: ./.github/workflows/reusable-ci.yml
 
-  native:
-    uses: ./.github/workflows/cross-plaform-build.yml
-
-  dotnet:
-    needs: native
-    uses: ./.github/workflows/dotnet.yml

@@ -112,6 +112,28 @@ jobs:
     - name: ClangFormatCheck
       run: ./scripts/clang-format-check.sh
 
+  # The full cross-platform .NET runs happen in cross-plaform-build.yml at
+  # release; this keeps the binding covered on every PR.
+  DotNet:
+    name: .NET
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+      - name: Build and stage the native library
+        run: scripts/dotnet-stage-native.sh
+      # The test runner is picked by dotnet/global.json, which the SDK only
+      # finds when run from inside dotnet/.
+      - name: Test
+        working-directory: dotnet
+        run: dotnet test --solution LibOSDP.slnx -c Release
+
   Python:
     name: Python
     runs-on: ubuntu-latest
