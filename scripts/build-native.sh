@@ -87,6 +87,11 @@ osx-x64)
 linux-arm)
 	# Cross-compiled; the toolchain comes from the environment (dockcross
 	# exports CMAKE_TOOLCHAIN_FILE). Unit tests cannot run on the build host.
+	# .NET's linux-arm is armhf; a soft-float build fails to load there.
+	if ! echo | "${CC:-cc}" -dM -E - | grep -q __ARM_PCS_VFP; then
+		echo "error: linux-arm needs a hard-float (armhf) toolchain" >&2
+		exit 1
+	fi
 	CMAKE_ARGS+=(-DOPT_OSDP_LIB_ONLY=ON)
 	RUN_TESTS=0
 	;;
