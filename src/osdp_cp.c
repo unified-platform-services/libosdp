@@ -12,23 +12,24 @@
 #include "osdp_file.h"
 #include "osdp_diag.h"
 
-#define CMD_POLL_LEN   1
-#define CMD_LSTAT_LEN  1
-#define CMD_ISTAT_LEN  1
-#define CMD_OSTAT_LEN  1
-#define CMD_RSTAT_LEN  1
-#define CMD_ID_LEN     2
-#define CMD_CAP_LEN    2
-#define CMD_DIAG_LEN   2
-#define CMD_OUT_LEN    5
-#define CMD_LED_LEN    15
-#define CMD_BUZ_LEN    6
-#define CMD_TEXT_LEN   7 /* variable length command */
-#define CMD_COMSET_LEN 6
-#define CMD_KEYSET_LEN 19
-#define CMD_CHLNG_LEN  9
-#define CMD_SCRYPT_LEN 17
-#define CMD_MFG_LEN    4 /* variable length command */
+#define CMD_POLL_LEN                   1
+#define CMD_LSTAT_LEN                  1
+#define CMD_ISTAT_LEN                  1
+#define CMD_OSTAT_LEN                  1
+#define CMD_RSTAT_LEN                  1
+#define CMD_ID_LEN                     2
+#define CMD_CAP_LEN                    2
+#define CMD_DIAG_LEN                   2
+#define CMD_OUT_LEN                    5
+#define CMD_LED_LEN                    15
+#define CMD_BUZ_LEN                    6
+#define CMD_TDSET_LEN                  7
+#define CMD_TEXT_LEN                   7   /* variable length command */
+#define CMD_COMSET_LEN                 6
+#define CMD_KEYSET_LEN                 19
+#define CMD_CHLNG_LEN                  9
+#define CMD_SCRYPT_LEN                 17
+#define CMD_MFG_LEN                    4   /* variable length command */
 
 #define REPLY_ACK_DATA_LEN             0
 #define REPLY_PDID_DATA_LEN            12
@@ -301,6 +302,18 @@ static int cp_build_command(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		buf[len++] = cmd->text.length;
 		memcpy(buf + len, cmd->text.data, cmd->text.length);
 		len += cmd->text.length;
+		break;
+	case CMD_TDSET:
+		assert_buf_len(CMD_TDSET_LEN, max_len);
+		cmd = (struct osdp_cmd *)pd->ephemeral_data;
+		buf[len++] = pd->cmd_id;
+		buf[len++] = BYTE_0(cmd->tdset.year);
+		buf[len++] = BYTE_1(cmd->tdset.year);
+		buf[len++] = cmd->tdset.month;
+		buf[len++] = cmd->tdset.day_of_month;
+		buf[len++] = cmd->tdset.hour;
+		buf[len++] = cmd->tdset.minute;
+		buf[len++] = cmd->tdset.second;
 		break;
 	case CMD_COMSET:
 		assert_buf_len(CMD_COMSET_LEN, max_len);
@@ -811,18 +824,13 @@ static int cp_translate_cmd(struct osdp_pd *pd, const struct osdp_cmd *cmd)
 	cmd = (const struct osdp_cmd *)pd->ephemeral_data;
 
 	switch (cmd->id) {
-	case OSDP_CMD_OUTPUT:
-		return CMD_OUT;
-	case OSDP_CMD_LED:
-		return CMD_LED;
-	case OSDP_CMD_BUZZER:
-		return CMD_BUZ;
-	case OSDP_CMD_TEXT:
-		return CMD_TEXT;
-	case OSDP_CMD_COMSET:
-		return CMD_COMSET;
-	case OSDP_CMD_MFG:
-		return CMD_MFG;
+	case OSDP_CMD_OUTPUT: return CMD_OUT;
+	case OSDP_CMD_LED:    return CMD_LED;
+	case OSDP_CMD_BUZZER: return CMD_BUZ;
+	case OSDP_CMD_TEXT:   return CMD_TEXT;
+	case OSDP_CMD_TDSET:  return CMD_TDSET;
+	case OSDP_CMD_COMSET: return CMD_COMSET;
+	case OSDP_CMD_MFG:    return CMD_MFG;
 	case OSDP_CMD_STATUS:
 		switch (cmd->status.type) {
 		case OSDP_STATUS_REPORT_INPUT:
@@ -1386,36 +1394,17 @@ static void notify_command_status(struct osdp_pd *pd, int status)
 	}
 
 	switch (pd->cmd_id) {
-	case CMD_OUT:
-		app_cmd = OSDP_CMD_OUTPUT;
-		break;
-	case CMD_LED:
-		app_cmd = OSDP_CMD_LED;
-		break;
-	case CMD_BUZ:
-		app_cmd = OSDP_CMD_BUZZER;
-		break;
-	case CMD_TEXT:
-		app_cmd = OSDP_CMD_TEXT;
-		break;
-	case CMD_COMSET:
-		app_cmd = OSDP_CMD_COMSET;
-		break;
-	case CMD_ISTAT:
-		app_cmd = OSDP_CMD_STATUS;
-		break;
-	case CMD_OSTAT:
-		app_cmd = OSDP_CMD_STATUS;
-		break;
-	case CMD_LSTAT:
-		app_cmd = OSDP_CMD_STATUS;
-		break;
-	case CMD_RSTAT:
-		app_cmd = OSDP_CMD_STATUS;
-		break;
-	case CMD_KEYSET:
-		app_cmd = OSDP_CMD_KEYSET;
-		break;
+	case CMD_OUT:    app_cmd = OSDP_CMD_OUTPUT; break;
+	case CMD_LED:    app_cmd = OSDP_CMD_LED;    break;
+	case CMD_BUZ:    app_cmd = OSDP_CMD_BUZZER; break;
+	case CMD_TEXT:   app_cmd = OSDP_CMD_TEXT;   break;
+	case CMD_TDSET:  app_cmd = OSDP_CMD_TDSET;  break;
+	case CMD_COMSET: app_cmd = OSDP_CMD_COMSET; break;
+	case CMD_ISTAT:  app_cmd = OSDP_CMD_STATUS; break;
+	case CMD_OSTAT:  app_cmd = OSDP_CMD_STATUS; break;
+	case CMD_LSTAT:  app_cmd = OSDP_CMD_STATUS; break;
+	case CMD_RSTAT:  app_cmd = OSDP_CMD_STATUS; break;
+	case CMD_KEYSET: app_cmd = OSDP_CMD_KEYSET; break;
 	case CMD_MFG:
 		if (pd->reply_id == REPLY_MFGREP) {
 			/**
