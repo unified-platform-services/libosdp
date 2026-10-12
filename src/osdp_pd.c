@@ -580,7 +580,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		pd->reply_id = REPLY_ACK;
 		ret = OSDP_PD_ERR_NONE;
-		break;
+	} break;
 	case CMD_TDSET:
 		if ((len != CMD_TDSET_DATA_LEN))
 			break;
@@ -598,7 +598,7 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		}
 		pd->reply_id = REPLY_ACK;
 		ret = OSDP_PD_ERR_NONE;
-            break;
+		break;
 	case CMD_TEXT:
 		if (len < CMD_TEXT_DATA_LEN) {
 			break;
