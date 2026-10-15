@@ -223,6 +223,7 @@ static bool test_busy_retry_reuses_sequence(bool use_checksum)
 
 	g_ctx.cmd_seen = false;
 	g_ctx.last_cmd_id = 0;
+	test_completion_reset(&g_ctx.completion);
 	test_set_channel_hook(busy_hook, &s);
 
 	if (submit_buzzer_command()) {
@@ -237,6 +238,13 @@ static bool test_busy_retry_reuses_sequence(bool use_checksum)
 		return false;
 	}
 	test_set_channel_hook(NULL, NULL);
+
+	/* The PD sees the command before its ACK reaches the CP; a later
+	 * test must not pick up this completion as its own. */
+	if (!test_completion_wait(&g_ctx.completion, 1, 5)) {
+		printf("retried command never completed!\n");
+		return false;
+	}
 
 	if (s.seq_count < 2) {
 		printf("expected a retry; saw %d transmission(s)!\n",
