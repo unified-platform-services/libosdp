@@ -285,9 +285,10 @@ if os.environ.get("OSDP_COVERAGE") == "1":
 
 # PyPI Windows wheels are built with MSVC via cibuildwheel. Its legacy
 # preprocessor breaks the IS_ENABLED() macro in utils/include/utils/utils.h;
-# /Zc:preprocessor switches to the C99/C11-conformant preprocessor.
+# /Zc:preprocessor switches to the C99/C11-conformant preprocessor. /std:c11
+# makes _Static_assert a keyword, as in the CMake build.
 if sys.platform == "win32":
-    compile_args.append("/Zc:preprocessor")
+    compile_args += ["/Zc:preprocessor", "/std:c11"]
 
 # Everything else (name, version, classifiers, ...) lives in pyproject.toml.
 # The extension is built into the osdp package as a private submodule so that
