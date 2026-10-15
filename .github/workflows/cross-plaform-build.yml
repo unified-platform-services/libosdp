@@ -82,6 +82,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dotnet-test-logs
+          # Concurrent first runs of the SDK race on its first-use setup;
+          # one restore up front does that setup and fills the package cache.
+          dotnet restore dotnet/LibOSDP.slnx
           # The subshell inherits errexit, so the exit code is captured with
           # `||` or a failing run would never write its status. Detaching its
           # stdio lets the step finish on Windows, where the runner otherwise
