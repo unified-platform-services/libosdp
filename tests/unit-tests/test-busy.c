@@ -128,12 +128,14 @@ static int busy_test_pd_command_callback(void *arg, struct osdp_cmd *cmd)
 	return 0;
 }
 
-static int busy_test_setup(struct test *t)
+static int busy_test_setup(struct test *t, bool secure)
 {
 	int rc = 0;
 	uint8_t status = 0;
 
-	if (test_setup_devices(t, &g_ctx.cp_ctx, &g_ctx.pd_ctx)) {
+	if (secure ? test_setup_devices(t, &g_ctx.cp_ctx, &g_ctx.pd_ctx) :
+		     test_setup_devices_plain(t, &g_ctx.cp_ctx, &g_ctx.pd_ctx,
+					      0, 0)) {
 		printf(SUB_1 "Failed to setup devices!\n");
 		return -1;
 	}
@@ -349,7 +351,7 @@ void run_busy_tests(struct test *t)
 {
 	printf("\nStarting BUSY reply tests\n");
 
-	if (busy_test_setup(t)) {
+	if (busy_test_setup(t, true)) {
 		printf(SUB_1 "Failed to setup busy test environment\n");
 		TEST_REPORT(t, false);
 		return;
@@ -359,6 +361,17 @@ void run_busy_tests(struct test *t)
 		  test_busy_retry_reuses_sequence(false));
 	TEST_CASE(t, "busy_retry_reuses_sequence_checksum",
 		  test_busy_retry_reuses_sequence(true));
+
+	/* The hook answers for the PD, so through the whole retry budget the
+	 * PD hears nothing; that is long enough for its SC session to lapse
+	 * on a slow host, after which the CP drops the link. A real busy PD
+	 * keeps hearing the CP, so run this case without SC. */
+	busy_test_teardown();
+	if (busy_test_setup(t, false)) {
+		printf(SUB_1 "Failed to setup plain-text busy environment\n");
+		TEST_REPORT(t, false);
+		return;
+	}
 	TEST_CASE(t, "busy_permanent_fails_command_softly",
 		  test_busy_permanent_fails_command_softly());
 
