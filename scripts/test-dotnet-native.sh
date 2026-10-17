@@ -13,7 +13,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 rid="$1"
 native="${ROOT}/native-${rid}/lib"
-work="${RUNNER_TEMP:-/tmp}/dotnet-test-${rid}"
+tmp="${RUNNER_TEMP:-/tmp}"
+# GNU tar reads the drive colon in a Windows path (D:\a\_temp) as a host.
+if command -v cygpath >/dev/null 2>&1; then tmp="$(cygpath -u "${tmp}")"; fi
+work="${tmp}/dotnet-test-${rid}"
 
 rm -rf "${work}"
 mkdir -p "${work}"
@@ -69,7 +72,7 @@ osx-x64)
 		echo "::error::Rosetta unavailable; cannot test osx-x64"
 		exit 1
 	fi
-	x64="${RUNNER_TEMP:-/tmp}/dotnet-x64"
+	x64="${tmp}/dotnet-x64"
 	curl -fsSL --retry 5 --retry-all-errors https://dot.net/v1/dotnet-install.sh -o "${x64}.sh"
 	bash "${x64}.sh" --channel 10.0 --architecture x64 --install-dir "${x64}" >/dev/null
 	bash "${x64}.sh" --channel 8.0 --runtime dotnet --architecture x64 --install-dir "${x64}" >/dev/null
