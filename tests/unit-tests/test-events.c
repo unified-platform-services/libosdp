@@ -16,8 +16,8 @@ struct test_event_ctx {
 	int cp_runner;
 	int pd_runner;
 
-	/* Event tracking */
-	bool event_seen;
+	/* Event tracking; event_seen is set last, once the rest is filled. */
+	atomic_bool event_seen;
 	int last_event_type;
 	void *last_event_data;
 
@@ -41,15 +41,14 @@ int test_events_event_callback(void *arg, int pd, struct osdp_event *ev)
 	ARG_UNUSED(pd);
 	struct test_event_ctx *ctx = arg;
 
-	ctx->event_seen = true;
-	ctx->last_event_type = ev->type;
-
 	/* Store a copy of the event data for verification */
 	if (ctx->last_event_data) {
 		free(ctx->last_event_data);
 	}
 	ctx->last_event_data = malloc(sizeof(struct osdp_event));
 	memcpy(ctx->last_event_data, ev, sizeof(struct osdp_event));
+	ctx->last_event_type = ev->type;
+	atomic_store(&ctx->event_seen, true);
 
 	return 0;
 }
@@ -127,7 +126,7 @@ static void teardown_test_environment()
 
 static void reset_test_state()
 {
-	g_test_ctx.event_seen = false;
+	atomic_store(&g_test_ctx.event_seen, false);
 	g_test_ctx.last_event_type = 0;
 	g_test_ctx.cmd_seen = false;
 	g_test_ctx.last_cmd_id = 0;
@@ -143,7 +142,8 @@ static bool wait_for_event(int expected_event_type, int timeout_sec)
 	int rc = 0; /* elapsed time in ms */
 	int timeout_ms = timeout_sec * 1000;
 	while (rc < timeout_ms) {
-		if (g_test_ctx.event_seen && g_test_ctx.last_event_type == expected_event_type) {
+		if (atomic_load(&g_test_ctx.event_seen) &&
+		    g_test_ctx.last_event_type == expected_event_type) {
 			return true;
 		}
 		usleep(20 * 1000);
