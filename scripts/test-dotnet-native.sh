@@ -44,8 +44,10 @@ linux-musl-arm64) in_docker linux/arm64 mcr.microsoft.com/dotnet/sdk:10.0-alpine
 linux-arm)
 	# The SDK itself crashes under QEMU's armv7 emulation, so build the
 	# CPU-independent test assembly here and emulate only the runtime.
-	# Precompiled framework code and tiered JIT trip QEMU's Thumb
-	# translator; that assertion is QEMU's, so only it earns a retry.
+	# Precompiled framework code, tiered JIT and tests running on several
+	# threads at once trip QEMU's Thumb translator; that assertion is
+	# QEMU's, so only it earns a retry. Its text differs between glibc and
+	# musl builds of QEMU, so match on the function it names.
 	(cd "${work}/dotnet" && dotnet build tests/LibOSDP.Tests -c Release -f net10.0)
 	log="${work}/run.log"
 	for attempt in 1 2 3; do
@@ -56,9 +58,9 @@ linux-arm)
 			-e DOTNET_EnableWriteXorExecute=0 -e DOTNET_TieredCompilation=0 \
 			-e DOTNET_ReadyToRun=0 \
 			-e LIBOSDP_TEST_TIMEOUT_S=60 mcr.microsoft.com/dotnet/runtime:10.0 \
-			dotnet LibOSDP.Tests.dll 2>&1 | tee "${log}" || rc=$?
+			dotnet LibOSDP.Tests.dll -parallel none 2>&1 | tee "${log}" || rc=$?
 		[ "${rc}" = 0 ] && break
-		grep -qE 'qemu-arm[a-z-]*: .*Assertion' "${log}" || exit "${rc}"
+		grep -q 'thumb_tr_translate_insn' "${log}" || exit "${rc}"
 		echo "::warning::QEMU crashed on linux-arm (attempt ${attempt}/3)"
 	done
 	exit "${rc}"
