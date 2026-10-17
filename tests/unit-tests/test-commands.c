@@ -1034,6 +1034,25 @@ static bool test_comset_command()
 	return wait_for_pd_online(5);
 }
 
+static bool wait_for_cmd_completion(int expected_cmd, int expected_status,
+				    int timeout_sec)
+{
+	int rc = 0; /* elapsed time in ms */
+	int timeout_ms = timeout_sec * 1000;
+	while (rc < timeout_ms) {
+		if (test_completion_count(&g_test_ctx.completion) &&
+		    test_completion_id(&g_test_ctx.completion) ==
+			    expected_cmd &&
+		    test_completion_status(&g_test_ctx.completion) ==
+			    expected_status) {
+			return true;
+		}
+		usleep(20 * 1000);
+		rc += 20;
+	}
+	return false;
+}
+
 static bool test_keyset_command()
 {
 	printf(SUB_2 "testing key set command\n");
@@ -1061,27 +1080,12 @@ static bool test_keyset_command()
 		return false;
 
 	/* Rekey drops the secure channel; wait for it to re-establish before
-	 * the next test submits a command. */
+	 * the next test submits a command. The PD sees the command before the
+	 * CP has the ACK and drops SC, so wait for the CP's completion first
+	 * or the stale online state ends the wait at once. */
+	if (!wait_for_cmd_completion(OSDP_CMD_KEYSET, OSDP_COMPLETION_OK, 5))
+		return false;
 	return wait_for_pd_online(5);
-}
-
-static bool wait_for_cmd_completion(int expected_cmd, int expected_status,
-				    int timeout_sec)
-{
-	int rc = 0; /* elapsed time in ms */
-	int timeout_ms = timeout_sec * 1000;
-	while (rc < timeout_ms) {
-		if (test_completion_count(&g_test_ctx.completion) &&
-		    test_completion_id(&g_test_ctx.completion) ==
-			    expected_cmd &&
-		    test_completion_status(&g_test_ctx.completion) ==
-			    expected_status) {
-			return true;
-		}
-		usleep(20 * 1000);
-		rc += 20;
-	}
-	return false;
 }
 
 static bool test_tdset_invalid_time_naks()
