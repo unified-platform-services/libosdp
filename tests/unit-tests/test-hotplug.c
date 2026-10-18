@@ -132,7 +132,7 @@ static bool wait_for_command(int expected_cmd_id, int timeout_sec)
 static bool wait_for_pd_state(bool expected_state, int timeout_sec)
 {
 	int rc = 0;
-	while (rc < timeout_sec) {
+	while (rc < timeout_sec * 10) { /* rc counts 100ms polls */
 		bool current_state = osdp_cp_is_pd_enabled(g_test_ctx.cp_ctx, 0);
 		if (current_state == expected_state) {
 			return true;
@@ -146,7 +146,7 @@ static bool wait_for_pd_state(bool expected_state, int timeout_sec)
 static bool wait_for_pd_online(int timeout_sec)
 {
 	int rc = 0;
-	while (rc < timeout_sec) {
+	while (rc < timeout_sec * 10) { /* rc counts 100ms polls */
 		/* Check if PD is both enabled and online */
 		bool enabled = osdp_cp_is_pd_enabled(g_test_ctx.cp_ctx, 0);
 		uint8_t status_mask = 0;
