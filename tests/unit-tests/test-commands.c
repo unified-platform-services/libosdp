@@ -16,13 +16,13 @@ struct test_command_ctx {
 	int cp_runner;
 	int pd_runner;
 
-	/* Command tracking */
-	bool cmd_seen;
+	/* Command tracking; cmd_seen is set last, once the rest is filled. */
+	atomic_bool cmd_seen;
 	int last_cmd_id;
 	void *last_cmd_data;
 
-	/* Event tracking */
-	bool event_seen;
+	/* Event tracking; event_seen is set last, once the rest is filled. */
+	atomic_bool event_seen;
 	int last_event_type;
 	void *last_event_data;
 
@@ -35,12 +35,13 @@ struct test_command_ctx {
 	/* Event type the PD app must submit from within its CMD_MFG callback
 	 * so that it rides out as the inline reply; 0 to defer to a poll. */
 	int mfg_inline_reply;
-	int last_mfg_event_type;
+	/* Set after last_event_data is filled; waiters read it on seeing them. */
+	atomic_int last_mfg_event_type;
 
 	/* When set, the PD app answers a biometric command from within its
 	 * callback; otherwise it defers and the reply rides out on a poll. */
 	bool bio_answer_inline;
-	int last_bio_event_type;
+	atomic_int last_bio_event_type;
 
 	/* Command completion capture */
 	/* Written by the completion callback on the refresh thread. */
@@ -58,28 +59,28 @@ int test_commands_event_callback(void *arg, int pd, struct osdp_event *ev)
 	ARG_UNUSED(pd);
 	struct test_command_ctx *ctx = arg;
 
-	ctx->event_seen = true;
-	ctx->last_event_type = ev->type;
-
 	if (ev->type == OSDP_EVENT_MFGREP ||
 	    ev->type == OSDP_EVENT_MFGSTATR ||
 	    ev->type == OSDP_EVENT_MFGERRR) {
 		/* Tracked separately from last_event_type: a failed command also
 		 * raises a notification event, which would clobber it. */
-		ctx->last_mfg_event_type = ev->type;
 		ctx->last_event_data = malloc(sizeof(struct osdp_event));
 		memcpy(ctx->last_event_data, ev, sizeof(struct osdp_event));
+		atomic_store(&ctx->last_mfg_event_type, ev->type);
 	}
 
 	if (ev->type == OSDP_EVENT_BIOREADR ||
 	    ev->type == OSDP_EVENT_BIOMATCHR) {
-		ctx->last_bio_event_type = ev->type;
 		if (ctx->last_event_data) {
 			free(ctx->last_event_data);
 		}
 		ctx->last_event_data = malloc(sizeof(struct osdp_event));
 		memcpy(ctx->last_event_data, ev, sizeof(struct osdp_event));
+		atomic_store(&ctx->last_bio_event_type, ev->type);
 	}
+
+	ctx->last_event_type = ev->type;
+	atomic_store(&ctx->event_seen, true);
 
 	return 0;
 }
@@ -95,7 +96,8 @@ static void commands_cmd_completion_cb(void *arg, int pd,
 	ARG_UNUSED(pd);
 	struct test_command_ctx *ctx = arg;
 
-	atomic_store(&ctx->compl_mfg_event_type, ctx->last_mfg_event_type);
+	atomic_store(&ctx->compl_mfg_event_type,
+		     atomic_load(&ctx->last_mfg_event_type));
 	test_completion_record(&ctx->completion, cmd->id, (int)status);
 
 	test_cmd_free(cmd);
@@ -129,8 +131,14 @@ int test_commands_command_callback(void *arg, struct osdp_cmd *cmd)
 {
 	struct test_command_ctx *ctx = arg;
 
-	ctx->cmd_seen = true;
+	/* Capture manufacturer command payload for async event test */
+	if (cmd->id == OSDP_CMD_MFG) {
+		ctx->mfg_vendor_code = cmd->mfg.vendor_code;
+		ctx->mfg_data_len = cmd->mfg.length;
+		memcpy(ctx->mfg_data, cmd->mfg.data, cmd->mfg.length);
+	}
 	ctx->last_cmd_id = cmd->id;
+	atomic_store(&ctx->cmd_seen, true);
 
 	if (cmd->id == OSDP_CMD_BIOREAD || cmd->id == OSDP_CMD_BIOMATCH) {
 		if (ctx->bio_answer_inline) {
@@ -144,14 +152,10 @@ int test_commands_command_callback(void *arg, struct osdp_cmd *cmd)
 		return 0;
 	}
 
-	/* Capture manufacturer command payload for async event test */
 	if (cmd->id == OSDP_CMD_MFG) {
 		if (ctx->mfg_nak_requested) {
 			return -1;
 		}
-		ctx->mfg_vendor_code = cmd->mfg.vendor_code;
-		ctx->mfg_data_len = cmd->mfg.length;
-		memcpy(ctx->mfg_data, cmd->mfg.data, cmd->mfg.length);
 
 		/* Answer synchronously: this must ride out as the reply to the
 		 * MFG command itself, not as a later poll response. */
@@ -273,15 +277,15 @@ static void teardown_test_environment()
 
 static void reset_test_state()
 {
-	g_test_ctx.cmd_seen = false;
+	atomic_store(&g_test_ctx.cmd_seen, false);
 	g_test_ctx.last_cmd_id = 0;
-	g_test_ctx.event_seen = false;
+	atomic_store(&g_test_ctx.event_seen, false);
 	g_test_ctx.last_event_type = 0;
 	g_test_ctx.mfg_nak_requested = false;
 	g_test_ctx.mfg_inline_reply = 0;
-	g_test_ctx.last_mfg_event_type = 0;
+	atomic_store(&g_test_ctx.last_mfg_event_type, 0);
 	g_test_ctx.bio_answer_inline = false;
-	g_test_ctx.last_bio_event_type = 0;
+	atomic_store(&g_test_ctx.last_bio_event_type, 0);
 	g_test_ctx.mfg_vendor_code = 0;
 	g_test_ctx.mfg_data_len = 0;
 	memset(g_test_ctx.mfg_data, 0, sizeof(g_test_ctx.mfg_data));
@@ -299,7 +303,8 @@ static bool wait_for_command(int expected_cmd_id, int timeout_sec)
 	int rc = 0; /* elapsed time in ms */
 	int timeout_ms = timeout_sec * 1000;
 	while (rc < timeout_ms) {
-		if (g_test_ctx.cmd_seen && g_test_ctx.last_cmd_id == expected_cmd_id) {
+		if (atomic_load(&g_test_ctx.cmd_seen) &&
+		    g_test_ctx.last_cmd_id == expected_cmd_id) {
 			return true;
 		}
 		usleep(20 * 1000);
@@ -313,7 +318,8 @@ static bool wait_for_event(int expected_event_type, int timeout_sec)
 	int rc = 0; /* elapsed time in ms */
 	int timeout_ms = timeout_sec * 1000;
 	while (rc < timeout_ms) {
-		if (g_test_ctx.event_seen && g_test_ctx.last_event_type == expected_event_type) {
+		if (atomic_load(&g_test_ctx.event_seen) &&
+		    g_test_ctx.last_event_type == expected_event_type) {
 			return true;
 		}
 		usleep(20 * 1000);
@@ -327,7 +333,8 @@ static bool wait_for_mfg_event(int expected_event_type, int timeout_sec)
 	int rc = 0; /* elapsed time in ms */
 	int timeout_ms = timeout_sec * 1000;
 	while (rc < timeout_ms) {
-		if (g_test_ctx.last_mfg_event_type == expected_event_type) {
+		if (atomic_load(&g_test_ctx.last_mfg_event_type) ==
+		    expected_event_type) {
 			return true;
 		}
 		usleep(20 * 1000);
@@ -341,7 +348,8 @@ static bool wait_for_bio_event(int expected_event_type, int timeout_sec)
 	int rc = 0; /* elapsed time in ms */
 	int timeout_ms = timeout_sec * 1000;
 	while (rc < timeout_ms) {
-		if (g_test_ctx.last_bio_event_type == expected_event_type) {
+		if (atomic_load(&g_test_ctx.last_bio_event_type) ==
+		    expected_event_type) {
 			return true;
 		}
 		usleep(20 * 1000);
@@ -1118,7 +1126,8 @@ static bool test_tdset_invalid_time_naks()
 		return false;
 	}
 
-	if (g_test_ctx.cmd_seen && g_test_ctx.last_cmd_id == OSDP_CMD_TDSET) {
+	if (atomic_load(&g_test_ctx.cmd_seen) &&
+	    g_test_ctx.last_cmd_id == OSDP_CMD_TDSET) {
 		printf(SUB_2 "PD app callback must not run for invalid time\n");
 		return false;
 	}
@@ -1274,7 +1283,8 @@ static bool test_led_unsupported_capability_naks()
 		return false;
 	}
 
-	if (g_test_ctx.cmd_seen && g_test_ctx.last_cmd_id == OSDP_CMD_LED) {
+	if (atomic_load(&g_test_ctx.cmd_seen) &&
+	    g_test_ctx.last_cmd_id == OSDP_CMD_LED) {
 		printf(SUB_2 "PD app callback must not run for unsupported cap\n");
 		return false;
 	}
