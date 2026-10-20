@@ -78,6 +78,10 @@ if (CONFIG_LIBOSDP)
 		zephyr_library_compile_definitions(OPT_OSDP_DATA_TRACE=1)
 	endif()
 
+	if (CONFIG_LIBOSDP_TRS)
+		zephyr_library_compile_definitions(OPT_BUILD_OSDP_TRS)
+	endif()
+
 	# Core sources
 	zephyr_library_sources(
 		## LibOSDP
@@ -105,6 +109,11 @@ if (CONFIG_LIBOSDP)
 	# Logger: full or minimal
 	if (NOT CONFIG_LIBOSDP_LOG_MINIMAL)
 		zephyr_library_sources(${OSDP_ROOT}/utils/src/logger.c)
+	endif()
+
+	# Transparent Reader Support (osdp_XWR / osdp_XRD)
+	if (CONFIG_LIBOSDP_TRS)
+		zephyr_library_sources(${OSDP_ROOT}/src/osdp_trs.c)
 	endif()
 
 	# Diagnostics (packet/data trace → PCAP capture)
