@@ -1057,12 +1057,14 @@ static int pd_decode_command(struct osdp_pd *pd, uint8_t *buf, int len)
 		ret = OSDP_PD_ERR_NONE;
 		break;
 	case CMD_FILETRANSFER:
-		ret = osdp_file_cmd_tx_decode(pd, buf + pos, len);
-		if (ret == 0) {
-			ret = OSDP_PD_ERR_NONE;
-			pd->reply_id = REPLY_FTSTAT;
+		if (osdp_file_cmd_tx_decode(pd, buf + pos, len) < 0) {
+			pd->reply_id = REPLY_NAK;
+			pd->nak_code = OSDP_PD_NAK_RECORD;
+			ret = OSDP_PD_ERR_REPLY;
 			break;
 		}
+		pd->reply_id = REPLY_FTSTAT;
+		ret = OSDP_PD_ERR_NONE;
 		break;
 	case CMD_PIVDATA:
 		if (len != CMD_PIVDATA_DATA_LEN) {

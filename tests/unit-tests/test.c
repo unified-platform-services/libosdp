@@ -1513,6 +1513,7 @@ static void run_file_tx_suite(struct test *t)
 	run_file_tx_intermittent_tests(t);
 	run_file_tx_no_notification_tests(t);
 	run_file_tx_cancel_tests(t);
+	run_file_tx_pd_write_fail_tests(t);
 	run_file_tx_permanent_busy_tests(t);
 	run_file_tx_pd_keep_alive_tests(t);
 	run_file_tx_empty_file_tests(t);

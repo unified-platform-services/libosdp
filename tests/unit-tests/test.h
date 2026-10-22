@@ -401,6 +401,7 @@ void run_pd_phy_tests(struct test *t);
 void run_file_tx_tests(struct test *t, bool line_noise);
 void run_file_tx_intermittent_tests(struct test *t);
 void run_file_tx_cancel_tests(struct test *t);
+void run_file_tx_pd_write_fail_tests(struct test *t);
 void run_file_tx_no_notification_tests(struct test *t);
 void run_file_tx_permanent_busy_tests(struct test *t);
 void run_file_tx_pd_keep_alive_tests(struct test *t);

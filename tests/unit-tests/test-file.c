@@ -33,6 +33,9 @@ struct test_data {
 	 * refused by the fops rather than by the engine under test.
 	 */
 	bool allow_reopen;
+	/* Receiver-side failure injection (PD write callback only) */
+	int write_count; /* total write() calls */
+	int write_fail_after; /* if >0, writes past this many fail */
 };
 
 struct test_data sender_data;
@@ -106,6 +109,11 @@ static int test_fops_write(void *arg, const void *buf, uint32_t size, uint32_t o
 	if (t->fd <= 0) {
 		printf(SUB_1 "%s_write: fd:%d\n",
 			t->is_cp ? "sender" : "receiver", t->fd);
+		return -1;
+	}
+
+	t->write_count++;
+	if (t->write_fail_after > 0 && t->write_count > t->write_fail_after) {
 		return -1;
 	}
 
@@ -271,6 +279,7 @@ struct file_tx_opts {
 	bool no_notifications;    /* set up without MP_* notifications */
 	bool cancel_mid_transfer; /* cancel once the transfer is under way */
 	bool restart_from_completion; /* re-submit FILE_TX from its completion */
+	int pd_write_fail_after; /* 0 = PD writes never fail */
 };
 
 static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts)
@@ -289,6 +298,7 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 	sender_data.read_busy_mod = opts->read_busy_mod;
 	sender_data.read_always_busy = opts->read_always_busy;
 	sender_data.allow_reopen = opts->restart_from_completion;
+	receiver_data.write_fail_after = opts->pd_write_fail_after;
 
 	struct osdp_file_ops sender_ops = {
 		.arg = (void *)&sender_data,
@@ -511,6 +521,20 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 		printf(SUB_1 "%s: %s (empty_reads=%d)\n", opts->label,
 		       result ? "succeeded" : "failed",
 		       sender_data.empty_read_count);
+	} else if (opts->pd_write_fail_after) {
+		/* The PD refused the transfer, not the link: it must stay
+		 * online. */
+		usleep(500 * 1000);
+		osdp_get_status_mask(cp_ctx, &status);
+		if (!(status & 1)) {
+			printf(SUB_1 "%s: PD went offline\n", opts->label);
+			goto error;
+		}
+		result = true;
+		printf(SUB_1 "%s: refused by the PD as expected\n",
+		       opts->label);
+		unlink(SEND_FILE);
+		unlink(REC_FILE);
 	} else if (opts->cancel_mid_transfer) {
 		result = true;
 		printf(SUB_1 "%s: cancelled mid-transfer as expected\n",
@@ -607,6 +631,20 @@ void run_file_tx_cancel_tests(struct test *t)
 	};
 
 	TEST_CASE(t, "file_tx_cancel", run_one_file_tx_case(t, &opts));
+}
+
+void run_file_tx_pd_write_fail_tests(struct test *t)
+{
+	/* The PD's write() fails partway through: the CP settles the command
+	 * as failed and keeps the PD online. */
+	struct file_tx_opts opts = {
+		.label = "PD write fails mid-transfer",
+		.expected_outcome = OSDP_MP_OUTCOME_ABORTED,
+		.wait_deciseconds = 300, /* 30s */
+		.pd_write_fail_after = 3,
+	};
+
+	TEST_CASE(t, "file_tx_pd_write_fail", run_one_file_tx_case(t, &opts));
 }
 
 void run_file_tx_intermittent_tests(struct test *t)
