@@ -39,6 +39,7 @@ struct osdp_file {
 	struct osdp_multipart mp; /* owns state/offset/total/codec/abort/wait */
 	bool is_open;
 	bool keep_alive_pending; /* PD: last frame was a zero-length ping */
+	bool write_failed; /* PD: app write() failed; answer with an abort */
 	tick_t finalize_tstamp; /* PD: when finalize first said "not yet" */
 	int errors;
 	/*

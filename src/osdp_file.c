@@ -40,7 +40,11 @@ static int file_mp_write(void *arg, const void *buf, uint32_t size,
 	int n = f->ops.write(f->ops.arg, buf, size, offset);
 
 	/* A short write is fatal; file transfer does not use RETRY. */
-	return (n == (int)size) ? OSDP_MP_RX_OK : OSDP_MP_RX_ABORT;
+	if (n != (int)size) {
+		f->write_failed = true;
+		return OSDP_MP_RX_ABORT;
+	}
+	return OSDP_MP_RX_OK;
 }
 
 static inline void file_state_reset(struct osdp_pd *pd)
@@ -53,6 +57,7 @@ static inline void file_state_reset(struct osdp_pd *pd)
 	f->errors = 0;
 	f->is_open = false;
 	f->keep_alive_pending = false;
+	f->write_failed = false;
 	f->finalize_tstamp = 0;
 	f->file_id = 0;
 	f->in_terminal = false;
@@ -364,6 +369,13 @@ int osdp_file_cmd_tx_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 	 * at the frame's declared offset and enforces the offset/length
 	 * bounds against the declared total. */
 	mrc = osdp_mp_rx_consume(&f->mp, buf + 1, len - 1);
+	if (mrc == OSDP_MP_RC_ERR && f->write_failed) {
+		/* The frame was fine, we just could not store it; that ends
+		 * the transfer, which osdp_file_cmd_stat_build() reports. */
+		LOG_ERR("TX_Decode: write failed at off:%" PRIu32,
+			f->mp.offset);
+		return 0;
+	}
 	if (mrc == OSDP_MP_RC_ERR) {
 		LOG_ERR("TX_Decode: engine rejected frame at off:%" PRIu32,
 			f->mp.offset);
@@ -422,6 +434,12 @@ int osdp_file_cmd_stat_build(struct osdp_pd *pd, uint8_t *buf, int max_len)
 		LOG_ERR("Stat_Build: insufficient space; need:%zu have:%d",
 			sizeof(struct osdp_cmd_file_stat), max_len);
 		return -1;
+	}
+
+	if (f->write_failed) {
+		stat.status = OSDP_FILE_TX_STATUS_ERR_ABORT;
+		file_transition_done(pd, OSDP_MP_OUTCOME_ABORTED);
+		goto serialize;
 	}
 
 	if (f->keep_alive_pending) {

@@ -2788,6 +2788,9 @@ typedef int (*osdp_file_read_fn_t)(void *arg, void *buf, uint32_t size,
  * @retval 0 on EOF
  * @retval -ve on errors.
  *
+ * Writing fewer than @p size bytes ends the transfer: the PD answers the CP
+ * with the abort status of osdp_FTSTAT and closes the file.
+ *
  * @note LibOSDP will guarantee that size and offset params are always
  * positive and size is always greater than or equal to offset.
  */

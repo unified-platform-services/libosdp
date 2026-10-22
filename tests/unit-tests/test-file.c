@@ -523,15 +523,31 @@ static bool run_one_file_tx_case(struct test *t, const struct file_tx_opts *opts
 		       sender_data.empty_read_count);
 	} else if (opts->pd_write_fail_after) {
 		/* The PD refused the transfer, not the link: it must stay
-		 * online. */
+		 * online, and its half of the transfer must be over too. */
 		usleep(500 * 1000);
 		osdp_get_status_mask(cp_ctx, &status);
 		if (!(status & 1)) {
 			printf(SUB_1 "%s: PD went offline\n", opts->label);
 			goto error;
 		}
+		if (osdp_get_file_tx_status(pd_ctx, 0, &size, &offset) != -1) {
+			printf(SUB_1 "%s: PD transfer still open\n",
+			       opts->label);
+			goto error;
+		}
+		if (receiver_data.fd != 0) {
+			printf(SUB_1 "%s: PD file not closed\n", opts->label);
+			goto error;
+		}
+		if (receiver_data.write_count !=
+		    opts->pd_write_fail_after + 1) {
+			printf(SUB_1 "%s: PD saw %d writes (want %d)\n",
+			       opts->label, receiver_data.write_count,
+			       opts->pd_write_fail_after + 1);
+			goto error;
+		}
 		result = true;
-		printf(SUB_1 "%s: refused by the PD as expected\n",
+		printf(SUB_1 "%s: aborted by the PD as expected\n",
 		       opts->label);
 		unlink(SEND_FILE);
 		unlink(REC_FILE);
@@ -635,8 +651,8 @@ void run_file_tx_cancel_tests(struct test *t)
 
 void run_file_tx_pd_write_fail_tests(struct test *t)
 {
-	/* The PD's write() fails partway through: the CP settles the command
-	 * as failed and keeps the PD online. */
+	/* The PD's write() fails partway through: the PD ends the transfer
+	 * with an abort status, and the CP settles the command as failed. */
 	struct file_tx_opts opts = {
 		.label = "PD write fails mid-transfer",
 		.expected_outcome = OSDP_MP_OUTCOME_ABORTED,
