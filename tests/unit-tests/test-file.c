@@ -832,6 +832,80 @@ done:
 	TEST_CASE(t, "file_tx_pd_keep_alive", result);
 }
 
+/*
+ * A PD that gives up on a transfer says so with a negative FTSTAT status. That
+ * is a well formed answer about the transfer, not a link error: the sender must
+ * take it, end the transfer as aborted, and report success to the CP state
+ * machine so it keeps the PD online.
+ */
+void run_file_tx_pd_abort_status_tests(struct test *t)
+{
+	bool result = false;
+	osdp_t *cp_ctx = NULL, *pd_ctx = NULL;
+	struct osdp_pd *pd;
+	uint8_t buf[512];
+	uint8_t stat[7];
+
+	printf("\nBegin file transfer test: PD aborts with FTSTAT (sender)\n");
+
+	memset(&sender_data, 0, sizeof(sender_data));
+	sender_data.is_cp = true;
+
+	struct osdp_file_ops sender_ops = {
+		.arg = (void *)&sender_data,
+		.open = test_fops_open,
+		.read = test_fops_read,
+		.write = test_fops_write,
+		.close = test_fops_close,
+	};
+
+	if (test_setup_devices_ext(t, &cp_ctx, &pd_ctx,
+				   OSDP_FLAG_ENABLE_NOTIFICATION, 0)) {
+		printf(SUB_1 "Failed to setup devices!\n");
+		goto done;
+	}
+	if (test_create_file())
+		goto teardown;
+
+	osdp_file_register_ops(cp_ctx, 0, &sender_ops);
+	pd = osdp_to_pd((struct osdp *)cp_ctx, 0);
+
+	memset(&g_notif, 0, sizeof(g_notif));
+	osdp_cp_set_event_callback(cp_ctx, event_callback, NULL);
+
+	if (osdp_file_tx_command(pd, 1, 0) ||
+	    osdp_file_cmd_tx_build(pd, buf, sizeof(buf)) < 0) {
+		printf(SUB_1 "pd-abort: could not start the transfer\n");
+		goto teardown;
+	}
+
+	ka_make_stat(stat, 0);
+	stat[3] = 0xff; /* status = -1 (abort), little endian */
+	stat[4] = 0xff;
+	if (osdp_file_cmd_stat_decode(pd, stat, sizeof(stat)) != 0) {
+		printf(SUB_1 "pd-abort: abort status read as an error\n");
+		goto teardown;
+	}
+	if (osdp_file_tx_is_active(pd) || sender_data.fd != 0) {
+		printf(SUB_1 "pd-abort: transfer still open\n");
+		goto teardown;
+	}
+	if (g_notif.count != 1 || g_notif.arg1 != OSDP_MP_OUTCOME_ABORTED) {
+		printf(SUB_1 "pd-abort: MP_DONE count=%d outcome=%d\n",
+		       g_notif.count, g_notif.arg1);
+		goto teardown;
+	}
+	result = true;
+	printf(SUB_1 "PD abort status: succeeded\n");
+
+teardown:
+	unlink(SEND_FILE);
+	osdp_cp_teardown(cp_ctx);
+	osdp_pd_teardown(pd_ctx);
+done:
+	TEST_CASE(t, "file_tx_pd_abort_status", result);
+}
+
 static int g_empty_open_calls;
 static int g_empty_close_calls;
 

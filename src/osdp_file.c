@@ -257,12 +257,14 @@ int osdp_file_cmd_stat_decode(struct osdp_pd *pd, uint8_t *buf, int len)
 	osdp_mp_set_wait(&f->mp, stat.delay);
 
 	if (stat.status < 0) {
+		/* The PD gave up on the transfer and told us so; the reply
+		 * itself is fine, so the link stays up. */
 		LOG_ERR("Stat_Decode: File transfer error; "
 			"status:%d offset:%" PRIu32,
 			stat.status, f->mp.offset);
 		file_transition_done(
 			pd, file_outcome_from_wire_status(stat.status));
-		return -1;
+		return 0;
 	}
 
 	if (f->mp.offset != f->mp.total) {
